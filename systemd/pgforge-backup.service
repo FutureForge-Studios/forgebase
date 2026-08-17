@@ -1,0 +1,10 @@
+[Unit]
+Description=ForgeBase nightly backups (logical dumps + basebackup)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/pgforge/bin/backup.sh
+StandardOutput=append:/var/log/pgforge-backup.log
+StandardError=append:/var/log/pgforge-backup.log
