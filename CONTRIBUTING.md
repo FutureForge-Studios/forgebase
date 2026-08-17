@@ -38,6 +38,21 @@ and `sudo bash install.sh`. See [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
 5. Write commit messages in the conventional style: `feat:`, `fix:`, `docs:`,
    `chore:`, `refactor:`, `perf:`, `test:`.
 
+## Versioning and releases
+
+ForgeBase follows [Semantic Versioning](https://semver.org). Every shipped change
+raises the version, and the version lives in one place: `appVersion` in
+`pgforge/changelog.go`.
+
+- Patch (`1.0.0` to `1.0.1`): fixes and small improvements.
+- Minor (`1.0.x` to `1.1.0`): new, backwards-compatible features.
+- Major (`1.x` to `2.0.0`): breaking changes.
+
+When cutting a release: bump `appVersion`, add the release to both `releases` in
+`pgforge/changelog.go` and `CHANGELOG.md`, then tag the commit `vX.Y.Z`. The
+in-app self-update compares the running build against the latest commit on
+`main`, so users see the new version as soon as it is pushed.
+
 ## Reporting security issues
 
 Please do not open a public issue for security problems. See
