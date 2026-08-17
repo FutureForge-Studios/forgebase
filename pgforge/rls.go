@@ -124,20 +124,32 @@ func (a *app) addPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	qt := pq.QuoteIdentifier(table)
-	var name, stmt string
+	// A policy only takes effect if the target role ALSO holds the matching table
+	// privilege - RLS and GRANTs are independent layers in Postgres. Without this,
+	// the write templates below create policies that can never be satisfied over
+	// the API (the write hits "permission denied for table" before RLS is even
+	// consulted). We grant the minimum privilege per template, on this one table,
+	// so RLS is what actually gates access. This is scoped to the table an operator
+	// explicitly adds a policy to, so it never opens up tables that have no policy.
+	var name, stmt, grant string
+	writePolicy := false
 	switch tmpl {
 	case "public-read":
 		name = "public read"
 		stmt = fmt.Sprintf(`CREATE POLICY %s ON public.%s FOR SELECT TO anon, authenticated USING (true)`,
 			pq.QuoteIdentifier(name), qt)
+		grant = fmt.Sprintf(`GRANT SELECT ON public.%s TO anon, authenticated`, qt)
 	case "auth-read":
 		name = "authenticated read"
 		stmt = fmt.Sprintf(`CREATE POLICY %s ON public.%s FOR SELECT TO authenticated USING (true)`,
 			pq.QuoteIdentifier(name), qt)
+		grant = fmt.Sprintf(`GRANT SELECT ON public.%s TO authenticated`, qt)
 	case "auth-write":
 		name = "authenticated write"
 		stmt = fmt.Sprintf(`CREATE POLICY %s ON public.%s FOR ALL TO authenticated USING (true) WITH CHECK (true)`,
 			pq.QuoteIdentifier(name), qt)
+		grant = fmt.Sprintf(`GRANT SELECT, INSERT, UPDATE, DELETE ON public.%s TO authenticated`, qt)
+		writePolicy = true
 	case "owner":
 		if !columnExists(db, table, col) {
 			redirectErr(w, r, "/p/"+slug+"/api", "Pick a valid owner column (uuid matching auth.uid()).")
@@ -147,6 +159,8 @@ func (a *app) addPolicy(w http.ResponseWriter, r *http.Request) {
 		qc := pq.QuoteIdentifier(col)
 		stmt = fmt.Sprintf(`CREATE POLICY %s ON public.%s FOR ALL TO authenticated USING (auth.uid() = %s) WITH CHECK (auth.uid() = %s)`,
 			pq.QuoteIdentifier(name), qt, qc, qc)
+		grant = fmt.Sprintf(`GRANT SELECT, INSERT, UPDATE, DELETE ON public.%s TO authenticated`, qt)
+		writePolicy = true
 	default:
 		redirectErr(w, r, "/p/"+slug+"/api", "Unknown policy template.")
 		return
@@ -157,6 +171,15 @@ func (a *app) addPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	// A policy is inert unless RLS is on; turn it on so the template takes effect.
 	db.Exec(fmt.Sprintf(`ALTER TABLE public.%s ENABLE ROW LEVEL SECURITY`, qt))
+	// Grant the matching table privilege so the policy can actually be satisfied.
+	if grant != "" {
+		db.Exec(grant)
+	}
+	// Inserts into serial/identity columns also need sequence usage, or the write
+	// fails with "permission denied for sequence" before RLS is even reached.
+	if writePolicy {
+		db.Exec(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated`)
+	}
 	a.reloadPostgRESTSchema(slug)
 	a.audit(r, "rls-policy-add", slug+"/"+table+"/"+name)
 	redirectMsg(w, r, "/p/"+slug+"/api", `Added "`+name+`" policy to `+table+" (RLS on).")
