@@ -1,0 +1,250 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/lib/pq"
+)
+
+// Realtime: WebSocket subscriptions to row changes. A trigger on each table
+// NOTIFYs a Postgres channel on INSERT/UPDATE/DELETE; pgforged LISTENs (one
+// pq.Listener per project) and fans changes out to connected WebSocket clients
+// on <slug>.<domain>/realtime/v1.
+
+var wsUpgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 8192,
+	CheckOrigin:     func(r *http.Request) bool { return true },
+}
+
+// rtSub is a client's subscription filter: empty fields match everything, so a
+// client can subscribe to one table and/or one event instead of the firehose.
+type rtSub struct {
+	Table string
+	Event string // INSERT / UPDATE / DELETE
+}
+
+type rtHub struct {
+	mu      sync.Mutex
+	clients map[*websocket.Conn]rtSub
+	lis     *pq.Listener
+}
+
+var (
+	rtMu   sync.Mutex
+	rtHubs = map[string]*rtHub{}
+)
+
+func (a *app) realtimeEnabled(slug string) bool {
+	var enabled bool
+	a.db.QueryRow(`SELECT enabled FROM realtime_config WHERE slug=$1`, slug).Scan(&enabled)
+	return enabled
+}
+
+// stopRealtimeHub tears down a project's LISTEN hub. Without this, deleting a
+// project left a pq.Listener pointed at the dropped database retrying forever.
+func (a *app) stopRealtimeHub(slug string) {
+	rtMu.Lock()
+	h, ok := rtHubs[slug]
+	if ok {
+		delete(rtHubs, slug)
+	}
+	rtMu.Unlock()
+	if ok && h.lis != nil {
+		h.lis.Close() // closes lis.Notify, ending the fan-out goroutine
+	}
+}
+
+func (a *app) rtGetHub(slug string) *rtHub {
+	rtMu.Lock()
+	defer rtMu.Unlock()
+	if h, ok := rtHubs[slug]; ok {
+		return h
+	}
+	u := *a.baseURL
+	u.Path = "/" + slug
+	h := &rtHub{clients: map[*websocket.Conn]rtSub{}}
+	lis := pq.NewListener(u.String(), 2*time.Second, time.Minute, nil)
+	lis.Listen("forgebase_realtime")
+	h.lis = lis
+	rtHubs[slug] = h
+	go func() {
+		// A panic in this background goroutine would take down the whole binary
+		// (net/http only recovers per-request handler panics).
+		defer func() { recover() }()
+		for n := range lis.Notify {
+			if n != nil {
+				h.broadcast([]byte(n.Extra))
+				a.fireWebhooks(slug, []byte(n.Extra)) // also dispatch DB webhooks
+			}
+		}
+	}()
+	return h
+}
+
+// ensureChangeTriggers installs the NOTIFY trigger function + per-table triggers
+// used by both Realtime and Webhooks. Shared so either feature can enable it.
+func (a *app) ensureChangeTriggers(slug string) error {
+	db, err := a.dbFor(slug)
+	if err != nil {
+		return err
+	}
+	if _, err := db.Exec(rtTriggerFn); err != nil {
+		return err
+	}
+	for _, t := range a.listTables(db) {
+		q := pq.QuoteIdentifier(t)
+		db.Exec(fmt.Sprintf(`DROP TRIGGER IF EXISTS forgebase_rt ON public.%s`, q))
+		db.Exec(fmt.Sprintf(`CREATE TRIGGER forgebase_rt AFTER INSERT OR UPDATE OR DELETE ON public.%s FOR EACH ROW EXECUTE FUNCTION forgebase_notify()`, q))
+	}
+	return nil
+}
+
+func (h *rtHub) broadcast(msg []byte) {
+	var ev struct{ Type, Table string }
+	json.Unmarshal(msg, &ev)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for c, sub := range h.clients {
+		if sub.Table != "" && sub.Table != ev.Table {
+			continue
+		}
+		if sub.Event != "" && sub.Event != ev.Type {
+			continue
+		}
+		c.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if err := c.WriteMessage(websocket.TextMessage, msg); err != nil {
+			c.Close()
+			delete(h.clients, c)
+		}
+	}
+}
+
+func (a *app) serveRealtime(w http.ResponseWriter, r *http.Request, slug string) {
+	if !a.realtimeEnabled(slug) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprint(w, `{"message":"realtime not enabled"}`)
+		return
+	}
+	// Authenticate before upgrading: the stream carries full row data, so an
+	// unauthenticated subscriber would be a data-exfiltration firehose. Require a
+	// valid project apikey/JWT (anon/authenticated/service_role), passed as
+	// ?apikey= (browsers can't set headers on a WebSocket) or Authorization.
+	secret, _ := a.apiConfig(slug)
+	key := r.URL.Query().Get("apikey")
+	if key == "" {
+		key = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	}
+	if secret == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"message": "data api not enabled"})
+		return
+	}
+	if _, ok := verifyUserJWT([]byte(secret), key); !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "invalid apikey"})
+		return
+	}
+	// Optional subscription filter: ?table=<name>&event=<INSERT|UPDATE|DELETE>.
+	sub := rtSub{
+		Table: r.URL.Query().Get("table"),
+		Event: strings.ToUpper(r.URL.Query().Get("event")),
+	}
+	conn, err := wsUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	h := a.rtGetHub(slug)
+	h.mu.Lock()
+	h.clients[conn] = sub
+	h.mu.Unlock()
+	conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"connected","project":"`+slug+`"}`))
+	// read loop: we don't expect client messages, just detect disconnect
+	for {
+		if _, _, err := conn.ReadMessage(); err != nil {
+			h.mu.Lock()
+			delete(h.clients, conn)
+			h.mu.Unlock()
+			conn.Close()
+			return
+		}
+	}
+}
+
+// ----------------------------------------------------------------- enable + page
+
+const rtTriggerFn = `
+CREATE OR REPLACE FUNCTION forgebase_notify() RETURNS trigger AS $$
+DECLARE rec json; payload text;
+BEGIN
+  rec := row_to_json(CASE WHEN TG_OP='DELETE' THEN OLD ELSE NEW END);
+  payload := json_build_object('type',TG_OP,'table',TG_TABLE_NAME,'record',rec)::text;
+  IF length(payload) < 7900 THEN
+    PERFORM pg_notify('forgebase_realtime', payload);
+  ELSE
+    PERFORM pg_notify('forgebase_realtime', json_build_object('type',TG_OP,'table',TG_TABLE_NAME,'record',null)::text);
+  END IF;
+  RETURN NULL;
+END; $$ LANGUAGE plpgsql;`
+
+func (a *app) enableRealtime(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	db, err := a.dbFor(slug)
+	if err != nil {
+		redirectErr(w, r, "/p/"+slug+"/realtime", err.Error())
+		return
+	}
+	_ = db
+	if err := a.ensureChangeTriggers(slug); err != nil {
+		redirectErr(w, r, "/p/"+slug+"/realtime", "Setup failed: "+err.Error())
+		return
+	}
+	a.db.Exec(`INSERT INTO realtime_config(slug,enabled) VALUES ($1,true)
+		ON CONFLICT (slug) DO UPDATE SET enabled=true`, slug)
+	a.audit(r, "realtime-enable", slug)
+	redirectMsg(w, r, "/p/"+slug+"/realtime", "Realtime enabled on all current tables.")
+}
+
+func (a *app) disableRealtime(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	if db, err := a.dbFor(slug); err == nil {
+		for _, t := range a.listTables(db) {
+			db.Exec(fmt.Sprintf(`DROP TRIGGER IF EXISTS forgebase_rt ON public.%s`, pq.QuoteIdentifier(t)))
+		}
+	}
+	a.db.Exec(`UPDATE realtime_config SET enabled=false WHERE slug=$1`, slug)
+	a.audit(r, "realtime-disable", slug)
+	redirectMsg(w, r, "/p/"+slug+"/realtime", "Realtime disabled.")
+}
+
+func (a *app) realtimePage(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	if !a.projectExists(slug) {
+		http.NotFound(w, r)
+		return
+	}
+	enabled := a.realtimeEnabled(slug)
+	var tables int
+	var clients int
+	if db, err := a.dbFor(slug); err == nil {
+		db.QueryRow(`SELECT count(*) FROM information_schema.triggers WHERE trigger_name='forgebase_rt'`).Scan(&tables)
+	}
+	rtMu.Lock()
+	if h, ok := rtHubs[slug]; ok {
+		h.mu.Lock()
+		clients = len(h.clients)
+		h.mu.Unlock()
+	}
+	rtMu.Unlock()
+	content := renderContent(realtimeBody, map[string]any{
+		"Slug": slug, "Enabled": enabled, "Tables": tables, "Clients": clients,
+		"WS": "wss://" + slug + "." + a.cfg.domain + "/realtime/v1",
+	})
+	a.renderShell(w, r, shellData{Title: slug + " · Realtime", Nav: "realtime", Slug: slug,
+		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Realtime"}}}, content)
+}
