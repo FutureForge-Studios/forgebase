@@ -1,0 +1,478 @@
+package main
+
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// escapePath percent-encodes each path segment so filenames with spaces, '#' or
+// '?' produce valid, unbroken URLs (the '#'/'?' would otherwise truncate the link
+// and, for signed URLs, break HMAC verification).
+func escapePath(p string) string {
+	segs := strings.Split(p, "/")
+	for i, s := range segs {
+		segs[i] = url.PathEscape(s)
+	}
+	return strings.Join(segs, "/")
+}
+
+// Storage = file buckets per project on local disk, with metadata in the meta
+// DB and signed + public object URLs served on the project subdomain:
+//   public:  https://<slug>.<domain>/storage/v1/object/public/<bucket>/<path>
+//   signed:  https://<slug>.<domain>/storage/v1/object/sign/<bucket>/<path>?token=...
+// Files live under /opt/pgforge-storage/<slug>/<bucket>/<path>.
+
+const storageRoot = "/opt/pgforge-storage"
+
+var bucketRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{1,40}$`)
+
+func safeRel(p string) string {
+	p = strings.TrimLeft(filepath.ToSlash(p), "/")
+	var out []string
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			continue
+		}
+		out = append(out, seg)
+	}
+	return strings.Join(out, "/")
+}
+
+// bucketExists validates the bucket name AND confirms the project owns it.
+// bucketRe forbids dots and slashes, so this is also the guard that stops a
+// crafted bucket like "../.." from escaping storageRoot in filepath.Join.
+func (a *app) bucketExists(slug, bucket string) bool {
+	if !bucketRe.MatchString(bucket) {
+		return false
+	}
+	var ok bool
+	a.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM storage_buckets WHERE slug=$1 AND bucket=$2)`, slug, bucket).Scan(&ok)
+	return ok
+}
+
+// inlineSafeMime reports whether a stored object may be served inline. HTML/SVG/
+// XML and anything script-like execute on the project's own origin (which has no
+// CSP), so they must be forced to download instead of render.
+func inlineSafeMime(m string) bool {
+	m = strings.ToLower(strings.TrimSpace(m))
+	if i := strings.IndexByte(m, ';'); i >= 0 {
+		m = strings.TrimSpace(m[:i])
+	}
+	switch {
+	case strings.HasPrefix(m, "image/") && m != "image/svg+xml":
+		return true
+	case strings.HasPrefix(m, "video/"), strings.HasPrefix(m, "audio/"):
+		return true
+	case m == "application/pdf", m == "text/plain", m == "application/json":
+		return true
+	}
+	return false
+}
+
+func (a *app) storagePage(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	if !a.projectExists(slug) {
+		http.NotFound(w, r)
+		return
+	}
+	type bucket struct {
+		Name    string
+		Public  bool
+		Objects int
+		Size    string
+	}
+	var buckets []bucket
+	rows, _ := a.db.Query(`SELECT b.bucket, b.public,
+		count(o.id), coalesce(pg_size_pretty(sum(o.size))::text,'0 B')
+		FROM storage_buckets b LEFT JOIN storage_objects o ON o.slug=b.slug AND o.bucket=b.bucket
+		WHERE b.slug=$1 GROUP BY b.bucket, b.public ORDER BY b.bucket`, slug)
+	if rows != nil {
+		for rows.Next() {
+			var b bucket
+			rows.Scan(&b.Name, &b.Public, &b.Objects, &b.Size)
+			buckets = append(buckets, b)
+		}
+		rows.Close()
+	}
+
+	// usage summary across all buckets
+	var totObjects int
+	var totSize string
+	a.db.QueryRow(`SELECT count(*), coalesce(pg_size_pretty(sum(size))::text,'0 B')
+		FROM storage_objects WHERE slug=$1`, slug).Scan(&totObjects, &totSize)
+
+	sel := r.URL.Query().Get("b")
+	type object struct {
+		Path, Size, Mime, Created, URL string
+	}
+	var objects []object
+	var selPublic bool
+	if sel != "" {
+		a.db.QueryRow(`SELECT public FROM storage_buckets WHERE slug=$1 AND bucket=$2`, slug, sel).Scan(&selPublic)
+		orows, _ := a.db.Query(`SELECT path, pg_size_pretty(size), mime, to_char(created_at,'Mon DD, HH24:MI')
+			FROM storage_objects WHERE slug=$1 AND bucket=$2 ORDER BY path`, slug, sel)
+		if orows != nil {
+			for orows.Next() {
+				var o object
+				orows.Scan(&o.Path, &o.Size, &o.Mime, &o.Created)
+				if selPublic {
+					o.URL = fmt.Sprintf("https://%s.%s/storage/v1/object/public/%s/%s", slug, a.cfg.domain, sel, escapePath(o.Path))
+				} else {
+					o.URL = a.signedURL(slug, sel, o.Path, 24*time.Hour)
+				}
+				objects = append(objects, o)
+			}
+			orows.Close()
+		}
+	}
+	content := renderContent(storageBody, map[string]any{
+		"Slug": slug, "Buckets": buckets, "Sel": sel, "SelPublic": selPublic, "Objects": objects,
+		"NBuckets": len(buckets), "TotObjects": totObjects, "TotSize": totSize,
+	})
+	a.renderShell(w, r, shellData{Title: slug + " · Storage", Nav: "storage", Slug: slug,
+		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Storage"}}}, content)
+}
+
+func (a *app) createBucket(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	if !a.projectExists(slug) {
+		http.NotFound(w, r)
+		return
+	}
+	name := strings.ToLower(strings.TrimSpace(r.FormValue("name")))
+	public := r.FormValue("public") == "on"
+	if !bucketRe.MatchString(name) {
+		redirectErr(w, r, "/p/"+slug+"/storage", "Bucket name: 2-41 chars, a-z 0-9 _ -.")
+		return
+	}
+	if _, err := a.db.Exec(`INSERT INTO storage_buckets(slug,bucket,public) VALUES ($1,$2,$3)
+		ON CONFLICT DO NOTHING`, slug, name, public); err != nil {
+		redirectErr(w, r, "/p/"+slug+"/storage", err.Error())
+		return
+	}
+	os.MkdirAll(filepath.Join(storageRoot, slug, name), 0o755)
+	a.audit(r, "bucket-create", slug+"/"+name)
+	redirectMsg(w, r, "/p/"+slug+"/storage?b="+name, "Bucket "+name+" created.")
+}
+
+func (a *app) uploadObject(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	if !a.projectExists(slug) {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseMultipartForm(16 << 20); err != nil {
+		redirectErr(w, r, "/p/"+slug+"/storage", "Upload too large or malformed.")
+		return
+	}
+	bucket := r.FormValue("bucket")
+	if !a.bucketExists(slug, bucket) {
+		redirectErr(w, r, "/p/"+slug+"/storage", "Unknown bucket.")
+		return
+	}
+	file, hdr, err := r.FormFile("file")
+	if err != nil {
+		redirectErr(w, r, "/p/"+slug+"/storage?b="+bucket, "No file provided.")
+		return
+	}
+	defer file.Close()
+	rel := safeRel(hdr.Filename)
+	if rel == "" {
+		redirectErr(w, r, "/p/"+slug+"/storage?b="+bucket, "Bad filename.")
+		return
+	}
+	dst := filepath.Join(storageRoot, slug, bucket, rel)
+	os.MkdirAll(filepath.Dir(dst), 0o755)
+	out, err := os.Create(dst)
+	if err != nil {
+		redirectErr(w, r, "/p/"+slug+"/storage?b="+bucket, "Could not write file.")
+		return
+	}
+	n, cErr := io.Copy(out, file)
+	closeErr := out.Close()
+	if cErr != nil || closeErr != nil {
+		os.Remove(dst) // don't record a truncated file as a complete object
+		redirectErr(w, r, "/p/"+slug+"/storage?b="+bucket, "Write failed (disk full?); nothing saved.")
+		return
+	}
+	mime := hdr.Header.Get("Content-Type")
+	if mime == "" {
+		mime = "application/octet-stream"
+	}
+	a.db.Exec(`INSERT INTO storage_objects(slug,bucket,path,size,mime) VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (slug,bucket,path) DO UPDATE SET size=$4, mime=$5, created_at=now()`,
+		slug, bucket, rel, n, mime)
+	a.audit(r, "upload", slug+"/"+bucket+"/"+rel)
+	redirectMsg(w, r, "/p/"+slug+"/storage?b="+bucket, "Uploaded "+rel+".")
+}
+
+func (a *app) deleteObject(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	if !a.projectExists(slug) {
+		http.NotFound(w, r)
+		return
+	}
+	bucket := r.FormValue("bucket")
+	if !a.bucketExists(slug, bucket) {
+		redirectErr(w, r, "/p/"+slug+"/storage", "Unknown bucket.")
+		return
+	}
+	path := r.FormValue("path")
+	rel := safeRel(path)
+	if rel != "" {
+		os.Remove(filepath.Join(storageRoot, slug, bucket, rel))
+	}
+	a.db.Exec(`DELETE FROM storage_objects WHERE slug=$1 AND bucket=$2 AND path=$3`, slug, bucket, rel)
+	a.audit(r, "object-delete", slug+"/"+bucket+"/"+rel)
+	redirectMsg(w, r, "/p/"+slug+"/storage?b="+bucket, "Deleted "+rel+".")
+}
+
+func (a *app) deleteBucket(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	if !a.projectExists(slug) {
+		http.NotFound(w, r)
+		return
+	}
+	bucket := r.FormValue("bucket")
+	// bucketRe forbids dots/slashes, so this is what stops a "../.." bucket from
+	// making os.RemoveAll escape storageRoot and wipe the host.
+	if !bucketRe.MatchString(bucket) {
+		redirectErr(w, r, "/p/"+slug+"/storage", "Invalid bucket name.")
+		return
+	}
+	os.RemoveAll(filepath.Join(storageRoot, slug, bucket))
+	a.db.Exec(`DELETE FROM storage_objects WHERE slug=$1 AND bucket=$2`, slug, bucket)
+	a.db.Exec(`DELETE FROM storage_buckets WHERE slug=$1 AND bucket=$2`, slug, bucket)
+	a.audit(r, "bucket-delete", slug+"/"+bucket)
+	redirectMsg(w, r, "/p/"+slug+"/storage", "Bucket "+bucket+" deleted.")
+}
+
+// signedURL builds a time-limited URL for a private object.
+func (a *app) signedURL(slug, bucket, path string, ttl time.Duration) string {
+	exp := strconv.FormatInt(time.Now().Add(ttl).Unix(), 10)
+	mac := hmac.New(sha256.New, a.cfg.secret)
+	mac.Write([]byte(slug + "/" + bucket + "/" + path + "|" + exp))
+	sig := hex.EncodeToString(mac.Sum(nil))[:32]
+	return fmt.Sprintf("https://%s.%s/storage/v1/object/sign/%s/%s?token=%s.%s",
+		slug, a.cfg.domain, bucket, escapePath(path), exp, sig)
+}
+
+// serveStorage is the object API on <slug>.<domain>/storage/v1/object/... It
+// dispatches:
+//   GET  public/<bucket>/<path>   -> unauthenticated read of a public bucket
+//   GET  sign/<bucket>/<path>?token=... -> signed read
+//   POST sign/<bucket>/<path>     -> mint a signed URL (JWT)
+//   POST/PUT <bucket>/<path>      -> upload (JWT: authenticated/service_role)
+//   GET  <bucket>/<path>          -> authenticated read (JWT)
+//   DELETE <bucket>/<path>        -> delete (JWT: authenticated/service_role)
+func (a *app) serveStorage(w http.ResponseWriter, r *http.Request, slug string) {
+	p := strings.TrimPrefix(r.URL.Path, "/storage/v1/object/")
+	if strings.HasPrefix(p, "public/") || (strings.HasPrefix(p, "sign/") && r.Method == http.MethodGet) {
+		a.serveStorageRead(w, r, slug, p)
+		return
+	}
+	if strings.HasPrefix(p, "sign/") && r.Method == http.MethodPost {
+		a.storageCreateSignedURL(w, r, slug, strings.TrimPrefix(p, "sign/"))
+		return
+	}
+	switch r.Method {
+	case http.MethodPost, http.MethodPut:
+		a.storageUploadAPI(w, r, slug, p)
+	case http.MethodGet:
+		a.storageDownloadAPI(w, r, slug, p)
+	case http.MethodDelete:
+		a.storageDeleteAPI(w, r, slug, p)
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"message": "method not allowed"})
+	}
+}
+
+// storageAuth verifies the caller's project JWT (apikey / Bearer) and returns
+// its role. Used to gate the client-facing object API.
+func (a *app) storageAuth(r *http.Request, slug string) (string, bool) {
+	secret, _ := a.apiConfig(slug)
+	if secret == "" {
+		return "", false
+	}
+	key := r.Header.Get("apikey")
+	if key == "" {
+		key = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	}
+	claims, ok := verifyUserJWT([]byte(secret), key)
+	if !ok {
+		return "", false
+	}
+	role, _ := claims["role"].(string)
+	return role, true
+}
+
+// splitObjectPath splits "<bucket>/<path>" and sanitizes the path.
+func splitObjectPath(p string) (bucket, rel string, ok bool) {
+	i := strings.IndexByte(p, '/')
+	if i < 0 {
+		return "", "", false
+	}
+	rel = safeRel(p[i+1:])
+	return p[:i], rel, rel != ""
+}
+
+// serveStorageFile writes the object to the response with anti-XSS headers.
+func (a *app) serveStorageFile(w http.ResponseWriter, r *http.Request, slug, bucket, path string) {
+	full := filepath.Join(storageRoot, slug, bucket, path)
+	var mime string
+	a.db.QueryRow(`SELECT mime FROM storage_objects WHERE slug=$1 AND bucket=$2 AND path=$3`, slug, bucket, path).Scan(&mime)
+	if mime != "" {
+		w.Header().Set("Content-Type", mime)
+	}
+	// The project subdomain has no CSP and is same-site with the panel, so an
+	// uploaded HTML/SVG served inline would be stored XSS. Force download for
+	// anything not on the inline-safe allowlist, and never let the browser sniff.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if !inlineSafeMime(mime) {
+		w.Header().Set("Content-Disposition", "attachment")
+	}
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	http.ServeFile(w, r, full)
+}
+
+// serveStorageRead handles the public + signed (token) GET paths.
+func (a *app) serveStorageRead(w http.ResponseWriter, r *http.Request, slug, p string) {
+	mode := "public"
+	if strings.HasPrefix(p, "public/") {
+		p = strings.TrimPrefix(p, "public/")
+	} else {
+		mode = "sign"
+		p = strings.TrimPrefix(p, "sign/")
+	}
+	bucket, path, ok := splitObjectPath(p)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if mode == "public" {
+		var public bool
+		a.db.QueryRow(`SELECT public FROM storage_buckets WHERE slug=$1 AND bucket=$2`, slug, bucket).Scan(&public)
+		if !public {
+			http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+			return
+		}
+	} else {
+		tok := r.URL.Query().Get("token")
+		parts := strings.SplitN(tok, ".", 2)
+		if len(parts) != 2 {
+			http.Error(w, `{"message":"invalid token"}`, http.StatusForbidden)
+			return
+		}
+		exp, _ := strconv.ParseInt(parts[0], 10, 64)
+		mac := hmac.New(sha256.New, a.cfg.secret)
+		mac.Write([]byte(slug + "/" + bucket + "/" + path + "|" + parts[0]))
+		want := hex.EncodeToString(mac.Sum(nil))[:32]
+		if time.Now().Unix() > exp || want != parts[1] {
+			http.Error(w, `{"message":"expired or invalid token"}`, http.StatusForbidden)
+			return
+		}
+	}
+	a.serveStorageFile(w, r, slug, bucket, path)
+}
+
+// storageUploadAPI: authenticated client upload (POST/PUT <bucket>/<path>).
+func (a *app) storageUploadAPI(w http.ResponseWriter, r *http.Request, slug, p string) {
+	role, ok := a.storageAuth(r, slug)
+	if !ok || (role != "authenticated" && role != "service_role") {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "authentication required"})
+		return
+	}
+	bucket, rel, ok := splitObjectPath(p)
+	if !ok || !a.bucketExists(slug, bucket) {
+		writeJSON(w, 400, map[string]string{"message": "unknown bucket or path"})
+		return
+	}
+	dst := filepath.Join(storageRoot, slug, bucket, rel)
+	os.MkdirAll(filepath.Dir(dst), 0o755)
+	out, err := os.Create(dst)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"message": "could not write file"})
+		return
+	}
+	n, cErr := io.Copy(out, r.Body)
+	ce := out.Close()
+	if cErr != nil || ce != nil {
+		os.Remove(dst)
+		writeJSON(w, 500, map[string]string{"message": "write failed (disk full?)"})
+		return
+	}
+	mime := r.Header.Get("Content-Type")
+	if mime == "" {
+		mime = "application/octet-stream"
+	}
+	a.db.Exec(`INSERT INTO storage_objects(slug,bucket,path,size,mime) VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (slug,bucket,path) DO UPDATE SET size=$4, mime=$5, created_at=now()`,
+		slug, bucket, rel, n, mime)
+	writeJSON(w, 200, map[string]any{"Key": bucket + "/" + rel, "size": n})
+}
+
+// storageDownloadAPI: authenticated read (any valid project JWT) - covers
+// private buckets without needing a pre-signed URL.
+func (a *app) storageDownloadAPI(w http.ResponseWriter, r *http.Request, slug, p string) {
+	if _, ok := a.storageAuth(r, slug); !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "authentication required"})
+		return
+	}
+	bucket, rel, ok := splitObjectPath(p)
+	if !ok || !a.bucketExists(slug, bucket) {
+		http.NotFound(w, r)
+		return
+	}
+	a.serveStorageFile(w, r, slug, bucket, rel)
+}
+
+// storageDeleteAPI: authenticated delete.
+func (a *app) storageDeleteAPI(w http.ResponseWriter, r *http.Request, slug, p string) {
+	role, ok := a.storageAuth(r, slug)
+	if !ok || (role != "authenticated" && role != "service_role") {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "authentication required"})
+		return
+	}
+	bucket, rel, ok := splitObjectPath(p)
+	if !ok || !a.bucketExists(slug, bucket) {
+		writeJSON(w, 400, map[string]string{"message": "unknown bucket or path"})
+		return
+	}
+	os.Remove(filepath.Join(storageRoot, slug, bucket, rel))
+	a.db.Exec(`DELETE FROM storage_objects WHERE slug=$1 AND bucket=$2 AND path=$3`, slug, bucket, rel)
+	writeJSON(w, 200, map[string]string{"message": "deleted"})
+}
+
+// storageCreateSignedURL: authenticated client mints a time-limited URL.
+func (a *app) storageCreateSignedURL(w http.ResponseWriter, r *http.Request, slug, p string) {
+	if _, ok := a.storageAuth(r, slug); !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "authentication required"})
+		return
+	}
+	bucket, rel, ok := splitObjectPath(p)
+	if !ok || !a.bucketExists(slug, bucket) {
+		writeJSON(w, 404, map[string]string{"message": "unknown bucket or path"})
+		return
+	}
+	var body struct {
+		ExpiresIn int `json:"expiresIn"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	ttl := 3600
+	if body.ExpiresIn > 0 {
+		ttl = body.ExpiresIn
+	}
+	writeJSON(w, 200, map[string]string{"signedURL": a.signedURL(slug, bucket, rel, time.Duration(ttl)*time.Second)})
+}
