@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.0.1"
+const appVersion = "1.0.2"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.0.2", Date: "2026-08-17",
+		Summary: "Self-update reliability fix.",
+		Sections: []changeSection{
+			{"Fixed", []string{
+				"The one-click self-update now builds correctly: the updater runs in an isolated environment and previously could not find the Go module cache, so the rebuild failed and the update was skipped (the running version was left untouched, with no downtime). It sets the toolchain environment explicitly now.",
+			}},
+		},
+	},
 	{
 		Version: "1.0.1", Date: "2026-08-17",
 		Summary: "Project hygiene for the public repository.",

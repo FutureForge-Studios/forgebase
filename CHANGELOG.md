@@ -13,6 +13,14 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.0.2] - 2026-08-17
+
+### Fixed
+- The one-click self-update now builds correctly. The updater runs in an
+  isolated environment and could not locate the Go module cache, so the rebuild
+  failed and the update was skipped (the running version was left untouched,
+  with no downtime). It now sets the Go toolchain environment explicitly.
+
 ## [1.0.1] - 2026-08-17
 
 ### Added
@@ -145,6 +153,7 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/FutureForge-Studios/forgebase/releases/tag/v1.0.0
