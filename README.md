@@ -24,7 +24,7 @@ footprint is ~800 MB; a dozen projects still fit on a 4 GB VPS.
 - **One binary, one server.** No Kubernetes, no per-project containers.
 - **Real engines.** Genuine PostgREST for REST, `pg_graphql` for GraphQL, real
   Postgres 17 - not reimplementations.
-- **Batteries included.** TLS, nightly backups with point-in-time WAL archiving,
+- **Batteries included.** TLS, nightly backups with continuous WAL archiving (point-in-time recovery building blocks; the one-click restore is daily-dump granularity),
   a verified monthly restore drill, firewall and fail2ban are set up for you.
 - **Self-contained.** No SMTP, no external object store, no extra services
   required to get started.
@@ -33,7 +33,7 @@ footprint is ~800 MB; a dozen projects still fit on a 4 GB VPS.
 
 | Area | What you get |
 |------|--------------|
-| **Projects** | Create / pause / resume / delete in ~1s; overview with copy-paste connection strings (direct TLS + transaction pooler); scale-to-zero for idle projects. |
+| **Projects** | Create / pause / resume / delete in ~1s; overview with copy-paste connection strings (direct TLS + transaction pooler); idle projects auto-suspend (login blocked, API sidecar stopped) and resume instantly on the next request. |
 | **Table editor** | Browse, insert, inline-edit and delete rows; blob-safe grid; CSV import with type inference and all-or-nothing loading. |
 | **SQL editor** | Full Postgres - DDL, DML, functions - with a schema browser, saved queries, safety timeouts and result caps. |
 | **Data API** | Auto REST (PostgREST) + GraphQL (`pg_graphql`) per project on `https://<project>.<domain>`, with anon/service JWT keys. |
@@ -41,11 +41,16 @@ footprint is ~800 MB; a dozen projects still fit on a 4 GB VPS.
 | **Storage** | Public and private file buckets with signed URLs. |
 | **Realtime & Webhooks** | Live row-change streams over WebSockets and outbound webhooks on insert/update/delete. |
 | **Edge Functions** | Per-project Deno functions on `/functions/v1/<name>`. |
-| **Branches** | Instant database copies with their own credentials for staging/testing. |
+| **Branches** | Full database copies with their own credentials for staging/testing (copies the whole database via `CREATE DATABASE ... TEMPLATE`; briefly locks the source while copying - not Neon-style copy-on-write). |
 | **Clone & Sync** | Import any external Postgres from a connection string and optionally keep it live-synced via logical replication. |
 | **Database admin** | Rotate credentials, enable extensions (~50-item catalog), tune connection limits. |
 | **Backups & recovery** | Nightly logical dumps + basebackups + continuous WAL archive; per-project "back up now" and one-click restore; off-box S3 sync. |
 | **Monitoring, Logs & Audit** | Per-project size/connections/cache-hit and 7-day charts; live session view; a platform-wide audit trail with actor + source IP. |
+
+For an honest, feature-by-feature comparison with Supabase and Neon - what is at
+parity, what is partial, and what is a genuine gap - see
+[docs/COMPARISON.md](docs/COMPARISON.md). We would rather tell you exactly where
+each line falls than oversell it.
 
 ## Install
 
