@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.0.3"
+const appVersion = "1.1.0"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,18 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.1.0", Date: "2026-08-18",
+		Summary: "Clearer update notes, and the foundation for copy-on-write branching.",
+		Sections: []changeSection{
+			{"Changed", []string{
+				"The in-app update check now shows the real release notes from the changelog instead of raw developer commit messages, and tracks updates by version.",
+			}},
+			{"Added", []string{
+				"Experimental, opt-in per-instance mode (enable with INSTANCES=1 at install): each project or branch runs as its own Postgres instance on a copy-on-write filesystem, which makes branching instant (no parent downtime) and lets idle projects scale to zero and wake on the next connection. Not yet wired into the panel; driven by the bundled tools for now.",
+			}},
+		},
+	},
 	{
 		Version: "1.0.3", Date: "2026-08-17",
 		Summary: "Real point-in-time recovery, and RLS-gated writes that actually work.",

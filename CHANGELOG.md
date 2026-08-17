@@ -13,6 +13,19 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.1.0] - 2026-08-18
+
+### Changed
+- The in-app update check now shows the real release notes from the changelog
+  instead of raw developer commit messages, and tracks updates by version.
+
+### Added
+- Experimental, opt-in per-instance mode (enable with `INSTANCES=1` at install):
+  each project or branch runs as its own Postgres instance on a copy-on-write
+  filesystem, which makes branching instant (no parent downtime) and lets idle
+  projects scale to zero and wake on the next connection. It ships as a proven
+  engine, a cold-start proxy, and a reaper; it is not yet wired into the panel.
+
 ## [1.0.3] - 2026-08-17
 
 ### Added
@@ -175,7 +188,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.0...v1.0.1
