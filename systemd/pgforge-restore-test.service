@@ -1,0 +1,8 @@
+[Unit]
+Description=ForgeBase monthly restore-test
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/pgforge/bin/restore-test.sh
