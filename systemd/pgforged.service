@@ -1,0 +1,13 @@
+[Unit]
+Description=ForgeBase control plane
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+ExecStart=/opt/pgforge/bin/pgforged
+EnvironmentFile=/opt/pgforge/pgforged.env
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
