@@ -463,9 +463,19 @@ const backupsBody = `
     <form method="post" action="/p/{{.Slug}}/backup-now" style="margin-top:.6rem"><button class="btn btn-primary btn-sm" type="submit">{{icon "archive"}} Back up now</button></form>
   </div>
 </div>
+<div class="card" style="margin-bottom:1rem">
+  <h2>Restore to a point in time</h2>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .8rem">Recover <b>{{.Slug}}</b> to any instant, down to the second, into a <b>new</b> project - the source is never touched. This replays the continuous WAL archive forward from a basebackup to the moment you pick. Available for any time within the physical-backup window (basebackups kept 7 days).</p>
+  <form method="post" action="/p/{{.Slug}}/pitr" style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end"
+        onsubmit="return confirm('Recover '+{{.Slug}}+' to the chosen time into a new project?')">
+    <div><div class="label">Point in time (UTC)</div><input type="datetime-local" name="target" step="1" required style="width:220px"></div>
+    <div><div class="label">New project name</div><input type="text" name="new_slug" placeholder="{{.Slug}}-restore" required style="width:200px"></div>
+    <button class="btn btn-primary btn-sm" type="submit">{{icon "restore"}} Recover to new project</button>
+  </form>
+</div>
 <div class="card">
   <h2>Restore points</h2>
-  <p class="muted" style="font-size:12.5px;margin:.3rem 0">Restore replaces the current data in <b>{{.Slug}}</b> with the selected daily snapshot (drops and recreates objects). Recovery to an exact moment between snapshots is possible from the continuous WAL archive via the server runbook.</p>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0">Restore replaces the current data in <b>{{.Slug}}</b> with the selected daily snapshot (drops and recreates objects). For recovery to an exact moment, use "Restore to a point in time" above.</p>
   {{if not .Files}}<p class="muted" style="margin-top:.6rem">No dumps yet for this project. Use "Back up now" or wait for tonight's run.</p>
   {{else}}
   <div class="tblwrap" style="margin-top:.8rem">

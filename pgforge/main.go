@@ -206,6 +206,7 @@ func main() {
 	mux.HandleFunc("GET /p/{slug}/backups", a.auth(proj(a.backupsPage)))
 	mux.HandleFunc("POST /p/{slug}/backup-now", a.auth(proj(a.backupNow)))
 	mux.HandleFunc("POST /p/{slug}/restore", a.auth(admin(a.restoreBackup)))
+	mux.HandleFunc("POST /p/{slug}/pitr", a.auth(admin(a.pitrRestore)))
 	mux.HandleFunc("POST /p/{slug}/retention", a.auth(admin(a.setRetention)))
 	mux.HandleFunc("GET /p/{slug}/monitoring", a.auth(proj(a.monitoringPage)))
 	mux.HandleFunc("GET /p/{slug}/logs", a.auth(proj(a.logsPage)))
