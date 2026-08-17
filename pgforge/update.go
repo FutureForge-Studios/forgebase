@@ -106,13 +106,21 @@ LOG=/opt/pgforge/update.log
 echo "== update started $(date -u '+%F %T') UTC ==" > "$LOG"
 exec >> "$LOG" 2>&1
 set -x
+# A transient systemd unit runs with a minimal environment, so give the Go
+# toolchain an explicit HOME and module/build cache; without these it fails with
+# "module cache not found: neither GOMODCACHE nor GOPATH is set".
+export HOME="${HOME:-/root}"
+export GOPATH="${GOPATH:-$HOME/go}"
+export GOMODCACHE="${GOMODCACHE:-$GOPATH/pkg/mod}"
+export GOCACHE="${GOCACHE:-$HOME/.cache/go-build}"
+export PATH="$PATH:/usr/local/go/bin:/usr/local/bin"
 LISTEN="$(sed -n 's/^LISTEN=//p' /opt/pgforge/pgforged.env | head -1)"
 [ -z "$LISTEN" ] && LISTEN=127.0.0.1:8080
 cd "` + repoDir + `" || { echo "!! repo dir missing"; exit 1; }
 git pull --ff-only || { echo "!! git pull failed"; exit 1; }
 VER="$(git rev-parse --short HEAD)"
 echo ">> building $VER"
-( cd pgforge && go mod tidy && go build -ldflags "-X main.version=$VER -X main.buildTime=$(date -u +%FT%TZ)" -o /tmp/pgforged.upd . ) || { echo "!! build failed"; exit 1; }
+( cd pgforge && go build -ldflags "-X main.version=$VER -X main.buildTime=$(date -u +%FT%TZ)" -o /tmp/pgforged.upd . ) || { echo "!! build failed"; exit 1; }
 cp -a /opt/pgforge/bin/pgforged /opt/pgforge/bin/pgforged.prev
 install -m 0755 /tmp/pgforged.upd /opt/pgforge/bin/pgforged
 echo ">> restarting pgforged"
