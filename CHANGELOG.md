@@ -13,6 +13,18 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.0.1] - 2026-08-17
+
+### Added
+- Continuous integration that builds, vets, and format-checks the control plane
+  on every push and pull request.
+- Contributor guide, security policy, code of conduct, and issue and
+  pull-request templates.
+
+### Changed
+- Formatted the whole control plane with gofmt and pinned Go sources to LF line
+  endings.
+
 ## [1.0.0] - 2026-08-17
 
 First public release. ForgeBase is a lightweight, self-hosted Supabase and Neon
@@ -133,5 +145,6 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/FutureForge-Studios/forgebase/releases/tag/v1.0.0

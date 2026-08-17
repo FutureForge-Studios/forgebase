@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.0.0"
+const appVersion = "1.0.1"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,19 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.0.1", Date: "2026-08-17",
+		Summary: "Project hygiene for the public repository.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Continuous integration that builds, vets, and format-checks the control plane on every push and pull request.",
+				"Contributor guide, security policy, code of conduct, and issue and pull-request templates.",
+			}},
+			{"Changed", []string{
+				"Formatted the whole control plane with gofmt and pinned Go sources to LF line endings.",
+			}},
+		},
+	},
 	{
 		Version: "1.0.0", Date: "2026-08-17",
 		Summary: "First public release. A lightweight, self-hosted Supabase and Neon alternative in a single Go binary.",
