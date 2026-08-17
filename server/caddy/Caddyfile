@@ -1,0 +1,25 @@
+# ForgeBase Caddy config. __DOMAIN__ and __ACME_EMAIL__ are substituted by
+# install.sh. Certificates are issued on demand: Caddy asks pgforged
+# (/internal/tls-check) whether a hostname is legit before requesting a cert,
+# so new projects get HTTPS with zero config edits.
+{
+	email __ACME_EMAIL__
+	on_demand_tls {
+		ask http://127.0.0.1:8080/internal/tls-check
+	}
+}
+
+__DOMAIN__ {
+	reverse_proxy 127.0.0.1:8080
+}
+
+db.__DOMAIN__ {
+	reverse_proxy 127.0.0.1:8081
+}
+
+https:// {
+	tls {
+		on_demand
+	}
+	reverse_proxy 127.0.0.1:8080
+}
