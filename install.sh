@@ -222,6 +222,7 @@ chmod 600 "$ENVF"
 echo "==> systemd services + timers"
 install -m 0755 "$REPO_DIR/scripts/backup.sh"       /opt/pgforge/bin/backup.sh
 install -m 0755 "$REPO_DIR/scripts/restore-test.sh" /opt/pgforge/bin/restore-test.sh
+install -m 0755 "$REPO_DIR/scripts/pitr-restore.sh" /opt/pgforge/bin/pitr-restore.sh
 install -m 0755 "$REPO_DIR/scripts/set-db-allowlist.sh" /opt/pgforge/bin/set-db-allowlist.sh
 # Retire a pgweb unit left by an older install, if present.
 if [ -f /etc/systemd/system/pgweb.service ]; then
