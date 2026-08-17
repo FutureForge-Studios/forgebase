@@ -162,6 +162,8 @@ func main() {
 	mux.HandleFunc("GET /docs", a.auth(a.globalDocsPage))
 	mux.HandleFunc("GET /audit", a.auth(a.globalAuditPage))
 	mux.HandleFunc("GET /system", a.auth(a.systemPage))
+	mux.HandleFunc("GET /changelog", a.auth(a.changelogPage))
+	mux.HandleFunc("POST /system/update", a.auth(a.requireRole("owner", a.applyUpdate)))
 	// team (owner-only management)
 	mux.HandleFunc("GET /people", a.auth(a.peoplePage))
 	mux.HandleFunc("POST /people/add", a.auth(a.requireRole("owner", a.addMember)))
