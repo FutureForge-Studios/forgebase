@@ -1,0 +1,11 @@
+# ForgeBase Postgres image: Postgres 17 + pgvector + pg_cron + pg_graphql.
+# contrib extensions (pgcrypto, uuid-ossp, citext, pg_trgm, pg_stat_statements)
+# ship with the base image.
+FROM pgvector/pgvector:pg17
+
+RUN apt-get update -qq \
+ && apt-get install -y -qq --no-install-recommends postgresql-17-cron curl ca-certificates \
+ && curl -fsSL -o /tmp/pg_graphql.deb https://github.com/supabase/pg_graphql/releases/download/v1.6.1/pg_graphql-v1.6.1-pg17-amd64-linux-gnu.deb \
+ && dpkg -i /tmp/pg_graphql.deb \
+ && rm -f /tmp/pg_graphql.deb \
+ && rm -rf /var/lib/apt/lists/*
