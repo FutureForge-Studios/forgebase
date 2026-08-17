@@ -1,0 +1,4 @@
+# Scripts run on Linux - always check out with LF, never CRLF.
+*.sh   text eol=lf
+*.py   text eol=lf
+*.service text eol=lf
