@@ -1295,13 +1295,16 @@ const systemBody = `
   {{else if .Upd.Behind}}
     <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin:.4rem 0 .6rem">
       <span class="badge cloning">update available</span>
-      <span style="font-size:13px">running <code>{{.Upd.Current}}</code>, latest <code>{{.Upd.Latest}}</code></span>
+      <span style="font-size:13px">you're on <b>v{{.Upd.Current}}</b>, latest is <b>v{{.Upd.Latest}}</b></span>
     </div>
     {{if .Upd.Changelog}}
-    <div class="label" style="margin:.6rem 0 .2rem">What changed</div>
-    <ul class="muted" style="font-size:12.5px;line-height:1.7;padding-left:1.1rem;margin:0 0 .8rem">
-      {{range .Upd.Changelog}}<li>{{.}}</li>{{end}}
-    </ul>
+    <div class="label" style="margin:.6rem 0 .2rem">What's new</div>
+    {{range .Upd.Changelog}}
+      <div style="font-size:13px;font-weight:600;margin:.5rem 0 .2rem">v{{.Version}}</div>
+      <ul class="muted" style="font-size:12.5px;line-height:1.6;padding-left:1.1rem;margin:0 0 .5rem">
+        {{range .Items}}<li>{{.}}</li>{{end}}
+      </ul>
+    {{end}}
     {{end}}
     {{if .IsOwner}}
     <form method="post" action="/system/update" onsubmit="return confirm('Update ForgeBase to {{.Upd.Latest}}? The panel will rebuild and restart. It rolls back automatically if the new build is unhealthy.')">
@@ -1314,7 +1317,7 @@ const systemBody = `
   {{else}}
     <div style="display:flex;align-items:center;gap:.6rem;margin:.4rem 0 .2rem">
       <span class="badge active">up to date</span>
-      <span class="muted" style="font-size:13px">running the latest build ({{.Upd.Current}}).</span>
+      <span class="muted" style="font-size:13px">running the latest release (v{{.Upd.Current}}).</span>
     </div>
     <a class="btn btn-ghost btn-sm" href="/changelog" style="margin-top:.6rem">{{icon "sparkle"}} What's New</a>
   {{end}}

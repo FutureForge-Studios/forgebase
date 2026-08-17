@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -11,48 +11,37 @@ import (
 	"time"
 )
 
-// In-app self-update (Coolify-style): check GitHub for a newer build, show the
-// changelog, and apply it with one click - rebuild + atomic binary swap +
-// restart + health-check + automatic rollback. Admin only.
+// In-app self-update (Coolify-style): check GitHub for a newer release, show the
+// human-readable changelog for it, and apply it with one click - rebuild + atomic
+// binary swap + restart + health-check + automatic rollback. Admin only.
 
 const updateOwner = "FutureForge-Studios"
 const updateRepo = "forgebase"
 
-type ghCommit struct {
-	SHA    string `json:"sha"`
-	Commit struct {
-		Message string `json:"message"`
-		Author  struct {
-			Date string `json:"date"`
-		} `json:"author"`
-	} `json:"commit"`
+// updSection is one release worth of human-readable notes shown in the panel.
+type updSection struct {
+	Version string
+	Items   []string
 }
 
 type updateInfo struct {
-	Current   string
-	Latest    string
-	LatestMsg string
-	Behind    bool
-	Changelog []string
+	Current   string       // running release, e.g. "1.0.3"
+	Latest    string       // newest released version on GitHub
+	Behind    bool         // a newer release exists
+	Changelog []updSection // release notes between Current and Latest, newest first
 	Err       string
 }
 
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return strings.TrimSpace(s[:i])
-	}
-	return strings.TrimSpace(s)
-}
-
-// updateStatus asks GitHub for recent commits on the default branch and compares
-// them to the running build (version = the short SHA baked in at build time).
+// updateStatus reads the published CHANGELOG.md from GitHub and compares its
+// latest released version to the running one. Updates are release-based (they
+// track version bumps + changelog entries), and we show the actual release notes -
+// not raw git commit subjects, which mean nothing to an operator.
 func (a *app) updateStatus() updateInfo {
-	info := updateInfo{Current: version}
+	info := updateInfo{Current: appVersion}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/commits?per_page=15", updateOwner, updateRepo)
+	url := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/CHANGELOG.md", updateOwner, updateRepo)
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
-	req.Header.Set("Accept", "application/vnd.github+json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		info.Err = err.Error()
@@ -60,27 +49,86 @@ func (a *app) updateStatus() updateInfo {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		info.Err = fmt.Sprintf("GitHub returned %d", resp.StatusCode)
+		info.Err = fmt.Sprintf("could not fetch the changelog (%d)", resp.StatusCode)
 		return info
 	}
-	var commits []ghCommit
-	if json.NewDecoder(resp.Body).Decode(&commits) != nil || len(commits) == 0 {
-		info.Err = "could not read releases"
-		return info
-	}
-	info.Latest = commits[0].SHA[:7]
-	info.LatestMsg = firstLine(commits[0].Commit.Message)
-	info.Behind = version != "dev" && !strings.HasPrefix(info.Latest, version) && !strings.HasPrefix(version, info.Latest)
-	for _, c := range commits {
-		if version != "dev" && strings.HasPrefix(c.SHA, version) {
-			break
-		}
-		info.Changelog = append(info.Changelog, firstLine(c.Commit.Message))
-		if len(info.Changelog) >= 12 {
-			break
-		}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	latest, sections := parseChangelog(string(body), appVersion)
+	info.Latest = latest
+	info.Behind = latest != "" && semverLess(appVersion, latest)
+	if info.Behind {
+		info.Changelog = sections
 	}
 	return info
+}
+
+// parseChangelog reads a Keep-a-Changelog document and returns the newest released
+// version plus the notes for every release strictly newer than `current` (newest
+// first). Wrapped bullet lines are re-joined so each item reads as one sentence.
+func parseChangelog(md, current string) (latest string, out []updSection) {
+	var cur *updSection
+	include := false
+	flush := func() {
+		if cur != nil && len(cur.Items) > 0 {
+			out = append(out, *cur)
+		}
+		cur = nil
+	}
+	for _, ln := range strings.Split(md, "\n") {
+		if strings.HasPrefix(ln, "## [") {
+			flush()
+			ver := ln[strings.Index(ln, "[")+1:]
+			if i := strings.Index(ver, "]"); i >= 0 {
+				ver = ver[:i]
+			}
+			if ver == "Unreleased" {
+				include = false
+				continue
+			}
+			if latest == "" {
+				latest = ver
+			}
+			include = semverLess(current, ver)
+			if include {
+				cur = &updSection{Version: ver}
+			}
+			continue
+		}
+		if !include || cur == nil {
+			continue
+		}
+		t := strings.TrimSpace(ln)
+		switch {
+		case strings.HasPrefix(t, "- "):
+			cur.Items = append(cur.Items, strings.TrimSpace(t[2:]))
+		case t != "" && !strings.HasPrefix(t, "#") && len(cur.Items) > 0:
+			cur.Items[len(cur.Items)-1] += " " + t // continuation of a wrapped bullet
+		}
+	}
+	flush()
+	return latest, out
+}
+
+// semverLess reports whether version a is older than b (major.minor.patch).
+func semverLess(a, b string) bool {
+	pa, pb := parseSemver(a), parseSemver(b)
+	for i := 0; i < 3; i++ {
+		if pa[i] != pb[i] {
+			return pa[i] < pb[i]
+		}
+	}
+	return false
+}
+
+func parseSemver(s string) [3]int {
+	var v [3]int
+	for i, p := range strings.SplitN(strings.TrimSpace(s), ".", 3) {
+		if i > 2 {
+			break
+		}
+		fmt.Sscanf(strings.TrimSpace(p), "%d", &v[i])
+	}
+	return v
 }
 
 // applyUpdate stages an updater script and launches it as a TRANSIENT systemd
