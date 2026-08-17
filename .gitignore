@@ -1,0 +1,12 @@
+.env
+*.env
+!*.env.example
+__pycache__/
+*.pyc
+pgforge-src.tar.gz
+pgforge-go.tar.gz
+# Internal-only docs: operational map + architecture/vision. Kept locally for
+# our own reference, never committed (they'd hand someone a clone blueprint).
+HANDOVER.md
+docs/vision.md
+docs/neon-console-reference.md
