@@ -121,6 +121,11 @@ mkdir -p /opt/pgforge/{bin,certs,pgbouncer,caddy,stack} \
 install -m 0644 "$REPO_DIR/server/edge-runner.ts" /opt/pgforge/edge-runner.ts 2>/dev/null || true
 printf '%s\n' "$DOMAIN" > /opt/pgforge/domain
 printf '%s\n' "$ACME_EMAIL" > /opt/pgforge/acme_email
+# Record the git checkout so the in-app self-update can pull + rebuild from here.
+# Only meaningful when installed from a git clone (the documented path).
+if git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+  printf '%s\n' "$REPO_DIR" > /opt/pgforge/repo_dir
+fi
 
 # ----------------------------------------------------------------- secrets
 # On upgrade, reuse the existing secrets so credentials + the stored-password
