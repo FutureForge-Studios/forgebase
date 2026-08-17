@@ -58,10 +58,30 @@ func (a *app) systemPage(w http.ResponseWriter, r *http.Request) {
 		{"Deno (Edge Functions)", boolStr(exists("/usr/local/bin/deno"), "installed", "missing"), exists("/usr/local/bin/deno")},
 	}
 
+	// The update check makes a network call to GitHub, so only run it when the
+	// user explicitly asks (the "Check for updates" button links to ?check=1).
+	var upd updateInfo
+	checked := r.URL.Query().Get("check") == "1"
+	if checked {
+		upd = a.updateStatus()
+	}
+
+	// If an update ran (or is running), show the tail of its log so the operator
+	// can watch progress and see the rollback result.
+	updLog := ""
+	if b, err := os.ReadFile("/opt/pgforge/update.log"); err == nil {
+		lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+		if len(lines) > 40 {
+			lines = lines[len(lines)-40:]
+		}
+		updLog = strings.Join(lines, "\n")
+	}
+
 	content := renderContent(systemBody, map[string]any{
 		"Version": version, "BuildTime": buildTime, "Commit": repoURL + "/commit/" + version,
 		"DBOK": dbOK, "PGVer": pgVer, "DBSize": dbSize, "ActiveAPIs": activeAPIs, "Svcs": svcs,
-		"Stats": a.hostStats(),
+		"Stats": a.hostStats(), "AppVersion": appVersion, "IsOwner": a.atLeast(r, "owner"),
+		"Checked": checked, "Upd": upd, "UpdateLog": updLog,
 	})
 	a.renderShell(w, r, shellData{Title: "System", Nav: "system",
 		Crumbs: []crumb{{Label: "System"}}}, content)
