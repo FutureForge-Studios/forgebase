@@ -1,0 +1,15 @@
+[Unit]
+Description=ForgeBase Postgres cold-start proxy (per-instance mode)
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Environment=PGPROXY_LISTEN=0.0.0.0:5433
+Environment=INSTANCES_ROOT=/opt/pgforge/instances
+Environment=PGINSTANCE=/opt/pgforge/bin/pg-instance.sh
+ExecStart=/opt/pgforge/bin/pgproxy
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

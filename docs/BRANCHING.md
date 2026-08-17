@@ -62,9 +62,36 @@ branch (or project) is its own Postgres process, it can be **stopped** when idle
 connection by a small routing proxy. On the current shared cluster the engine
 serves every tenant and cannot be zeroed for one; per-instance changes that.
 
-## Status
+## Built and proven end-to-end
 
-The mechanism is proven. Product integration (per-branch instances + routing +
-the optional btrfs migration) is scoped above and is the next build. Until it
-ships, the UI and docs describe branching honestly as a full copy that briefly
-locks the source.
+The per-instance subsystem is implemented and proven on a throwaway VM:
+
+- `scripts/pg-instance.sh` - instance lifecycle: create / branch (btrfs snapshot)
+  / stop / start / delete / reap, one Postgres container per project on a btrfs
+  store.
+- `tools/pgproxy` - a Postgres-protocol cold-start proxy: reads the startup
+  packet, wakes the target instance if stopped, then splices the connection.
+- `systemd/pgforge-pgproxy.service` + `systemd/pgforge-reaper.{service,timer}` -
+  the proxy and the idle reaper.
+- Enable at install with `INSTANCES=1 bash install.sh` (runs
+  `scripts/setup-instances.sh`). Off by default; the classic shared cluster is
+  used otherwise.
+
+Measured results:
+
+```
+branch create           ~1 s   (18 ms btrfs snapshot + Postgres boot), parent never restarted
+two 39 MB instances     46 MB total on disk   (copy-on-write block sharing, not 78 MB)
+scale-to-zero           idle instance stopped by the reaper -> 0 CPU/RAM
+cold-start on connect    ~0.7 s   client wakes a stopped instance transparently, data intact
+```
+
+## What remains: panel integration
+
+The engine, proxy, and reaper are done and installable. The remaining work is
+wiring them into the panel so it is a one-click feature rather than opt-in
+infrastructure: the Branches page creates CoW instance branches when the mode is
+on, project connection strings point at the proxy, and a project can be slept and
+woken from the UI. Until that lands, the panel's built-in branching still uses the
+`TEMPLATE` copy (described honestly as a full copy that briefly locks the source),
+and per-instance mode is driven by `pg-instance.sh` / the proxy directly.

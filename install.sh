@@ -237,6 +237,16 @@ systemctl daemon-reload
 systemctl enable --now pgforged pgforge-backup.timer pgforge-restore-test.timer >/dev/null 2>&1
 systemctl restart pgforged
 
+# ----------------------------------------------------------------- per-instance mode (opt-in)
+# INSTANCES=1 enables copy-on-write branching + scale-to-zero (each project/branch
+# becomes its own Postgres instance on a btrfs store, fronted by a cold-start
+# proxy). Off by default; the classic shared cluster is used otherwise.
+if [ -n "${INSTANCES:-}" ]; then
+  echo "==> Enabling per-instance mode (CoW branching + scale-to-zero)"
+  bash "$REPO_DIR/scripts/setup-instances.sh" "$REPO_DIR" \
+    || echo "  (per-instance setup failed; classic shared-cluster mode still active)"
+fi
+
 # ----------------------------------------------------------------- firewall
 if [ -z "${SKIP_FIREWALL:-}" ]; then
   echo "==> Firewall"

@@ -1,0 +1,9 @@
+[Unit]
+Description=Run the ForgeBase scale-to-zero reaper every few minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

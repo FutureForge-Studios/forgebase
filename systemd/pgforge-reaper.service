@@ -1,0 +1,10 @@
+[Unit]
+Description=ForgeBase scale-to-zero reaper (stops idle per-project instances)
+After=docker.service
+
+[Service]
+Type=oneshot
+Environment=INSTANCES_ROOT=/opt/pgforge/instances
+# Stop instances with no client connections for 15 minutes; the cold-start proxy
+# wakes them on the next connection in about a second.
+ExecStart=/opt/pgforge/bin/pg-instance.sh reap 900
