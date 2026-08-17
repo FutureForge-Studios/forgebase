@@ -730,8 +730,8 @@ func (a *app) importCSV(w http.ResponseWriter, r *http.Request) {
 }
 
 var (
-	intRe = regexp.MustCompile(`^-?\d{1,18}$`)
-	numRe = regexp.MustCompile(`^-?\d*\.\d+$`)
+	intRe     = regexp.MustCompile(`^-?\d{1,18}$`)
+	numRe     = regexp.MustCompile(`^-?\d*\.\d+$`)
 	tsLayouts = []string{"2006-01-02", "2006-01-02 15:04:05", "2006-01-02T15:04:05", time.RFC3339}
 )
 

@@ -168,7 +168,8 @@ func (a *app) ensureAPIRoles(db *sql.DB, owner string) error {
 // authHelperStmts install the auth.* helpers (auth.uid/jwt/role/email) that RLS
 // policies reference. PostgREST (and serveGraphQL) set request.jwt.claims from
 // the verified JWT, so these read the signed-in user's id/role/email inside SQL:
-//   create policy "own rows" on t using (auth.uid() = user_id);
+//
+//	create policy "own rows" on t using (auth.uid() = user_id);
 var authHelperStmts = []string{
 	`CREATE SCHEMA IF NOT EXISTS auth`,
 	`CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$ SELECT coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$`,

@@ -312,7 +312,10 @@ func (a *app) authPage(w http.ResponseWriter, r *http.Request) {
 			db.QueryRow(`SELECT count(*) FROM auth.users`).Scan(&count)
 		}
 	}
-	type provCfg struct{ Name, ClientID string; Enabled bool }
+	type provCfg struct {
+		Name, ClientID string
+		Enabled        bool
+	}
 	var providers []provCfg
 	for _, p := range []string{"google", "github"} {
 		id, _, en := a.oauthConfig(slug, p)
@@ -320,8 +323,8 @@ func (a *app) authPage(w http.ResponseWriter, r *http.Request) {
 	}
 	content := renderContent(authPageBody, map[string]any{
 		"Slug": slug, "Enabled": enabled, "Users": users, "Count": count,
-		"Base": "https://" + slug + "." + a.cfg.domain + "/auth/v1",
-		"Callback": "https://" + slug + "." + a.cfg.domain + "/auth/v1/callback",
+		"Base":      "https://" + slug + "." + a.cfg.domain + "/auth/v1",
+		"Callback":  "https://" + slug + "." + a.cfg.domain + "/auth/v1/callback",
 		"Providers": providers,
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Auth", Nav: "authn", Slug: slug,

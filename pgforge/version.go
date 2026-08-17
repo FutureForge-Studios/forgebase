@@ -10,7 +10,8 @@ import (
 )
 
 // version + buildTime are injected at build time via -ldflags:
-//   -X main.version=<git-short-sha> -X main.buildTime=<iso>
+//
+//	-X main.version=<git-short-sha> -X main.buildTime=<iso>
 var (
 	version   = "dev"
 	buildTime = "unknown"

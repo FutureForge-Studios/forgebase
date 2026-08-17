@@ -8,9 +8,9 @@
 package main
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
-	"crypto/rand"
 	"fmt"
 	"log"
 	"net"

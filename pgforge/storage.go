@@ -271,12 +271,13 @@ func (a *app) signedURL(slug, bucket, path string, ttl time.Duration) string {
 
 // serveStorage is the object API on <slug>.<domain>/storage/v1/object/... It
 // dispatches:
-//   GET  public/<bucket>/<path>   -> unauthenticated read of a public bucket
-//   GET  sign/<bucket>/<path>?token=... -> signed read
-//   POST sign/<bucket>/<path>     -> mint a signed URL (JWT)
-//   POST/PUT <bucket>/<path>      -> upload (JWT: authenticated/service_role)
-//   GET  <bucket>/<path>          -> authenticated read (JWT)
-//   DELETE <bucket>/<path>        -> delete (JWT: authenticated/service_role)
+//
+//	GET  public/<bucket>/<path>   -> unauthenticated read of a public bucket
+//	GET  sign/<bucket>/<path>?token=... -> signed read
+//	POST sign/<bucket>/<path>     -> mint a signed URL (JWT)
+//	POST/PUT <bucket>/<path>      -> upload (JWT: authenticated/service_role)
+//	GET  <bucket>/<path>          -> authenticated read (JWT)
+//	DELETE <bucket>/<path>        -> delete (JWT: authenticated/service_role)
 func (a *app) serveStorage(w http.ResponseWriter, r *http.Request, slug string) {
 	p := strings.TrimPrefix(r.URL.Path, "/storage/v1/object/")
 	if strings.HasPrefix(p, "public/") || (strings.HasPrefix(p, "sign/") && r.Method == http.MethodGet) {

@@ -21,10 +21,10 @@ type barRow struct {
 }
 
 type topQuery struct {
-	Query      string
-	Calls      int64
-	MeanMs     string
-	TotalMs    string
+	Query   string
+	Calls   int64
+	MeanMs  string
+	TotalMs string
 }
 
 func (a *app) monitoringPage(w http.ResponseWriter, r *http.Request) {
