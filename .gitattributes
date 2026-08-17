@@ -2,3 +2,10 @@
 *.sh   text eol=lf
 *.py   text eol=lf
 *.service text eol=lf
+*.timer   text eol=lf
+# Go sources and configs are LF everywhere so gofmt and CI stay consistent.
+*.go   text eol=lf
+*.mod  text eol=lf
+*.sum  text eol=lf
+*.yml  text eol=lf
+*.ts   text eol=lf
