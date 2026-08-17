@@ -1257,6 +1257,7 @@ const systemBody = `
   <div class="card">
     <h2>Version</h2>
     <div style="display:flex;gap:2rem;margin-top:.8rem;flex-wrap:wrap">
+      <div><div class="label">Release</div><div style="font-family:var(--serif);font-size:18px">v{{.AppVersion}}</div></div>
       <div><div class="label">Commit</div><a href="{{.Commit}}" target="_blank" style="font-family:var(--mono);font-size:16px;color:hsl(var(--primary))">{{.Version}}</a></div>
       <div><div class="label">Built</div><div style="font-size:14px">{{.BuildTime}}</div></div>
     </div>
@@ -1271,6 +1272,43 @@ const systemBody = `
       <div><div class="label">Active Data APIs</div><div style="font-size:14px">{{.ActiveAPIs}}</div></div>
     </div>
   </div>
+</div>
+<div class="card" style="margin-bottom:1rem">
+  <h2>Software updates</h2>
+  {{if not .Checked}}
+    <p class="muted" style="font-size:12.5px;margin:.4rem 0 .8rem">Check GitHub for a newer ForgeBase build. Your databases keep serving throughout; only the control plane restarts.</p>
+    <a class="btn btn-primary btn-sm" href="/system?check=1">{{icon "restore"}} Check for updates</a>
+    <a class="btn btn-ghost btn-sm" href="/changelog">{{icon "sparkle"}} What's New</a>
+  {{else if .Upd.Err}}
+    <p style="font-size:13px;margin:.4rem 0 .8rem;color:hsl(var(--destructive))">Could not check for updates: {{.Upd.Err}}</p>
+    <a class="btn btn-ghost btn-sm" href="/system?check=1">Try again</a>
+  {{else if .Upd.Behind}}
+    <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin:.4rem 0 .6rem">
+      <span class="badge cloning">update available</span>
+      <span style="font-size:13px">running <code>{{.Upd.Current}}</code>, latest <code>{{.Upd.Latest}}</code></span>
+    </div>
+    {{if .Upd.Changelog}}
+    <div class="label" style="margin:.6rem 0 .2rem">What changed</div>
+    <ul class="muted" style="font-size:12.5px;line-height:1.7;padding-left:1.1rem;margin:0 0 .8rem">
+      {{range .Upd.Changelog}}<li>{{.}}</li>{{end}}
+    </ul>
+    {{end}}
+    {{if .IsOwner}}
+    <form method="post" action="/system/update" onsubmit="return confirm('Update ForgeBase to {{.Upd.Latest}}? The panel will rebuild and restart. It rolls back automatically if the new build is unhealthy.')">
+      <button class="btn btn-primary btn-sm">{{icon "bolt"}} Update now</button>
+    </form>
+    <p class="muted" style="font-size:11.5px;margin:.6rem 0 0">The updater keeps the previous binary and rolls back if the health check fails.</p>
+    {{else}}
+    <p class="muted" style="font-size:12px;margin:.2rem 0 0">Ask an owner to install this update.</p>
+    {{end}}
+  {{else}}
+    <div style="display:flex;align-items:center;gap:.6rem;margin:.4rem 0 .2rem">
+      <span class="badge active">up to date</span>
+      <span class="muted" style="font-size:13px">running the latest build ({{.Upd.Current}}).</span>
+    </div>
+    <a class="btn btn-ghost btn-sm" href="/changelog" style="margin-top:.6rem">{{icon "sparkle"}} What's New</a>
+  {{end}}
+  {{if .UpdateLog}}<div class="label" style="margin:.9rem 0 .2rem">Last update log</div><pre style="background:hsl(var(--primary) / .04);border:1px solid hsl(var(--border));border-radius:.5rem;padding:.7rem;font-size:11px;line-height:1.5;overflow:auto;max-height:220px;margin:0">{{.UpdateLog}}</pre>{{end}}
 </div>
 <div class="card" style="margin-bottom:1rem">
   <h2>Services</h2>
@@ -1297,6 +1335,42 @@ const systemBody = `
   <p class="muted" style="font-size:13px;margin:.2rem 0">ForgeBase is designed, built and maintained by
     <a href="https://ffstudios.io" target="_blank" style="color:hsl(var(--primary))"><b>FutureForge Studios Private Limited</b></a>.</p>
   <p class="muted" style="font-size:12px;margin:.2rem 0">Crafted with a lot of care in India ♥</p>
+</div>`
+
+const changelogBody = `
+<div class="pagehead"><h1>What's New</h1><p>Every feature and every release in ForgeBase. You're running <b>v{{.AppVersion}}</b> · build <code>{{.Build}}</code>. <a href="/system" style="color:hsl(var(--primary))">Check for updates</a></p></div>
+
+<h2 style="font-size:15px;margin:.4rem 0 .8rem">Features</h2>
+<div class="grid g3" style="margin-bottom:1.6rem">
+  {{range .Features}}
+  <div class="card">
+    <h2 style="font-size:14px">{{.Name}}</h2>
+    <ul style="list-style:none;padding:0;margin:.6rem 0 0">
+      {{range .Items}}<li style="margin-bottom:.6rem"><div style="font-size:13px;font-weight:600">{{.Name}}</div><div class="muted" style="font-size:12px;line-height:1.5">{{.Desc}}</div></li>{{end}}
+    </ul>
+  </div>
+  {{end}}
+</div>
+
+<h2 style="font-size:15px;margin:1.4rem 0 .8rem">Release history</h2>
+<div class="card">
+  {{range .Releases}}
+  <div style="padding:.9rem 0;border-bottom:1px solid hsl(var(--border))">
+    <div style="display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap">
+      <span class="badge active" style="font-family:var(--mono)">v{{.Version}}</span>
+      <span class="muted" style="font-size:12px">{{.Date}}</span>
+    </div>
+    <p style="font-size:13px;margin:.5rem 0 .3rem">{{.Summary}}</p>
+    {{range .Sections}}
+    <div style="margin-top:.5rem">
+      <div class="label" style="margin-bottom:.2rem">{{.Kind}}</div>
+      <ul class="muted" style="font-size:12.5px;line-height:1.7;padding-left:1.1rem;margin:0">
+        {{range .Entries}}<li>{{.}}</li>{{end}}
+      </ul>
+    </div>
+    {{end}}
+  </div>
+  {{end}}
 </div>`
 
 const syncBody = `
