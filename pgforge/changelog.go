@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.0.2"
+const appVersion = "1.0.3"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,18 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.0.3", Date: "2026-08-17",
+		Summary: "Real point-in-time recovery, and RLS-gated writes that actually work.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Point-in-time recovery: from the Backup page, restore a project to any instant down to the second into a new project. It replays the continuously archived WAL forward from a basebackup to the moment you pick, non-destructively.",
+			}},
+			{"Fixed", []string{
+				"RLS write policies now work end to end. Adding an \"authenticated write\" or \"owner\" policy also grants the authenticated role the table's write privileges and sequence usage, so signed-in users can write their own rows through the API (previously the write was denied before the policy was ever checked).",
+			}},
+		},
+	},
 	{
 		Version: "1.0.2", Date: "2026-08-17",
 		Summary: "Self-update reliability fix.",

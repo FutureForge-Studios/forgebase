@@ -13,6 +13,28 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.0.3] - 2026-08-17
+
+### Added
+- Real point-in-time recovery. From the Backup page, restore a project to any
+  instant down to the second, into a new project (non-destructive). It stands up
+  a throwaway instance from the newest basebackup before the target and replays
+  the continuously archived WAL forward to exactly that moment
+  (`recovery_target_time`), then loads the result into a fresh project.
+
+### Fixed
+- RLS write policies now work end to end. Adding an "authenticated write" or
+  "owner" policy also grants the `authenticated` role the table's write
+  privileges and sequence usage, so signed-in users can write their own rows
+  through the Data API. Previously the write was denied with "permission denied
+  for table" before the policy was ever evaluated.
+
+### Changed
+- Corrected over-claims in the README and UI: branching is a full copy that
+  briefly locks the source (not instant copy-on-write), pause is auto-suspend
+  (not scale-to-zero of compute). Added `docs/COMPARISON.md`, an honest
+  feature-by-feature comparison with Supabase and Neon.
+
 ## [1.0.2] - 2026-08-17
 
 ### Fixed
@@ -153,7 +175,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/FutureForge-Studios/forgebase/releases/tag/v1.0.0
