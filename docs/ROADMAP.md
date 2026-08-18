@@ -45,7 +45,7 @@ One optional SMTP client unlocks the top four at once.
 - [x] 11. `user_metadata` / `app_metadata` columns, surfaced in the JWT + `/user`. *(Supabase core; apps drive RLS off these.)* **S-M** — shipped `1.1.6`
 - [ ] 12. Configurable token TTLs per project (the `aud` claim shipped in `1.1.6`). **S**
 - [ ] 13. More OAuth providers - Apple, Microsoft, Discord, GitLab, Facebook, LinkedIn. *(Supabase has ~20; we have 2.)* **M**
-- [ ] 14. Refresh-token reuse detection + family revocation; session list + global/others logout. **M**
+- [x] 14. Refresh-token reuse detection + family revocation + global logout. **M** — shipped `1.1.7` (session-list UI still pending)
 - [ ] 15. Admin users REST API + ban (`banned_until`). **M**
 - [ ] 16. TOTP MFA (enroll/verify, AAL in JWT, recovery codes). **L**
 - [ ] 17. SAML 2.0 SSO; phone/SMS OTP. **L** *(SMS needs a provider)*

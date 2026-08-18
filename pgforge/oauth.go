@@ -159,7 +159,7 @@ func (a *app) handleOAuthCallback(w http.ResponseWriter, r *http.Request, slug, 
 	db.Exec(`UPDATE auth.users SET last_sign_in_at=now() WHERE id=$1`, uid)
 	a.auditRaw(email, clientIP(r), "user-oauth", slug+"/"+provider)
 
-	acc, ref, terr := a.issueTokens(db, jwtSecret, uid, email)
+	acc, ref, terr := a.issueTokens(db, jwtSecret, uid, email, "")
 	if terr != nil {
 		writeJSON(w, 500, map[string]string{"message": terr.Error()})
 		return

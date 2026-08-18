@@ -50,14 +50,20 @@ func signUserJWT(secret []byte, sub, email, userMeta, appMeta string) string {
 	return signing + "." + b64(m.Sum(nil))
 }
 
-// issueTokens mints an access token AND a rotating refresh token, storing the
-// refresh token's hash so it can be verified + revoked later. Returns
-// (accessToken, refreshToken).
-func (a *app) issueTokens(db *sql.DB, secret, sub, email string) (string, string, error) {
+// issueTokens mints a new pair. familyID ties a refresh token to a session
+// lineage: empty starts a new session (new family); on rotation we pass the
+// parent's family so reuse of any token in the lineage can revoke the whole thing.
+func (a *app) issueTokens(db *sql.DB, secret, sub, email, familyID string) (string, string, error) {
 	refresh := randHex(32)
 	sum := sha256.Sum256([]byte(refresh))
-	_, err := db.Exec(`INSERT INTO auth.refresh_tokens(user_id, token_hash, expires_at)
-		VALUES ($1, $2, now() + interval '30 days')`, sub, hex.EncodeToString(sum[:]))
+	var err error
+	if familyID == "" {
+		_, err = db.Exec(`INSERT INTO auth.refresh_tokens(user_id, token_hash, expires_at)
+			VALUES ($1, $2, now() + interval '30 days')`, sub, hex.EncodeToString(sum[:]))
+	} else {
+		_, err = db.Exec(`INSERT INTO auth.refresh_tokens(user_id, token_hash, expires_at, family_id)
+			VALUES ($1, $2, now() + interval '30 days', $3)`, sub, hex.EncodeToString(sum[:]), familyID)
+	}
 	if err != nil {
 		return "", "", err
 	}
@@ -67,8 +73,9 @@ func (a *app) issueTokens(db *sql.DB, secret, sub, email string) (string, string
 }
 
 // handleRefresh validates a refresh token, ROTATES it (revoke the used one, mint
-// a new pair) and returns a fresh access token. Rotation means a stolen refresh
-// token is detectable and single-use.
+// a new pair in the same family) and returns a fresh access token. If an already-
+// revoked token is presented (reuse - i.e. it was stolen and replayed), the whole
+// token family is revoked so the compromised session cannot continue.
 func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request, db *sql.DB, secret string) {
 	var body struct {
 		RefreshToken string `json:"refresh_token"`
@@ -80,16 +87,26 @@ func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request, db *sql.DB, 
 	}
 	sum := sha256.Sum256([]byte(body.RefreshToken))
 	th := hex.EncodeToString(sum[:])
-	var id, email string
-	err := db.QueryRow(`SELECT rt.user_id, u.email FROM auth.refresh_tokens rt
-		JOIN auth.users u ON u.id = rt.user_id
-		WHERE rt.token_hash=$1 AND NOT rt.revoked AND rt.expires_at > now()`, th).Scan(&id, &email)
+	var id, email, familyID string
+	var revoked, expired bool
+	err := db.QueryRow(`SELECT rt.user_id, u.email, rt.family_id, rt.revoked, rt.expires_at <= now()
+		FROM auth.refresh_tokens rt JOIN auth.users u ON u.id = rt.user_id
+		WHERE rt.token_hash=$1`, th).Scan(&id, &email, &familyID, &revoked, &expired)
 	if err != nil {
-		writeJSON(w, 401, map[string]string{"message": "invalid or expired refresh token"})
+		writeJSON(w, 401, map[string]string{"message": "invalid refresh token"})
+		return
+	}
+	if revoked {
+		db.Exec(`UPDATE auth.refresh_tokens SET revoked=true WHERE family_id=$1`, familyID)
+		writeJSON(w, 401, map[string]string{"message": "refresh token reuse detected; session revoked"})
+		return
+	}
+	if expired {
+		writeJSON(w, 401, map[string]string{"message": "expired refresh token"})
 		return
 	}
 	db.Exec(`UPDATE auth.refresh_tokens SET revoked=true WHERE token_hash=$1`, th)
-	acc, ref, terr := a.issueTokens(db, secret, id, email)
+	acc, ref, terr := a.issueTokens(db, secret, id, email, familyID)
 	if terr != nil {
 		writeJSON(w, 500, map[string]string{"message": terr.Error()})
 		return
@@ -136,10 +153,12 @@ func (a *app) ensureAuth(slug string) (string, error) {
 			id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 			user_id uuid NOT NULL,
 			token_hash text NOT NULL,
+			family_id uuid NOT NULL DEFAULT gen_random_uuid(),
 			expires_at timestamptz NOT NULL,
 			revoked boolean NOT NULL DEFAULT false,
 			created_at timestamptz NOT NULL DEFAULT now()
 		)`,
+		`ALTER TABLE auth.refresh_tokens ADD COLUMN IF NOT EXISTS family_id uuid NOT NULL DEFAULT gen_random_uuid()`,
 		`CREATE INDEX IF NOT EXISTS refresh_tokens_hash ON auth.refresh_tokens(token_hash)`,
 		`CREATE TABLE IF NOT EXISTS auth.users (
 			id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -235,7 +254,7 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 			writeJSON(w, 400, map[string]string{"message": "user already exists"})
 			return
 		}
-		acc, ref, terr := a.issueTokens(db, secret, id, body.Email)
+		acc, ref, terr := a.issueTokens(db, secret, id, body.Email, "")
 		if terr != nil {
 			writeJSON(w, 500, map[string]string{"message": terr.Error()})
 			return
@@ -265,7 +284,7 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 			return
 		}
 		db.Exec(`UPDATE auth.users SET last_sign_in_at=now() WHERE id=$1`, id)
-		acc, ref, terr := a.issueTokens(db, secret, id, body.Email)
+		acc, ref, terr := a.issueTokens(db, secret, id, body.Email, "")
 		if terr != nil {
 			writeJSON(w, 500, map[string]string{"message": terr.Error()})
 			return
@@ -283,7 +302,14 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		json.NewDecoder(r.Body).Decode(&body)
 		if body.RefreshToken != "" {
 			sum := sha256.Sum256([]byte(body.RefreshToken))
-			db.Exec(`UPDATE auth.refresh_tokens SET revoked=true WHERE token_hash=$1`, hex.EncodeToString(sum[:]))
+			th := hex.EncodeToString(sum[:])
+			if r.URL.Query().Get("scope") == "global" {
+				// revoke every session for the owning user, not just this token
+				db.Exec(`UPDATE auth.refresh_tokens SET revoked=true
+					WHERE user_id=(SELECT user_id FROM auth.refresh_tokens WHERE token_hash=$1)`, th)
+			} else {
+				db.Exec(`UPDATE auth.refresh_tokens SET revoked=true WHERE token_hash=$1`, th)
+			}
 		}
 		writeJSON(w, 200, map[string]string{"message": "signed out"})
 
