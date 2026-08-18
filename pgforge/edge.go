@@ -38,21 +38,25 @@ func (a *app) edgePage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	type fn struct{ Name, Created string }
+	type fn struct {
+		Name, Created string
+		VerifyJWT     bool
+	}
 	var fns []fn
-	rows, _ := a.db.Query(`SELECT name, to_char(created_at,'Mon DD, YYYY') FROM edge_functions WHERE slug=$1 ORDER BY name`, slug)
+	rows, _ := a.db.Query(`SELECT name, to_char(created_at,'Mon DD, YYYY'), verify_jwt FROM edge_functions WHERE slug=$1 ORDER BY name`, slug)
 	if rows != nil {
 		for rows.Next() {
 			var f fn
-			rows.Scan(&f.Name, &f.Created)
+			rows.Scan(&f.Name, &f.Created, &f.VerifyJWT)
 			fns = append(fns, f)
 		}
 		rows.Close()
 	}
 	edit := r.URL.Query().Get("fn")
 	code := defaultFunc
+	verifyJWT := true // new functions require a JWT by default
 	if edit != "" {
-		a.db.QueryRow(`SELECT code FROM edge_functions WHERE slug=$1 AND name=$2`, slug, edit).Scan(&code)
+		a.db.QueryRow(`SELECT code, verify_jwt FROM edge_functions WHERE slug=$1 AND name=$2`, slug, edit).Scan(&code, &verifyJWT)
 	}
 	var secrets []string
 	if rows, _ := a.db.Query(`SELECT name FROM edge_secrets WHERE slug=$1 ORDER BY name`, slug); rows != nil {
@@ -75,7 +79,8 @@ func (a *app) edgePage(w http.ResponseWriter, r *http.Request) {
 	}
 	content := renderContent(edgeBody, map[string]any{
 		"Slug": slug, "Fns": fns, "Edit": edit, "Code": code, "Secrets": secrets, "Logs": logs,
-		"Base": "https://" + slug + "." + a.cfg.domain + "/functions/v1",
+		"VerifyJWT": verifyJWT,
+		"Base":      "https://" + slug + "." + a.cfg.domain + "/functions/v1",
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Functions", Nav: "edge", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Edge Functions"}}}, content)
@@ -85,6 +90,7 @@ func (a *app) saveFunction(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	name := strings.ToLower(strings.TrimSpace(r.FormValue("name")))
 	code := r.FormValue("code")
+	verifyJWT := r.FormValue("verify_jwt") == "on"
 	if !funcNameRe.MatchString(name) {
 		redirectErr(w, r, "/p/"+slug+"/functions", "Function name: 2-41 chars, a-z 0-9 _ -.")
 		return
@@ -99,8 +105,8 @@ func (a *app) saveFunction(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/functions", "Could not write function: "+err.Error())
 		return
 	}
-	a.db.Exec(`INSERT INTO edge_functions(slug,name,code) VALUES ($1,$2,$3)
-		ON CONFLICT (slug,name) DO UPDATE SET code=$3`, slug, name, code)
+	a.db.Exec(`INSERT INTO edge_functions(slug,name,code,verify_jwt) VALUES ($1,$2,$3,$4)
+		ON CONFLICT (slug,name) DO UPDATE SET code=$3, verify_jwt=$4`, slug, name, code, verifyJWT)
 	a.audit(r, "function-save", slug+"/"+name)
 	redirectMsg(w, r, "/p/"+slug+"/functions?fn="+name, "Function "+name+" deployed.")
 }
@@ -154,6 +160,24 @@ func (a *app) serveFunction(w http.ResponseWriter, r *http.Request, slug string)
 	if _, err := os.Stat(file); err != nil {
 		http.Error(w, `{"message":"function not found"}`, http.StatusNotFound)
 		return
+	}
+	// If this function requires a JWT, verify one before running it. This is the
+	// safe default for new functions: without it, a public function that uses the
+	// injected service-role key is reachable by anonymous callers.
+	var verifyJWT bool
+	a.db.QueryRow(`SELECT verify_jwt FROM edge_functions WHERE slug=$1 AND name=$2`, slug, name).Scan(&verifyJWT)
+	if verifyJWT {
+		secret, _ := a.apiConfig(slug)
+		key := r.Header.Get("apikey")
+		if key == "" {
+			key = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		}
+		if _, ok := verifyUserJWT([]byte(secret), key); secret == "" || !ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"message":"missing or invalid JWT"}`))
+			return
+		}
 	}
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 	hdr := map[string]string{}

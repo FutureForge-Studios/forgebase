@@ -397,9 +397,13 @@ func (a *app) ensureSchema() error {
 		)`,
 		`CREATE TABLE IF NOT EXISTS edge_functions (
 			slug text NOT NULL, name text NOT NULL, code text NOT NULL,
+			verify_jwt boolean NOT NULL DEFAULT false,
 			created_at timestamptz NOT NULL DEFAULT now(),
 			PRIMARY KEY (slug, name)
 		)`,
+		// Existing installs: add the column. Default false so already-deployed
+		// public functions keep working; new functions opt into JWT by default.
+		`ALTER TABLE edge_functions ADD COLUMN IF NOT EXISTS verify_jwt boolean NOT NULL DEFAULT false`,
 		`CREATE TABLE IF NOT EXISTS saved_queries (
 			id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 			slug text NOT NULL, name text NOT NULL, sql text NOT NULL,

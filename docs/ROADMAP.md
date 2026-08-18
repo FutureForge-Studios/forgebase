@@ -26,7 +26,7 @@ See [COMPARISON.md](COMPARISON.md) for the honest per-feature parity verdicts.
 
 These are bugs or footguns that bite today. Mostly small.
 
-- [ ] 1. Edge Functions `verify_jwt` per-function toggle, **default on for new functions** - closes public-by-default + service-key-injected footgun. *(Supabase defaults to on.)* **S**
+- [x] 1. Edge Functions `verify_jwt` per-function toggle, **default on for new functions** - closes public-by-default + service-key-injected footgun. *(Supabase defaults to on.)* **S** — shipped `1.1.1`
 - [ ] 2. Cap the storage client-upload body + per-bucket size/MIME limits - stop disk-fill; match Supabase bucket limits. **S**
 - [ ] 3. Realtime: restrict subscriptions to `authenticated`/`service_role` (not the public `anon` key) + add per-column value filters (`id=eq.5`). *(Supabase has both.)* **S-M**
 - [ ] 4. Fix Realtime/Webhook shared-trigger coupling (disabling Realtime kills webhooks) and cover tables created after enable. **S**

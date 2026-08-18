@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.1.0"
+const appVersion = "1.1.1"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.1.1", Date: "2026-08-18",
+		Summary: "Edge Functions can require a JWT.",
+		Sections: []changeSection{
+			{"Security", []string{
+				"Edge Functions can now require a valid JWT to invoke. New functions default to JWT-required (toggle it per function on the Functions page); functions that were already deployed keep their current public setting. This closes a footgun where a public function using the injected service-role key was reachable by anonymous callers.",
+			}},
+		},
+	},
 	{
 		Version: "1.1.0", Date: "2026-08-18",
 		Summary: "Clearer update notes, and the foundation for copy-on-write branching.",

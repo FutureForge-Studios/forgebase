@@ -1224,7 +1224,7 @@ const edgeBody = `
   <div style="flex:1;min-width:0">
     {{if .Edit}}
     <div class="card" style="margin-bottom:1rem">
-      <div style="display:flex;align-items:center;gap:.6rem"><h2>{{.Edit}}</h2><span class="badge active">deployed</span><div class="spacer"></div>
+      <div style="display:flex;align-items:center;gap:.6rem"><h2>{{.Edit}}</h2><span class="badge active">deployed</span>{{if .VerifyJWT}}<span class="badge active">JWT required</span>{{else}}<span class="badge paused">public</span>{{end}}<div class="spacer"></div>
         <form method="post" action="/p/{{.Slug}}/function-delete" onsubmit="return confirm('Delete {{.Edit}}?')"><input type="hidden" name="name" value="{{.Edit}}"><button class="btn btn-danger btn-sm">Delete</button></form></div>
       <div class="cs" style="margin-top:.7rem"><span class="tag">Invoke</span><code id="iu">{{.Base}}/{{.Edit}}</code><button class="copy" onclick="cp('iu')">{{icon "copy"}}</button></div>
       <div class="cs"><span class="tag">curl</span><code id="ic">curl '{{.Base}}/{{.Edit}}?name=Saurabh'</code><button class="copy" onclick="cp('ic')">{{icon "copy"}}</button></div>
@@ -1238,6 +1238,10 @@ const edgeBody = `
         <span class="muted" style="font-size:11.5px">Deno · export default (req: Request) =&gt; Response</span>
       </div>
       <textarea name="code" rows="16" spellcheck="false" style="font-family:var(--mono);font-size:12.5px">{{.Code}}</textarea>
+      <label style="display:flex;align-items:center;gap:.45rem;margin:.7rem 0 0;font-size:12.5px">
+        <input type="checkbox" name="verify_jwt" {{if .VerifyJWT}}checked{{end}}>
+        Require a valid JWT (apikey or Bearer) to invoke <span class="muted">- recommended; unchecked makes the function public to anyone</span>
+      </label>
       <button class="btn btn-primary" type="submit" style="margin-top:.7rem">{{icon "bolt"}} Deploy</button>
     </form>
     <div class="card" style="margin-top:1rem">

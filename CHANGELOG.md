@@ -13,6 +13,15 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.1.1] - 2026-08-18
+
+### Security
+- Edge Functions can now require a valid JWT to invoke. New functions default to
+  JWT-required (toggle it per function on the Functions page); already-deployed
+  functions keep their current public setting. This closes a footgun where a
+  public function using the injected service-role key was reachable by anonymous
+  callers.
+
 ## [1.1.0] - 2026-08-18
 
 ### Changed
@@ -188,7 +197,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.1...v1.0.2
