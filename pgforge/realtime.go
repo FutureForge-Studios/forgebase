@@ -106,7 +106,9 @@ func (a *app) rtGetHub(slug string) *rtHub {
 }
 
 // ensureChangeTriggers installs the NOTIFY trigger function + per-table triggers
-// used by both Realtime and Webhooks. Shared so either feature can enable it.
+// used by both Realtime and Webhooks, plus an event trigger that auto-attaches the
+// same trigger to any table created later (via the editor, SQL, or an external
+// client) so new tables are covered without a manual "re-scan".
 func (a *app) ensureChangeTriggers(slug string) error {
 	db, err := a.dbFor(slug)
 	if err != nil {
@@ -120,7 +122,39 @@ func (a *app) ensureChangeTriggers(slug string) error {
 		db.Exec(fmt.Sprintf(`DROP TRIGGER IF EXISTS forgebase_rt ON public.%s`, q))
 		db.Exec(fmt.Sprintf(`CREATE TRIGGER forgebase_rt AFTER INSERT OR UPDATE OR DELETE ON public.%s FOR EACH ROW EXECUTE FUNCTION forgebase_notify()`, q))
 	}
+	db.Exec(rtEventTriggerFn)
+	db.Exec(`DROP EVENT TRIGGER IF EXISTS forgebase_rt_ddl`)
+	db.Exec(`CREATE EVENT TRIGGER forgebase_rt_ddl ON ddl_command_end WHEN TAG IN ('CREATE TABLE') EXECUTE FUNCTION forgebase_rt_autoattach()`)
 	return nil
+}
+
+// dropChangeTriggers removes the change triggers + the auto-attach event trigger.
+func (a *app) dropChangeTriggers(slug string) {
+	db, err := a.dbFor(slug)
+	if err != nil {
+		return
+	}
+	db.Exec(`DROP EVENT TRIGGER IF EXISTS forgebase_rt_ddl`)
+	for _, t := range a.listTables(db) {
+		db.Exec(fmt.Sprintf(`DROP TRIGGER IF EXISTS forgebase_rt ON public.%s`, pq.QuoteIdentifier(t)))
+	}
+}
+
+func (a *app) hasWebhooks(slug string) bool {
+	var n int
+	a.db.QueryRow(`SELECT count(*) FROM webhooks WHERE slug=$1`, slug).Scan(&n)
+	return n > 0
+}
+
+// reconcileChangeTriggers keeps the shared change triggers installed as long as
+// either Realtime or Webhooks needs them, and removes them only when neither does.
+// This fixes the coupling where disabling Realtime silently killed webhooks.
+func (a *app) reconcileChangeTriggers(slug string) {
+	if a.realtimeEnabled(slug) || a.hasWebhooks(slug) {
+		a.ensureChangeTriggers(slug)
+	} else {
+		a.dropChangeTriggers(slug)
+	}
 }
 
 func (h *rtHub) broadcast(msg []byte) {
@@ -235,6 +269,21 @@ BEGIN
   RETURN NULL;
 END; $$ LANGUAGE plpgsql;`
 
+// rtEventTriggerFn auto-attaches forgebase_rt to any table created after the
+// feature was enabled, so Realtime and Webhooks cover new tables automatically.
+const rtEventTriggerFn = `
+CREATE OR REPLACE FUNCTION forgebase_rt_autoattach() RETURNS event_trigger AS $$
+DECLARE obj record;
+BEGIN
+  FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() WHERE command_tag='CREATE TABLE'
+  LOOP
+    IF obj.schema_name = 'public' THEN
+      EXECUTE format('DROP TRIGGER IF EXISTS forgebase_rt ON %s', obj.object_identity);
+      EXECUTE format('CREATE TRIGGER forgebase_rt AFTER INSERT OR UPDATE OR DELETE ON %s FOR EACH ROW EXECUTE FUNCTION forgebase_notify()', obj.object_identity);
+    END IF;
+  END LOOP;
+END; $$ LANGUAGE plpgsql;`
+
 func (a *app) enableRealtime(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	db, err := a.dbFor(slug)
@@ -255,12 +304,10 @@ func (a *app) enableRealtime(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) disableRealtime(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
-	if db, err := a.dbFor(slug); err == nil {
-		for _, t := range a.listTables(db) {
-			db.Exec(fmt.Sprintf(`DROP TRIGGER IF EXISTS forgebase_rt ON public.%s`, pq.QuoteIdentifier(t)))
-		}
-	}
 	a.db.Exec(`UPDATE realtime_config SET enabled=false WHERE slug=$1`, slug)
+	// Keep the shared change triggers if webhooks still need them; only drop when
+	// neither Realtime nor Webhooks is active.
+	a.reconcileChangeTriggers(slug)
 	a.audit(r, "realtime-disable", slug)
 	redirectMsg(w, r, "/p/"+slug+"/realtime", "Realtime disabled.")
 }

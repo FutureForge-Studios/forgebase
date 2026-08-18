@@ -29,7 +29,7 @@ These are bugs or footguns that bite today. Mostly small.
 - [x] 1. Edge Functions `verify_jwt` per-function toggle, **default on for new functions** - closes public-by-default + service-key-injected footgun. *(Supabase defaults to on.)* **S** — shipped `1.1.1`
 - [x] 2. Cap the storage client-upload body + per-bucket size/MIME limits - stop disk-fill; match Supabase bucket limits. **S** — shipped `1.1.2`
 - [x] 3. Realtime: restrict subscriptions to `authenticated`/`service_role` (not the public `anon` key) + add per-column value filters (`id=eq.5`). *(Supabase has both.)* **S-M** — shipped `1.1.3`
-- [ ] 4. Fix Realtime/Webhook shared-trigger coupling (disabling Realtime kills webhooks) and cover tables created after enable. **S**
+- [x] 4. Fix Realtime/Webhook shared-trigger coupling (disabling Realtime kills webhooks) and cover tables created after enable. **S** — shipped `1.1.4`
 - [ ] 5. Webhooks: bypass the 8KB NOTIFY cap for large rows, add `old_record`, custom headers/method, and a longer backoff + manual replay. *(Supabase `pg_net` parity and better.)* **M**
 
 ## Band B - Auth lifecycle (our biggest gap vs Supabase)

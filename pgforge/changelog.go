@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.1.3"
+const appVersion = "1.1.4"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,16 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.1.4", Date: "2026-08-18",
+		Summary: "Realtime and Webhooks reliability fixes.",
+		Sections: []changeSection{
+			{"Fixed", []string{
+				"Disabling Realtime no longer silently stops Webhooks. The two share a change-capture trigger, which is now kept as long as either feature needs it.",
+				"Realtime and Webhooks now cover tables created after they were enabled: an event trigger auto-attaches change capture to new tables, so you no longer have to re-scan after adding a table.",
+			}},
+		},
+	},
 	{
 		Version: "1.1.3", Date: "2026-08-18",
 		Summary: "Safer Realtime + column filters.",

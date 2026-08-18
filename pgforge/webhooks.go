@@ -189,6 +189,8 @@ func (a *app) createWebhook(w http.ResponseWriter, r *http.Request) {
 func (a *app) deleteWebhook(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	a.db.Exec(`DELETE FROM webhooks WHERE id=$1 AND slug=$2`, r.FormValue("id"), slug)
+	// Drop the shared change triggers only if Realtime isn't using them either.
+	a.reconcileChangeTriggers(slug)
 	a.audit(r, "webhook-delete", slug)
 	redirectMsg(w, r, "/p/"+slug+"/webhooks", "Webhook deleted.")
 }
