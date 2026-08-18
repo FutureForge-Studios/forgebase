@@ -13,6 +13,14 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.1] - 2026-08-18
+
+### Added
+- Self-service password reset (needs SMTP): `POST /auth/v1/recover` emails a
+  reset link that opens a set-a-new-password page and signs out other sessions.
+- Magic-link, passwordless sign-in (needs SMTP): `POST /auth/v1/magiclink` emails
+  a one-time sign-in link.
+
 ## [1.2.0] - 2026-08-18
 
 ### Added
@@ -280,7 +288,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.9...v1.2.0
 [1.1.9]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.8...v1.1.9
 [1.1.8]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.7...v1.1.8

@@ -39,8 +39,8 @@ One optional SMTP client unlocks the top four at once.
 
 - [x] 6. Optional SMTP config (feature stays off when unset). **S** — shipped `1.2.0`
 - [x] 7. Email confirmation - `email_confirmed_at`, block login until confirmed. **M** *(Needs SMTP)* — shipped `1.2.0` (resend still pending)
-- [ ] 8. Password reset - self-service `/recover` email + reset page. **M** *(Needs SMTP)*
-- [ ] 9. Magic link / email OTP - passwordless sign-in. **M** *(Needs SMTP)*
+- [x] 8. Password reset - self-service `/recover` email + reset page. **M** *(Needs SMTP)* — shipped `1.2.1`
+- [x] 9. Magic link - passwordless sign-in. **M** *(Needs SMTP)* — shipped `1.2.1` (email OTP still pending)
 - [ ] 10. Real invite emails for team + end-users (replace the manual copy-a-link flow). **S** *(Needs SMTP)*
 - [x] 11. `user_metadata` / `app_metadata` columns, surfaced in the JWT + `/user`. *(Supabase core; apps drive RLS off these.)* **S-M** — shipped `1.1.6`
 - [ ] 12. Configurable token TTLs per project (the `aud` claim shipped in `1.1.6`). **S**

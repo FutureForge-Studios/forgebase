@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -395,25 +394,118 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		writeJSON(w, 200, map[string]any{"id": sub, "email": claims["email"], "user_metadata": json.RawMessage(um)})
 
 	case path == "/verify" && r.Method == http.MethodGet:
-		// Confirm an email from the signed link in the confirmation email.
-		payload, ok := a.verifyState(r.URL.Query().Get("token"))
-		f := strings.Split(payload, "|")
-		if !ok || len(f) != 4 || f[0] != "confirm" || f[1] != slug {
-			w.Header().Set("Content-Type", "text/html")
-			w.WriteHeader(400)
-			w.Write([]byte("<h2>Invalid link</h2><p>This confirmation link is not valid.</p>"))
+		token := r.URL.Query().Get("token")
+		// Magic-link sign-in: verify, find-or-create a confirmed user, issue tokens.
+		if email, ok := a.parseAuthToken(token, "magiclink", slug); ok {
+			var uid string
+			if db.QueryRow(`SELECT id FROM auth.users WHERE email=$1`, email).Scan(&uid) != nil {
+				db.QueryRow(`INSERT INTO auth.users(email, encrypted_password, email_confirmed_at) VALUES ($1,'magiclink',now()) RETURNING id`, email).Scan(&uid)
+			} else {
+				db.Exec(`UPDATE auth.users SET email_confirmed_at=coalesce(email_confirmed_at,now()), last_sign_in_at=now() WHERE id=$1`, uid)
+			}
+			acc, ref, terr := a.issueTokens(db, secret, uid, email, "")
+			if terr != nil {
+				writeJSON(w, 500, map[string]string{"message": terr.Error()})
+				return
+			}
+			a.auditRaw(email, clientIP(r), "user-magiclink", slug)
+			if rt := r.URL.Query().Get("redirect_to"); rt != "" && a.safeOAuthRedirect(slug, rt) {
+				http.Redirect(w, r, rt+"#access_token="+acc+"&refresh_token="+ref+"&token_type=bearer", http.StatusSeeOther)
+				return
+			}
+			writeJSON(w, 200, map[string]any{"access_token": acc, "refresh_token": ref, "token_type": "bearer",
+				"user": map[string]string{"id": uid, "email": email}})
 			return
 		}
-		if exp, _ := strconv.ParseInt(f[3], 10, 64); time.Now().Unix() > exp {
+		// Email confirmation.
+		if email, ok := a.parseAuthToken(token, "confirm", slug); ok {
+			db.Exec(`UPDATE auth.users SET email_confirmed_at=now() WHERE email=$1 AND email_confirmed_at IS NULL`, email)
+			a.auditRaw(email, clientIP(r), "email-confirmed", slug)
 			w.Header().Set("Content-Type", "text/html")
-			w.WriteHeader(400)
-			w.Write([]byte("<h2>Link expired</h2><p>Please sign up again to get a fresh link.</p>"))
+			w.Write([]byte("<h2>Email confirmed</h2><p>Thanks - you can now sign in.</p>"))
 			return
 		}
-		db.Exec(`UPDATE auth.users SET email_confirmed_at=now() WHERE email=$1 AND email_confirmed_at IS NULL`, f[2])
-		a.auditRaw(f[2], clientIP(r), "email-confirmed", slug)
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte("<h2>Email confirmed</h2><p>Thanks - you can now sign in.</p>"))
+		w.WriteHeader(400)
+		w.Write([]byte("<h2>Invalid or expired link</h2>"))
+
+	case path == "/magiclink" && r.Method == http.MethodPost:
+		if a.authRateLimited(clientIP(r)) {
+			writeJSON(w, 429, map[string]string{"message": "too many requests"})
+			return
+		}
+		var body struct {
+			Email      string `json:"email"`
+			RedirectTo string `json:"redirect_to"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+		if strings.Contains(body.Email, "@") {
+			a.sendMagicLinkEmail(slug, body.Email, body.RedirectTo) // best-effort; never reveal existence
+		}
+		writeJSON(w, 200, map[string]string{"message": "if that email can sign in, a magic link is on its way"})
+
+	case path == "/recover" && r.Method == http.MethodPost && r.URL.Query().Get("token") == "":
+		// Request a password-reset email (no token in the request).
+		if a.authRateLimited(clientIP(r)) {
+			writeJSON(w, 429, map[string]string{"message": "too many requests"})
+			return
+		}
+		var body struct {
+			Email string `json:"email"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+		var exists bool
+		db.QueryRow(`SELECT true FROM auth.users WHERE email=$1`, body.Email).Scan(&exists)
+		if exists {
+			a.sendRecoveryEmail(slug, body.Email) // best-effort; response is the same regardless
+		}
+		writeJSON(w, 200, map[string]string{"message": "if that account exists, a reset email is on its way"})
+
+	case path == "/recover" && r.Method == http.MethodGet:
+		// The reset page (opened from the email link): a form to set a new password.
+		if _, ok := a.parseAuthToken(r.URL.Query().Get("token"), "recover", slug); !ok {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(400)
+			w.Write([]byte("<h2>Invalid or expired link</h2>"))
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<!doctype html><meta name=viewport content="width=device-width,initial-scale=1">
+<body style="font-family:system-ui;max-width:380px;margin:3rem auto;padding:0 1rem">
+<h2>Set a new password</h2>
+<form method="post" action="/auth/v1/recover?token=` + r.URL.Query().Get("token") + `">
+<input name=password type=password placeholder="new password (6+)" required minlength=6 style="width:100%;padding:.6rem;margin:.5rem 0;box-sizing:border-box">
+<button type=submit style="padding:.6rem 1rem">Reset password</button></form></body>`))
+
+	case path == "/recover" && r.Method == http.MethodPost:
+		// Apply the new password using the token from the reset page.
+		email, ok := a.parseAuthToken(r.URL.Query().Get("token"), "recover", slug)
+		if !ok {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(400)
+			w.Write([]byte("<h2>Invalid or expired link</h2>"))
+			return
+		}
+		r.ParseForm()
+		pw := r.FormValue("password")
+		if len(pw) < 6 {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(400)
+			w.Write([]byte("<h2>Password too short</h2><p>Use at least 6 characters.</p>"))
+			return
+		}
+		hash, herr := hashPassword(pw)
+		if herr != nil {
+			writeJSON(w, 400, map[string]string{"message": "password too long"})
+			return
+		}
+		db.Exec(`UPDATE auth.users SET encrypted_password=$2, email_confirmed_at=coalesce(email_confirmed_at,now()) WHERE email=$1`, email, hash)
+		db.Exec(`UPDATE auth.refresh_tokens SET revoked=true WHERE user_id=(SELECT id FROM auth.users WHERE email=$1)`, email) // sign out other sessions
+		a.auditRaw(email, clientIP(r), "password-reset", slug)
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte("<h2>Password updated</h2><p>You can now sign in with your new password.</p>"))
 
 	case strings.HasPrefix(path, "/admin/users"):
 		// Admin user management, gated by the service_role key.

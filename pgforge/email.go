@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/smtp"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -49,12 +50,25 @@ func (a *app) sendEmail(slug, to, subject, htmlBody string) error {
 	return smtp.SendMail(fmt.Sprintf("%s:%d", host, port), auth, from, []string{to}, []byte(msg))
 }
 
-// authLink builds a signed, project-scoped, time-limited auth link of the given
+// signAuthToken makes a signed, project-scoped, time-limited token of the given
 // kind (confirm / recover / magiclink) for an email address.
-func (a *app) authLink(kind, slug, email string, ttl time.Duration) string {
+func (a *app) signAuthToken(kind, slug, email string, ttl time.Duration) string {
 	exp := time.Now().Add(ttl).Unix()
-	token := a.signState(fmt.Sprintf("%s|%s|%s|%d", kind, slug, email, exp))
-	return "https://" + slug + "." + a.cfg.domain + "/auth/v1/verify?token=" + token
+	return a.signState(fmt.Sprintf("%s|%s|%s|%d", kind, slug, email, exp))
+}
+
+// parseAuthToken verifies a signed auth token of the expected kind for this
+// project and returns the email if valid and unexpired.
+func (a *app) parseAuthToken(token, wantKind, slug string) (email string, ok bool) {
+	payload, valid := a.verifyState(token)
+	f := strings.Split(payload, "|")
+	if !valid || len(f) != 4 || f[0] != wantKind || f[1] != slug {
+		return "", false
+	}
+	if exp, _ := strconv.ParseInt(f[3], 10, 64); time.Now().Unix() > exp {
+		return "", false
+	}
+	return f[2], true
 }
 
 // saveAuthEmail stores a project's SMTP settings and the confirm-email toggle.
@@ -85,10 +99,31 @@ func (a *app) saveAuthEmail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) sendConfirmationEmail(slug, email string) error {
-	link := a.authLink("confirm", slug, email, 24*time.Hour)
+	link := "https://" + slug + "." + a.cfg.domain + "/auth/v1/verify?token=" + a.signAuthToken("confirm", slug, email, 24*time.Hour)
 	body := fmt.Sprintf(`<p>Confirm your email to finish signing up.</p>
 <p><a href="%s">Confirm my email</a></p>
 <p>Or paste this link into your browser:<br>%s</p>
 <p>This link expires in 24 hours.</p>`, link, link)
 	return a.sendEmail(slug, email, "Confirm your email", body)
+}
+
+func (a *app) sendRecoveryEmail(slug, email string) error {
+	link := "https://" + slug + "." + a.cfg.domain + "/auth/v1/recover?token=" + a.signAuthToken("recover", slug, email, 1*time.Hour)
+	body := fmt.Sprintf(`<p>Reset your password:</p>
+<p><a href="%s">Choose a new password</a></p>
+<p>Or paste this link into your browser:<br>%s</p>
+<p>This link expires in 1 hour. If you didn't request it, ignore this email.</p>`, link, link)
+	return a.sendEmail(slug, email, "Reset your password", body)
+}
+
+func (a *app) sendMagicLinkEmail(slug, email, redirectTo string) error {
+	link := "https://" + slug + "." + a.cfg.domain + "/auth/v1/verify?token=" + a.signAuthToken("magiclink", slug, email, 1*time.Hour)
+	if redirectTo != "" {
+		link += "&redirect_to=" + url.QueryEscape(redirectTo)
+	}
+	body := fmt.Sprintf(`<p>Click to sign in:</p>
+<p><a href="%s">Sign in</a></p>
+<p>Or paste this link into your browser:<br>%s</p>
+<p>This link expires in 1 hour.</p>`, link, link)
+	return a.sendEmail(slug, email, "Your sign-in link", body)
 }
