@@ -24,14 +24,24 @@ import (
 // alive by exchanging the long-lived refresh token for a new access token.
 const accessTokenTTL = 3600
 
-// signUserJWT mints a short-lived authenticated-user access token.
-func signUserJWT(secret []byte, sub, email string) string {
+// signUserJWT mints a short-lived authenticated-user access token. user_metadata
+// and app_metadata are embedded as raw JSON objects so apps (and RLS via
+// auth.jwt()) can read them, matching the Supabase claim shape.
+func signUserJWT(secret []byte, sub, email, userMeta, appMeta string) string {
+	if !json.Valid([]byte(userMeta)) {
+		userMeta = "{}"
+	}
+	if !json.Valid([]byte(appMeta)) {
+		appMeta = "{}"
+	}
 	b64 := func(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
 	header := b64([]byte(`{"alg":"HS256","typ":"JWT"}`))
 	now := time.Now().Unix()
 	claims, _ := json.Marshal(map[string]any{
-		"sub": sub, "email": email, "role": "authenticated",
+		"sub": sub, "email": email, "role": "authenticated", "aud": "authenticated",
 		"iss": "pgforge", "iat": now, "exp": now + accessTokenTTL,
+		"user_metadata": json.RawMessage(userMeta),
+		"app_metadata":  json.RawMessage(appMeta),
 	})
 	payload := b64(claims)
 	signing := header + "." + payload
@@ -51,7 +61,9 @@ func (a *app) issueTokens(db *sql.DB, secret, sub, email string) (string, string
 	if err != nil {
 		return "", "", err
 	}
-	return signUserJWT([]byte(secret), sub, email), refresh, nil
+	userMeta, appMeta := "{}", "{}"
+	db.QueryRow(`SELECT raw_user_meta_data::text, raw_app_meta_data::text FROM auth.users WHERE id=$1`, sub).Scan(&userMeta, &appMeta)
+	return signUserJWT([]byte(secret), sub, email, userMeta, appMeta), refresh, nil
 }
 
 // handleRefresh validates a refresh token, ROTATES it (revoke the used one, mint
@@ -133,9 +145,13 @@ func (a *app) ensureAuth(slug string) (string, error) {
 			id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 			email text UNIQUE NOT NULL,
 			encrypted_password text NOT NULL,
+			raw_user_meta_data jsonb NOT NULL DEFAULT '{}',
+			raw_app_meta_data jsonb NOT NULL DEFAULT '{}',
 			created_at timestamptz NOT NULL DEFAULT now(),
 			last_sign_in_at timestamptz
 		)`,
+		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS raw_user_meta_data jsonb NOT NULL DEFAULT '{}'`,
+		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS raw_app_meta_data jsonb NOT NULL DEFAULT '{}'`,
 		`DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN NOINHERIT; END IF; END $$`,
 		`GRANT USAGE ON SCHEMA public TO authenticated`,
 		`GRANT SELECT ON ALL TABLES IN SCHEMA public TO authenticated`,
@@ -193,7 +209,10 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 			writeJSON(w, 429, map[string]string{"message": "too many requests"})
 			return
 		}
-		var body struct{ Email, Password string }
+		var body struct {
+			Email, Password string
+			Data            json.RawMessage `json:"data"` // optional user_metadata
+		}
 		json.NewDecoder(r.Body).Decode(&body)
 		body.Email = strings.ToLower(strings.TrimSpace(body.Email))
 		if !strings.Contains(body.Email, "@") || len(body.Password) < 6 {
@@ -205,9 +224,13 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 			writeJSON(w, 400, map[string]string{"message": "password too long (max 72 bytes)"})
 			return
 		}
+		meta := "{}"
+		if len(body.Data) > 0 && json.Valid(body.Data) {
+			meta = string(body.Data)
+		}
 		var id string
-		err := db.QueryRow(`INSERT INTO auth.users(email, encrypted_password) VALUES ($1,$2) RETURNING id`,
-			body.Email, hash).Scan(&id)
+		err := db.QueryRow(`INSERT INTO auth.users(email, encrypted_password, raw_user_meta_data) VALUES ($1,$2,$3::jsonb) RETURNING id`,
+			body.Email, hash, meta).Scan(&id)
 		if err != nil {
 			writeJSON(w, 400, map[string]string{"message": "user already exists"})
 			return
@@ -271,7 +294,30 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 			writeJSON(w, 401, map[string]string{"message": "invalid token"})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"id": claims["sub"], "email": claims["email"], "role": claims["role"]})
+		writeJSON(w, 200, map[string]any{"id": claims["sub"], "email": claims["email"], "role": claims["role"],
+			"user_metadata": claims["user_metadata"], "app_metadata": claims["app_metadata"]})
+
+	case path == "/user" && r.Method == http.MethodPut:
+		// self-service update of user_metadata (app_metadata is admin-only)
+		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		claims, ok := verifyUserJWT([]byte(secret), tok)
+		if !ok {
+			writeJSON(w, 401, map[string]string{"message": "invalid token"})
+			return
+		}
+		sub, _ := claims["sub"].(string)
+		var body struct {
+			Data json.RawMessage `json:"data"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		if len(body.Data) == 0 || !json.Valid(body.Data) {
+			writeJSON(w, 400, map[string]string{"message": "a JSON object in \"data\" is required"})
+			return
+		}
+		db.Exec(`UPDATE auth.users SET raw_user_meta_data=$2::jsonb WHERE id=$1`, sub, string(body.Data))
+		var um string
+		db.QueryRow(`SELECT raw_user_meta_data::text FROM auth.users WHERE id=$1`, sub).Scan(&um)
+		writeJSON(w, 200, map[string]any{"id": sub, "email": claims["email"], "user_metadata": json.RawMessage(um)})
 
 	default:
 		writeJSON(w, 404, map[string]string{"message": "not found"})

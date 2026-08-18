@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.1.5"
+const appVersion = "1.1.6"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,16 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.1.6", Date: "2026-08-18",
+		Summary: "User and app metadata on accounts.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"End-user accounts now carry user_metadata and app_metadata. Pass user_metadata as \"data\" at sign-up, read or update it via GET and PUT /auth/v1/user, and it is embedded in the access token so your app and RLS policies (via auth.jwt()) can read it. app_metadata is admin-controlled.",
+				"Access tokens now include the standard aud (\"authenticated\") claim.",
+			}},
+		},
+	},
 	{
 		Version: "1.1.5", Date: "2026-08-18",
 		Summary: "Richer, more reliable webhooks.",

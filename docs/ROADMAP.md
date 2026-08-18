@@ -42,8 +42,8 @@ One optional SMTP client unlocks the top four at once.
 - [ ] 8. Password reset - self-service `/recover` email + reset page. **M** *(Needs SMTP)*
 - [ ] 9. Magic link / email OTP - passwordless sign-in. **M** *(Needs SMTP)*
 - [ ] 10. Real invite emails for team + end-users (replace the manual copy-a-link flow). **S** *(Needs SMTP)*
-- [ ] 11. `user_metadata` / `app_metadata` columns, surfaced in the JWT + `/user`. *(Supabase core; apps drive RLS off these.)* **S-M**
-- [ ] 12. Add the `aud` claim + configurable token TTLs per project. **S**
+- [x] 11. `user_metadata` / `app_metadata` columns, surfaced in the JWT + `/user`. *(Supabase core; apps drive RLS off these.)* **S-M** — shipped `1.1.6`
+- [ ] 12. Configurable token TTLs per project (the `aud` claim shipped in `1.1.6`). **S**
 - [ ] 13. More OAuth providers - Apple, Microsoft, Discord, GitLab, Facebook, LinkedIn. *(Supabase has ~20; we have 2.)* **M**
 - [ ] 14. Refresh-token reuse detection + family revocation; session list + global/others logout. **M**
 - [ ] 15. Admin users REST API + ban (`banned_until`). **M**

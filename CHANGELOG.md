@@ -13,6 +13,15 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.1.6] - 2026-08-18
+
+### Added
+- End-user accounts now carry `user_metadata` and `app_metadata`. Pass
+  `user_metadata` as `data` at sign-up, read/update it via GET and PUT
+  `/auth/v1/user`, and it is embedded in the access token so your app and RLS
+  policies (via `auth.jwt()`) can read it. `app_metadata` is admin-controlled.
+- Access tokens now include the standard `aud` ("authenticated") claim.
+
 ## [1.1.5] - 2026-08-18
 
 ### Added
@@ -234,7 +243,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.5...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.6...HEAD
+[1.1.6]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.5...v1.1.6
 [1.1.5]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.2...v1.1.3
