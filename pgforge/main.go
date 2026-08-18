@@ -357,8 +357,12 @@ func (a *app) ensureSchema() error {
 			slug text NOT NULL, name text NOT NULL, url text NOT NULL,
 			table_name text NOT NULL DEFAULT '',
 			events text NOT NULL DEFAULT 'INSERT,UPDATE,DELETE',
+			method text NOT NULL DEFAULT 'POST',
+			headers text NOT NULL DEFAULT '',
 			created_at timestamptz NOT NULL DEFAULT now()
 		)`,
+		`ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS method text NOT NULL DEFAULT 'POST'`,
+		`ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS headers text NOT NULL DEFAULT ''`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name text`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name text`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_pending boolean NOT NULL DEFAULT false`,

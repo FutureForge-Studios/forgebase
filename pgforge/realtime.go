@@ -257,14 +257,23 @@ func (a *app) serveRealtime(w http.ResponseWriter, r *http.Request, slug string)
 
 const rtTriggerFn = `
 CREATE OR REPLACE FUNCTION forgebase_notify() RETURNS trigger AS $$
-DECLARE rec json; payload text;
+DECLARE rec json; oldrec json; msg text; msgslim text;
 BEGIN
+  -- record = the row's new state (the deleted row on DELETE, for back-compat);
+  -- old_record = the previous state on UPDATE/DELETE (null on INSERT).
   rec := row_to_json(CASE WHEN TG_OP='DELETE' THEN OLD ELSE NEW END);
-  payload := json_build_object('type',TG_OP,'table',TG_TABLE_NAME,'record',rec)::text;
-  IF length(payload) < 7900 THEN
-    PERFORM pg_notify('forgebase_realtime', payload);
+  oldrec := CASE WHEN TG_OP='INSERT' THEN NULL ELSE row_to_json(OLD) END;
+  msg := json_build_object('type',TG_OP,'table',TG_TABLE_NAME,'record',rec,'old_record',oldrec)::text;
+  IF length(msg) < 7900 THEN
+    PERFORM pg_notify('forgebase_realtime', msg);
   ELSE
-    PERFORM pg_notify('forgebase_realtime', json_build_object('type',TG_OP,'table',TG_TABLE_NAME,'record',null)::text);
+    -- too large with both; keep record alone if it fits (no regression), else drop both
+    msgslim := json_build_object('type',TG_OP,'table',TG_TABLE_NAME,'record',rec,'old_record',null)::text;
+    IF length(msgslim) < 7900 THEN
+      PERFORM pg_notify('forgebase_realtime', msgslim);
+    ELSE
+      PERFORM pg_notify('forgebase_realtime', json_build_object('type',TG_OP,'table',TG_TABLE_NAME,'record',null,'old_record',null)::text);
+    END IF;
   END IF;
   RETURN NULL;
 END; $$ LANGUAGE plpgsql;`

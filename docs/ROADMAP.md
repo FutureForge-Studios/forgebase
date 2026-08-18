@@ -30,7 +30,8 @@ These are bugs or footguns that bite today. Mostly small.
 - [x] 2. Cap the storage client-upload body + per-bucket size/MIME limits - stop disk-fill; match Supabase bucket limits. **S** — shipped `1.1.2`
 - [x] 3. Realtime: restrict subscriptions to `authenticated`/`service_role` (not the public `anon` key) + add per-column value filters (`id=eq.5`). *(Supabase has both.)* **S-M** — shipped `1.1.3`
 - [x] 4. Fix Realtime/Webhook shared-trigger coupling (disabling Realtime kills webhooks) and cover tables created after enable. **S** — shipped `1.1.4`
-- [ ] 5. Webhooks: bypass the 8KB NOTIFY cap for large rows, add `old_record`, custom headers/method, and a longer backoff + manual replay. *(Supabase `pg_net` parity and better.)* **M**
+- [x] 5. Webhooks: `old_record`, custom headers/method, and a longer backoff (up to 5 attempts / ~7 min). *(Supabase `pg_net` parity and better.)* **M** — shipped `1.1.5`
+- [ ] 5b. Webhooks: manual replay from the delivery log, and bypass the 8KB NOTIFY cap for very large rows (re-read the row). **S-M**
 
 ## Band B - Auth lifecycle (our biggest gap vs Supabase)
 

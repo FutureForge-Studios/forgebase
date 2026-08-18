@@ -23,16 +23,16 @@ func (a *app) fireWebhooks(slug string, payload []byte) {
 	if json.Unmarshal(payload, &ev) != nil {
 		return
 	}
-	rows, err := a.db.Query(`SELECT id, url, table_name, events, coalesce(secret,'') FROM webhooks WHERE slug=$1`, slug)
+	rows, err := a.db.Query(`SELECT id, url, table_name, events, coalesce(secret,''), method, headers FROM webhooks WHERE slug=$1`, slug)
 	if err != nil {
 		return
 	}
-	type target struct{ id, url, secret string }
+	type target struct{ id, url, secret, method, headers string }
 	var targets []target
 	for rows.Next() {
 		var t target
 		var table, events string
-		rows.Scan(&t.id, &t.url, &table, &events, &t.secret)
+		rows.Scan(&t.id, &t.url, &table, &events, &t.secret, &t.method, &t.headers)
 		if table != "" && table != ev.Table {
 			continue
 		}
@@ -43,27 +43,32 @@ func (a *app) fireWebhooks(slug string, payload []byte) {
 	}
 	rows.Close()
 	for _, t := range targets {
-		go a.deliverWebhook(t.id, slug, t.url, t.secret, payload)
+		go a.deliverWebhook(t.id, slug, t.url, t.secret, t.method, t.headers, payload)
 	}
 }
 
 // deliverWebhook POSTs the payload with an HMAC signature and retries with
 // backoff, recording every attempt so failures are visible instead of silently
 // dropped.
-func (a *app) deliverWebhook(id, slug, url, secret string, payload []byte) {
+func (a *app) deliverWebhook(id, slug, url, secret, method, headers string, payload []byte) {
 	defer func() { recover() }() // a panic here must not kill the binary
+	if method == "" {
+		method = "POST"
+	}
 	var sig string
 	if secret != "" {
 		m := hmac.New(sha256.New, []byte(secret))
 		m.Write(payload)
 		sig = "sha256=" + hex.EncodeToString(m.Sum(nil))
 	}
-	backoff := []time.Duration{0, 3 * time.Second, 10 * time.Second}
+	// Retry with a longer horizon so a target that is down for a few minutes still
+	// gets the event (was ~13s total; now ~7.5 min over 5 attempts).
+	backoff := []time.Duration{0, 5 * time.Second, 30 * time.Second, 2 * time.Minute, 5 * time.Minute}
 	for attempt := 1; attempt <= len(backoff); attempt++ {
 		if backoff[attempt-1] > 0 {
 			time.Sleep(backoff[attempt-1])
 		}
-		req, err := http.NewRequest("POST", url, bytes.NewReader(payload))
+		req, err := http.NewRequest(method, url, bytes.NewReader(payload))
 		if err != nil {
 			a.logDelivery(id, slug, 0, false, attempt, err.Error())
 			return
@@ -72,6 +77,12 @@ func (a *app) deliverWebhook(id, slug, url, secret string, payload []byte) {
 		req.Header.Set("User-Agent", "ForgeBase-Webhook/1")
 		if sig != "" {
 			req.Header.Set("X-ForgeBase-Signature", sig)
+		}
+		// custom headers: one "Key: Value" per line (e.g. an Authorization token)
+		for _, line := range strings.Split(headers, "\n") {
+			if i := strings.Index(line, ":"); i > 0 {
+				req.Header.Set(strings.TrimSpace(line[:i]), strings.TrimSpace(line[i+1:]))
+			}
 		}
 		resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
 		if err != nil {
@@ -171,6 +182,11 @@ func (a *app) createWebhook(w http.ResponseWriter, r *http.Request) {
 			events = append(events, e)
 		}
 	}
+	method := strings.ToUpper(strings.TrimSpace(r.FormValue("method")))
+	if method != "PUT" && method != "PATCH" {
+		method = "POST"
+	}
+	headers := strings.TrimSpace(r.FormValue("headers"))
 	if name == "" || !strings.HasPrefix(url, "http") || len(events) == 0 {
 		redirectErr(w, r, "/p/"+slug+"/webhooks", "Enter a name, an http(s) URL, and at least one event.")
 		return
@@ -179,8 +195,8 @@ func (a *app) createWebhook(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/webhooks", "Setup failed: "+err.Error())
 		return
 	}
-	a.db.Exec(`INSERT INTO webhooks(slug,name,url,table_name,events,secret) VALUES ($1,$2,$3,$4,$5,$6)`,
-		slug, name, url, table, strings.Join(events, ","), randHex(16))
+	a.db.Exec(`INSERT INTO webhooks(slug,name,url,table_name,events,secret,method,headers) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		slug, name, url, table, strings.Join(events, ","), randHex(16), method, headers)
 	a.rtGetHub(slug) // ensure the listener is running
 	a.audit(r, "webhook-create", slug+"/"+name)
 	redirectMsg(w, r, "/p/"+slug+"/webhooks", "Webhook \""+name+"\" created.")

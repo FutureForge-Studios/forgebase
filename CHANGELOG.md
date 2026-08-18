@@ -13,6 +13,18 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.1.5] - 2026-08-18
+
+### Added
+- Webhook payloads now include `old_record` (the row's previous values on update
+  and delete), so consumers can diff changes.
+- Webhooks support a custom HTTP method (POST/PUT/PATCH) and a custom header (for
+  example an Authorization token to the target).
+
+### Changed
+- Webhook delivery retries over a longer window (up to 5 attempts across about 7
+  minutes) so a briefly-down target still receives the event.
+
 ## [1.1.4] - 2026-08-18
 
 ### Fixed
@@ -222,7 +234,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.4...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.5...HEAD
+[1.1.5]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.1...v1.1.2

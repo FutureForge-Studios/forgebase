@@ -1189,6 +1189,10 @@ const webhooksBody = `
     <label class="fld"><span class="lt">Table</span><select name="table"><option value="">All tables</option>{{range .Tables}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
   </div>
   <label class="fld"><span class="lt">URL</span><input type="url" name="url" placeholder="https://example.com/webhook" required></label>
+  <div class="grid g2">
+    <label class="fld"><span class="lt">Method</span><select name="method"><option>POST</option><option>PUT</option><option>PATCH</option></select></label>
+    <label class="fld"><span class="lt">Custom header (optional)</span><input type="text" name="headers" placeholder="Authorization: Bearer xyz"></label>
+  </div>
   <div style="display:flex;gap:1rem;align-items:center;margin-bottom:.9rem">
     <span class="label">Events:</span>
     <label style="display:flex;align-items:center;gap:.3rem;font-size:13px;cursor:pointer"><input type="checkbox" name="ev_INSERT" checked style="width:auto"> Insert</label>
@@ -1199,7 +1203,7 @@ const webhooksBody = `
 </form>
 <div class="card">
   <h2>Webhooks</h2>
-  <p class="muted" style="font-size:12.5px;margin:.3rem 0 0">Payload: <code>{"type":"INSERT","table":"...","record":{...}}</code>, POSTed as JSON. Each delivery is signed - verify <code>X-ForgeBase-Signature: sha256=HMAC(secret, body)</code>. Failed deliveries retry twice with backoff. New tables need any webhook re-created to attach triggers.</p>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 0">Payload: <code>{"type":"UPDATE","table":"...","record":{...},"old_record":{...}}</code>, sent as JSON. Each delivery is signed - verify <code>X-ForgeBase-Signature: sha256=HMAC(secret, body)</code>. Failed deliveries retry up to 5 times over ~7 minutes. New tables are covered automatically.</p>
   {{if not .Hooks}}<p class="muted" style="margin-top:.6rem">No webhooks yet.</p>{{else}}
   <div class="tblwrap" style="margin-top:.8rem"><table class="data">
     <thead><tr><th>Name</th><th>URL</th><th>Table</th><th>Events</th><th>Signing secret</th><th></th></tr></thead>
