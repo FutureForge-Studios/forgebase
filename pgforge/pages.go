@@ -869,7 +869,7 @@ const authPageBody = `
 </div>
 <div class="card" style="margin-bottom:1rem">
   <h2>Social sign-in</h2>
-  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .6rem">Let users sign in with Google or GitHub. Register this callback URL with the provider, then start the flow at <code>{{.Base}}/authorize?provider=google&redirect_to=YOUR_APP</code>.</p>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .6rem">Let users sign in with Google, GitHub, GitLab or Discord. Register this callback URL with the provider, then start the flow at <code>{{.Base}}/authorize?provider=google&redirect_to=YOUR_APP</code>.</p>
   <div class="cs" style="margin-bottom:.9rem"><span class="tag">Callback</span><code id="cb">{{.Callback}}</code><button class="copy" onclick="cp('cb')">{{icon "copy"}}</button></div>
   <div class="grid g2">
   {{range .Providers}}

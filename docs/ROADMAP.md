@@ -44,7 +44,7 @@ One optional SMTP client unlocks the top four at once.
 - [ ] 10. Real invite emails for team + end-users (replace the manual copy-a-link flow). **S** *(Needs SMTP)*
 - [x] 11. `user_metadata` / `app_metadata` columns, surfaced in the JWT + `/user`. *(Supabase core; apps drive RLS off these.)* **S-M** — shipped `1.1.6`
 - [ ] 12. Configurable token TTLs per project (the `aud` claim shipped in `1.1.6`). **S**
-- [ ] 13. More OAuth providers - Apple, Microsoft, Discord, GitLab, Facebook, LinkedIn. *(Supabase has ~20; we have 2.)* **M**
+- [x] 13. More OAuth providers - GitLab + Discord added (Google/GitHub/GitLab/Discord). **M** — shipped `1.1.8` (Apple/Microsoft/Facebook/LinkedIn still pending; they need id_token or special email endpoints)
 - [x] 14. Refresh-token reuse detection + family revocation + global logout. **M** — shipped `1.1.7` (session-list UI still pending)
 - [ ] 15. Admin users REST API + ban (`banned_until`). **M**
 - [ ] 16. TOTP MFA (enroll/verify, AAL in JWT, recovery codes). **L**

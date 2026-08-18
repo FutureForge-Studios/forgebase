@@ -23,8 +23,10 @@ import (
 type oauthMeta struct{ AuthURL, TokenURL, UserURL, Scope string }
 
 var oauthProviders = map[string]oauthMeta{
-	"google": {"https://accounts.google.com/o/oauth2/v2/auth", "https://oauth2.googleapis.com/token", "https://www.googleapis.com/oauth2/v2/userinfo", "openid email profile"},
-	"github": {"https://github.com/login/oauth/authorize", "https://github.com/login/oauth/access_token", "https://api.github.com/user", "read:user user:email"},
+	"google":  {"https://accounts.google.com/o/oauth2/v2/auth", "https://oauth2.googleapis.com/token", "https://www.googleapis.com/oauth2/v2/userinfo", "openid email profile"},
+	"github":  {"https://github.com/login/oauth/authorize", "https://github.com/login/oauth/access_token", "https://api.github.com/user", "read:user user:email"},
+	"gitlab":  {"https://gitlab.com/oauth/authorize", "https://gitlab.com/oauth/token", "https://gitlab.com/oauth/userinfo", "openid email"},
+	"discord": {"https://discord.com/api/oauth2/authorize", "https://discord.com/api/oauth2/token", "https://discord.com/api/users/@me", "identify email"},
 }
 
 func (a *app) oauthConfig(slug, provider string) (id, secret string, enabled bool) {
@@ -209,14 +211,16 @@ func (a *app) oauthEmail(provider string, meta oauthMeta, accessToken string) st
 		}
 		return ""
 	}
-	// Google (and OIDC-style providers): require the email to be verified.
+	// Google / GitLab / Discord (and OIDC-style providers): require a verified
+	// email. Different providers name the flag differently.
 	var info struct {
 		Email         string `json:"email"`
-		VerifiedEmail bool   `json:"verified_email"`
-		EmailVerified bool   `json:"email_verified"`
+		VerifiedEmail bool   `json:"verified_email"` // Google
+		EmailVerified bool   `json:"email_verified"` // GitLab / OIDC
+		Verified      bool   `json:"verified"`       // Discord
 	}
 	json.Unmarshal(get(meta.UserURL), &info)
-	if info.Email != "" && (info.VerifiedEmail || info.EmailVerified) {
+	if info.Email != "" && (info.VerifiedEmail || info.EmailVerified || info.Verified) {
 		return strings.ToLower(info.Email)
 	}
 	return ""

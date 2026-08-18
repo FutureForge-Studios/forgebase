@@ -389,7 +389,7 @@ func (a *app) authPage(w http.ResponseWriter, r *http.Request) {
 		Enabled        bool
 	}
 	var providers []provCfg
-	for _, p := range []string{"google", "github"} {
+	for _, p := range []string{"google", "github", "gitlab", "discord"} {
 		id, _, en := a.oauthConfig(slug, p)
 		providers = append(providers, provCfg{Name: p, ClientID: id, Enabled: en})
 	}

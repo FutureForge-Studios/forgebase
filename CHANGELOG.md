@@ -13,6 +13,13 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.1.8] - 2026-08-18
+
+### Added
+- GitLab and Discord are now available as end-user OAuth sign-in providers,
+  alongside Google and GitHub. Configure the client id and secret on the Auth
+  page.
+
 ## [1.1.7] - 2026-08-18
 
 ### Security
@@ -252,7 +259,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.7...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.8...HEAD
+[1.1.8]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.7...v1.1.8
 [1.1.7]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.6...v1.1.7
 [1.1.6]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.5...v1.1.6
 [1.1.5]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.4...v1.1.5

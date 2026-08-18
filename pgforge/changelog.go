@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.1.7"
+const appVersion = "1.1.8"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.1.8", Date: "2026-08-18",
+		Summary: "More sign-in providers.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"GitLab and Discord are now available as end-user OAuth sign-in providers, alongside Google and GitHub. Configure the client id and secret on the Auth page.",
+			}},
+		},
+	},
 	{
 		Version: "1.1.7", Date: "2026-08-18",
 		Summary: "Stronger session security.",
