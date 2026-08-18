@@ -868,6 +868,21 @@ const authPageBody = `
   <p class="muted" style="font-size:11.5px;margin-top:.7rem">Login returns an <code>access_token</code> (role <code>authenticated</code>). Send it to the Data API as <code>Authorization: Bearer</code> to act as that user under your RLS policies.</p>
 </div>
 <div class="card" style="margin-bottom:1rem">
+  <h2>Email (SMTP)</h2>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .7rem">Optional. Point at an SMTP server to send confirmation, password-reset and magic-link emails. Leave blank to keep the simple no-email flow.</p>
+  <form method="post" action="/p/{{.Slug}}/auth-smtp">
+    <div class="grid g2">
+      <label class="fld"><span class="lt">SMTP host</span><input type="text" name="smtp_host" value="{{.SMTPHost}}" placeholder="smtp.sendgrid.net"></label>
+      <label class="fld"><span class="lt">Port</span><input type="number" name="smtp_port" value="{{.SMTPPort}}" placeholder="587"></label>
+      <label class="fld"><span class="lt">Username</span><input type="text" name="smtp_user" value="{{.SMTPUser}}" placeholder="apikey"></label>
+      <label class="fld"><span class="lt">Password</span><input type="password" name="smtp_pass" placeholder="{{if .SMTPHost}}leave blank to keep{{else}}smtp password{{end}}"></label>
+    </div>
+    <label class="fld"><span class="lt">From address</span><input type="text" name="smtp_from" value="{{.SMTPFrom}}" placeholder="no-reply@yourapp.com"></label>
+    <label style="display:flex;align-items:center;gap:.45rem;font-size:12.5px;margin:.5rem 0 .7rem;cursor:pointer"><input type="checkbox" name="confirm_email" {{if .ConfirmEmail}}checked{{end}}> Require email confirmation before sign-in</label>
+    <button class="btn btn-primary btn-sm" type="submit">Save email settings</button>
+  </form>
+</div>
+<div class="card" style="margin-bottom:1rem">
   <h2>Social sign-in</h2>
   <p class="muted" style="font-size:12.5px;margin:.3rem 0 .6rem">Let users sign in with Google, GitHub, GitLab or Discord. Register this callback URL with the provider, then start the flow at <code>{{.Base}}/authorize?provider=google&redirect_to=YOUR_APP</code>.</p>
   <div class="cs" style="margin-bottom:.9rem"><span class="tag">Callback</span><code id="cb">{{.Callback}}</code><button class="copy" onclick="cp('cb')">{{icon "copy"}}</button></div>

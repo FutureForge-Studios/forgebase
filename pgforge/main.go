@@ -226,6 +226,7 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/auth-user-password", a.auth(proj(a.setAuthUserPassword)))
 	mux.HandleFunc("POST /p/{slug}/auth-user-delete", a.auth(proj(a.deleteAuthUser)))
 	mux.HandleFunc("POST /p/{slug}/oauth-save", a.auth(admin(a.saveOAuth)))
+	mux.HandleFunc("POST /p/{slug}/auth-smtp", a.auth(admin(a.saveAuthEmail)))
 	mux.HandleFunc("GET /p/{slug}/realtime", a.auth(proj(a.realtimePage)))
 	mux.HandleFunc("POST /p/{slug}/realtime-enable", a.auth(proj(a.enableRealtime)))
 	mux.HandleFunc("POST /p/{slug}/realtime-disable", a.auth(proj(a.disableRealtime)))
@@ -338,8 +339,20 @@ func (a *app) ensureSchema() error {
 		`CREATE TABLE IF NOT EXISTS auth_config (
 			slug text PRIMARY KEY,
 			enabled boolean NOT NULL DEFAULT false,
+			smtp_host text NOT NULL DEFAULT '',
+			smtp_port integer NOT NULL DEFAULT 587,
+			smtp_user text NOT NULL DEFAULT '',
+			smtp_pass_enc bytea,
+			smtp_from text NOT NULL DEFAULT '',
+			confirm_email boolean NOT NULL DEFAULT false,
 			created_at timestamptz NOT NULL DEFAULT now()
 		)`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS smtp_host text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS smtp_port integer NOT NULL DEFAULT 587`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS smtp_user text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS smtp_pass_enc bytea`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS smtp_from text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS confirm_email boolean NOT NULL DEFAULT false`,
 		`CREATE TABLE IF NOT EXISTS realtime_config (
 			slug text PRIMARY KEY,
 			enabled boolean NOT NULL DEFAULT false,

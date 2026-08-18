@@ -13,6 +13,15 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.0] - 2026-08-18
+
+### Added
+- Optional SMTP email. Configure an SMTP server per project on the Auth page to
+  send transactional emails; it stays off (and nothing changes) until you set it.
+- Email confirmation. When SMTP is set you can require confirmation before
+  sign-in: new sign-ups receive a confirmation link and cannot log in until they
+  click it.
+
 ## [1.1.9] - 2026-08-18
 
 ### Added
@@ -271,7 +280,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.9...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.9...v1.2.0
 [1.1.9]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.8...v1.1.9
 [1.1.8]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.7...v1.1.8
 [1.1.7]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.6...v1.1.7

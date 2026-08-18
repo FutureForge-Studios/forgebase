@@ -37,8 +37,8 @@ These are bugs or footguns that bite today. Mostly small.
 
 One optional SMTP client unlocks the top four at once.
 
-- [ ] 6. Optional SMTP config (feature stays off when unset). **S**
-- [ ] 7. Email confirmation - double opt-in, `email_confirmed_at`, resend, block login until confirmed. **M** *(Needs SMTP)*
+- [x] 6. Optional SMTP config (feature stays off when unset). **S** — shipped `1.2.0`
+- [x] 7. Email confirmation - `email_confirmed_at`, block login until confirmed. **M** *(Needs SMTP)* — shipped `1.2.0` (resend still pending)
 - [ ] 8. Password reset - self-service `/recover` email + reset page. **M** *(Needs SMTP)*
 - [ ] 9. Magic link / email OTP - passwordless sign-in. **M** *(Needs SMTP)*
 - [ ] 10. Real invite emails for team + end-users (replace the manual copy-a-link flow). **S** *(Needs SMTP)*

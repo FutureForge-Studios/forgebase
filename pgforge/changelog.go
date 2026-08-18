@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.1.9"
+const appVersion = "1.2.0"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,16 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.2.0", Date: "2026-08-18",
+		Summary: "Optional email: SMTP + email confirmation.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Optional SMTP email. Configure an SMTP server per project on the Auth page to send transactional emails; it stays off (and nothing changes) until you set it.",
+				"Email confirmation. When SMTP is set you can require confirmation before sign-in: new sign-ups receive a confirmation link and cannot log in until they click it.",
+			}},
+		},
+	},
 	{
 		Version: "1.1.9", Date: "2026-08-18",
 		Summary: "Admin user management and bans.",

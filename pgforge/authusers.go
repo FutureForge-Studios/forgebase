@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -191,12 +192,14 @@ func (a *app) ensureAuth(slug string) (string, error) {
 			raw_user_meta_data jsonb NOT NULL DEFAULT '{}',
 			raw_app_meta_data jsonb NOT NULL DEFAULT '{}',
 			banned_until timestamptz,
+			email_confirmed_at timestamptz,
 			created_at timestamptz NOT NULL DEFAULT now(),
 			last_sign_in_at timestamptz
 		)`,
 		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS raw_user_meta_data jsonb NOT NULL DEFAULT '{}'`,
 		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS raw_app_meta_data jsonb NOT NULL DEFAULT '{}'`,
 		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS banned_until timestamptz`,
+		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email_confirmed_at timestamptz`,
 		`DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN NOINHERIT; END IF; END $$`,
 		`GRANT USAGE ON SCHEMA public TO authenticated`,
 		`GRANT SELECT ON ALL TABLES IN SCHEMA public TO authenticated`,
@@ -280,6 +283,17 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 			writeJSON(w, 400, map[string]string{"message": "user already exists"})
 			return
 		}
+		if a.authConfirmEmail(slug) {
+			if serr := a.sendConfirmationEmail(slug, body.Email); serr != nil {
+				db.Exec(`DELETE FROM auth.users WHERE id=$1`, id) // let them retry
+				writeJSON(w, 500, map[string]string{"message": "could not send confirmation email: " + serr.Error()})
+				return
+			}
+			a.auditRaw(body.Email, clientIP(r), "user-signup-pending", slug)
+			writeJSON(w, 200, map[string]any{"message": "confirmation email sent; confirm your email to sign in",
+				"user": map[string]any{"id": id, "email": body.Email, "email_confirmed_at": nil}})
+			return
+		}
 		acc, ref, terr := a.issueTokens(db, secret, id, body.Email, "")
 		if terr != nil {
 			writeJSON(w, 500, map[string]string{"message": terr.Error()})
@@ -304,14 +318,18 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		json.NewDecoder(r.Body).Decode(&body)
 		body.Email = strings.ToLower(strings.TrimSpace(body.Email))
 		var id, hash string
-		var bannedUntil sql.NullTime
-		err := db.QueryRow(`SELECT id, encrypted_password, banned_until FROM auth.users WHERE email=$1`, body.Email).Scan(&id, &hash, &bannedUntil)
+		var bannedUntil, emailConfirmed sql.NullTime
+		err := db.QueryRow(`SELECT id, encrypted_password, banned_until, email_confirmed_at FROM auth.users WHERE email=$1`, body.Email).Scan(&id, &hash, &bannedUntil, &emailConfirmed)
 		if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(body.Password)) != nil {
 			writeJSON(w, 400, map[string]string{"message": "invalid login credentials"})
 			return
 		}
 		if bannedUntil.Valid && bannedUntil.Time.After(time.Now()) {
 			writeJSON(w, http.StatusForbidden, map[string]string{"message": "account is banned"})
+			return
+		}
+		if a.authConfirmEmail(slug) && !emailConfirmed.Valid {
+			writeJSON(w, http.StatusForbidden, map[string]string{"message": "email not confirmed"})
 			return
 		}
 		db.Exec(`UPDATE auth.users SET last_sign_in_at=now() WHERE id=$1`, id)
@@ -375,6 +393,27 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		var um string
 		db.QueryRow(`SELECT raw_user_meta_data::text FROM auth.users WHERE id=$1`, sub).Scan(&um)
 		writeJSON(w, 200, map[string]any{"id": sub, "email": claims["email"], "user_metadata": json.RawMessage(um)})
+
+	case path == "/verify" && r.Method == http.MethodGet:
+		// Confirm an email from the signed link in the confirmation email.
+		payload, ok := a.verifyState(r.URL.Query().Get("token"))
+		f := strings.Split(payload, "|")
+		if !ok || len(f) != 4 || f[0] != "confirm" || f[1] != slug {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(400)
+			w.Write([]byte("<h2>Invalid link</h2><p>This confirmation link is not valid.</p>"))
+			return
+		}
+		if exp, _ := strconv.ParseInt(f[3], 10, 64); time.Now().Unix() > exp {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(400)
+			w.Write([]byte("<h2>Link expired</h2><p>Please sign up again to get a fresh link.</p>"))
+			return
+		}
+		db.Exec(`UPDATE auth.users SET email_confirmed_at=now() WHERE email=$1 AND email_confirmed_at IS NULL`, f[2])
+		a.auditRaw(f[2], clientIP(r), "email-confirmed", slug)
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte("<h2>Email confirmed</h2><p>Thanks - you can now sign in.</p>"))
 
 	case strings.HasPrefix(path, "/admin/users"):
 		// Admin user management, gated by the service_role key.
@@ -566,11 +605,21 @@ func (a *app) authPage(w http.ResponseWriter, r *http.Request) {
 		id, _, en := a.oauthConfig(slug, p)
 		providers = append(providers, provCfg{Name: p, ClientID: id, Enabled: en})
 	}
+	var smtpHost, smtpUser, smtpFrom string
+	var smtpPort int
+	var confirmEmail bool
+	a.db.QueryRow(`SELECT smtp_host, smtp_port, smtp_user, smtp_from, confirm_email FROM auth_config WHERE slug=$1`,
+		slug).Scan(&smtpHost, &smtpPort, &smtpUser, &smtpFrom, &confirmEmail)
+	if smtpPort == 0 {
+		smtpPort = 587
+	}
 	content := renderContent(authPageBody, map[string]any{
 		"Slug": slug, "Enabled": enabled, "Users": users, "Count": count,
 		"Base":      "https://" + slug + "." + a.cfg.domain + "/auth/v1",
 		"Callback":  "https://" + slug + "." + a.cfg.domain + "/auth/v1/callback",
 		"Providers": providers,
+		"SMTPHost":  smtpHost, "SMTPPort": smtpPort, "SMTPUser": smtpUser, "SMTPFrom": smtpFrom,
+		"ConfirmEmail": confirmEmail,
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Auth", Nav: "authn", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Auth"}}}, content)
