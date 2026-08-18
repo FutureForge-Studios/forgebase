@@ -50,7 +50,8 @@ footprint is ~800 MB; a dozen projects still fit on a 4 GB VPS.
 For an honest, feature-by-feature comparison with Supabase and Neon - what is at
 parity, what is partial, and what is a genuine gap - see
 [docs/COMPARISON.md](docs/COMPARISON.md). We would rather tell you exactly where
-each line falls than oversell it.
+each line falls than oversell it. The ordered plan to close every gap lives in
+[docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Install
 
