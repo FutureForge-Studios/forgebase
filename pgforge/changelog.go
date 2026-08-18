@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.1.8"
+const appVersion = "1.1.9"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,18 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.1.9", Date: "2026-08-18",
+		Summary: "Admin user management and bans.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Admin user-management API using the service_role key at /auth/v1/admin/users: list, create, get, update, and delete users, plus ban and unban (ban_duration). Banned users cannot sign in and their sessions are revoked.",
+			}},
+			{"Fixed", []string{
+				"Auth schema additions (metadata, session families, bans) now apply to already-enabled projects automatically on startup, so updating never leaves an existing auth project on an old schema.",
+			}},
+		},
+	},
 	{
 		Version: "1.1.8", Date: "2026-08-18",
 		Summary: "More sign-in providers.",

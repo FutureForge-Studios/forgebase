@@ -46,7 +46,7 @@ One optional SMTP client unlocks the top four at once.
 - [ ] 12. Configurable token TTLs per project (the `aud` claim shipped in `1.1.6`). **S**
 - [x] 13. More OAuth providers - GitLab + Discord added (Google/GitHub/GitLab/Discord). **M** — shipped `1.1.8` (Apple/Microsoft/Facebook/LinkedIn still pending; they need id_token or special email endpoints)
 - [x] 14. Refresh-token reuse detection + family revocation + global logout. **M** — shipped `1.1.7` (session-list UI still pending)
-- [ ] 15. Admin users REST API + ban (`banned_until`). **M**
+- [x] 15. Admin users REST API (list/create/get/update/delete) + ban. **M** — shipped `1.1.9`
 - [ ] 16. TOTP MFA (enroll/verify, AAL in JWT, recovery codes). **L**
 - [ ] 17. SAML 2.0 SSO; phone/SMS OTP. **L** *(SMS needs a provider)*
 

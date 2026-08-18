@@ -138,6 +138,7 @@ func main() {
 	a.startSampler()
 	a.startWebhookPumps()
 	a.startRateLimitPruner()
+	go a.migrateAuthProjects() // apply new auth columns to already-enabled projects
 
 	mux := http.NewServeMux()
 	// public

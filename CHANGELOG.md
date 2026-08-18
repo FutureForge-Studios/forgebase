@@ -13,6 +13,18 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.1.9] - 2026-08-18
+
+### Added
+- Admin user-management API using the `service_role` key at
+  `/auth/v1/admin/users`: list, create, get, update, and delete users, plus ban
+  and unban (`ban_duration`). Banned users cannot sign in.
+
+### Fixed
+- Auth schema additions (metadata, session families, bans) now apply to
+  already-enabled projects automatically on startup, so updating never leaves an
+  existing auth project on an old schema.
+
 ## [1.1.8] - 2026-08-18
 
 ### Added
@@ -259,7 +271,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.8...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.9...HEAD
+[1.1.9]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.8...v1.1.9
 [1.1.8]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.7...v1.1.8
 [1.1.7]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.6...v1.1.7
 [1.1.6]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.5...v1.1.6

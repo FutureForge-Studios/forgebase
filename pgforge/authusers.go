@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -141,6 +142,29 @@ func verifyUserJWT(secret []byte, token string) (map[string]any, bool) {
 	return claims, true
 }
 
+// migrateAuthProjects re-runs the idempotent auth setup for every already-enabled
+// project on boot, so schema additions (metadata, family_id, banned_until, ...)
+// land on existing projects after a self-update, not only on re-enable.
+func (a *app) migrateAuthProjects() {
+	defer func() { recover() }()
+	rows, err := a.db.Query(`SELECT slug FROM auth_config WHERE enabled`)
+	if err != nil {
+		return
+	}
+	var slugs []string
+	for rows.Next() {
+		var s string
+		rows.Scan(&s)
+		slugs = append(slugs, s)
+	}
+	rows.Close()
+	for _, s := range slugs {
+		if _, err := a.ensureAuth(s); err != nil {
+			log.Printf("auth migrate %s: %v", s, err)
+		}
+	}
+}
+
 // ensureAuth sets up auth schema + authenticated role for a project.
 func (a *app) ensureAuth(slug string) (string, error) {
 	db, err := a.dbFor(slug)
@@ -166,11 +190,13 @@ func (a *app) ensureAuth(slug string) (string, error) {
 			encrypted_password text NOT NULL,
 			raw_user_meta_data jsonb NOT NULL DEFAULT '{}',
 			raw_app_meta_data jsonb NOT NULL DEFAULT '{}',
+			banned_until timestamptz,
 			created_at timestamptz NOT NULL DEFAULT now(),
 			last_sign_in_at timestamptz
 		)`,
 		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS raw_user_meta_data jsonb NOT NULL DEFAULT '{}'`,
 		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS raw_app_meta_data jsonb NOT NULL DEFAULT '{}'`,
+		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS banned_until timestamptz`,
 		`DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN NOINHERIT; END IF; END $$`,
 		`GRANT USAGE ON SCHEMA public TO authenticated`,
 		`GRANT SELECT ON ALL TABLES IN SCHEMA public TO authenticated`,
@@ -278,9 +304,14 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		json.NewDecoder(r.Body).Decode(&body)
 		body.Email = strings.ToLower(strings.TrimSpace(body.Email))
 		var id, hash string
-		err := db.QueryRow(`SELECT id, encrypted_password FROM auth.users WHERE email=$1`, body.Email).Scan(&id, &hash)
+		var bannedUntil sql.NullTime
+		err := db.QueryRow(`SELECT id, encrypted_password, banned_until FROM auth.users WHERE email=$1`, body.Email).Scan(&id, &hash, &bannedUntil)
 		if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(body.Password)) != nil {
 			writeJSON(w, 400, map[string]string{"message": "invalid login credentials"})
+			return
+		}
+		if bannedUntil.Valid && bannedUntil.Time.After(time.Now()) {
+			writeJSON(w, http.StatusForbidden, map[string]string{"message": "account is banned"})
 			return
 		}
 		db.Exec(`UPDATE auth.users SET last_sign_in_at=now() WHERE id=$1`, id)
@@ -345,9 +376,151 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		db.QueryRow(`SELECT raw_user_meta_data::text FROM auth.users WHERE id=$1`, sub).Scan(&um)
 		writeJSON(w, 200, map[string]any{"id": sub, "email": claims["email"], "user_metadata": json.RawMessage(um)})
 
+	case strings.HasPrefix(path, "/admin/users"):
+		// Admin user management, gated by the service_role key.
+		if !a.isServiceRole(r, secret) {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "service_role key required"})
+			return
+		}
+		a.handleAdminUsers(w, r, db, strings.TrimPrefix(path, "/admin/users"))
+
 	default:
 		writeJSON(w, 404, map[string]string{"message": "not found"})
 	}
+}
+
+func (a *app) isServiceRole(r *http.Request, secret string) bool {
+	key := r.Header.Get("apikey")
+	if key == "" {
+		key = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	}
+	claims, ok := verifyUserJWT([]byte(secret), key)
+	if !ok {
+		return false
+	}
+	role, _ := claims["role"].(string)
+	return role == "service_role"
+}
+
+func nullTimeStr(t sql.NullTime) any {
+	if t.Valid {
+		return t.Time.UTC().Format(time.RFC3339)
+	}
+	return nil
+}
+
+func jsonOr(raw json.RawMessage, def string) string {
+	if len(raw) > 0 && json.Valid(raw) {
+		return string(raw)
+	}
+	return def
+}
+
+// handleAdminUsers is the service-role user-management API under
+// /auth/v1/admin/users : list, create, get, update (ban/metadata/password), delete.
+func (a *app) handleAdminUsers(w http.ResponseWriter, r *http.Request, db *sql.DB, rest string) {
+	id := strings.Trim(rest, "/")
+	switch {
+	case id == "" && r.Method == http.MethodGet:
+		rows, err := db.Query(`SELECT id, email, raw_user_meta_data::text, raw_app_meta_data::text,
+			banned_until, created_at, last_sign_in_at FROM auth.users ORDER BY created_at DESC LIMIT 500`)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"message": err.Error()})
+			return
+		}
+		users := []map[string]any{}
+		for rows.Next() {
+			var uid, email, um, am string
+			var banned, created, last sql.NullTime
+			rows.Scan(&uid, &email, &um, &am, &banned, &created, &last)
+			users = append(users, map[string]any{"id": uid, "email": email,
+				"user_metadata": json.RawMessage(um), "app_metadata": json.RawMessage(am),
+				"banned_until": nullTimeStr(banned), "created_at": nullTimeStr(created), "last_sign_in_at": nullTimeStr(last)})
+		}
+		rows.Close()
+		writeJSON(w, 200, map[string]any{"users": users})
+
+	case id == "" && r.Method == http.MethodPost:
+		var body struct {
+			Email, Password string
+			UserMetadata    json.RawMessage `json:"user_metadata"`
+			AppMetadata     json.RawMessage `json:"app_metadata"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+		if !strings.Contains(body.Email, "@") || len(body.Password) < 6 {
+			writeJSON(w, 400, map[string]string{"message": "valid email and password (6+) required"})
+			return
+		}
+		hash, herr := hashPassword(body.Password)
+		if herr != nil {
+			writeJSON(w, 400, map[string]string{"message": "password too long"})
+			return
+		}
+		um, am := jsonOr(body.UserMetadata, "{}"), jsonOr(body.AppMetadata, "{}")
+		var uid string
+		if err := db.QueryRow(`INSERT INTO auth.users(email, encrypted_password, raw_user_meta_data, raw_app_meta_data)
+			VALUES ($1,$2,$3::jsonb,$4::jsonb) RETURNING id`, body.Email, hash, um, am).Scan(&uid); err != nil {
+			writeJSON(w, 400, map[string]string{"message": "user already exists"})
+			return
+		}
+		a.adminUserJSON(w, db, uid)
+
+	case id != "" && r.Method == http.MethodGet:
+		a.adminUserJSON(w, db, id)
+
+	case id != "" && r.Method == http.MethodPut:
+		var body struct {
+			Password     string          `json:"password"`
+			BanDuration  string          `json:"ban_duration"` // "24h" to ban, "none"/"0" to unban
+			UserMetadata json.RawMessage `json:"user_metadata"`
+			AppMetadata  json.RawMessage `json:"app_metadata"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		if body.Password != "" {
+			if hash, err := hashPassword(body.Password); err == nil {
+				db.Exec(`UPDATE auth.users SET encrypted_password=$2 WHERE id=$1`, id, hash)
+				db.Exec(`UPDATE auth.refresh_tokens SET revoked=true WHERE user_id=$1`, id)
+			}
+		}
+		if len(body.UserMetadata) > 0 && json.Valid(body.UserMetadata) {
+			db.Exec(`UPDATE auth.users SET raw_user_meta_data=$2::jsonb WHERE id=$1`, id, string(body.UserMetadata))
+		}
+		if len(body.AppMetadata) > 0 && json.Valid(body.AppMetadata) {
+			db.Exec(`UPDATE auth.users SET raw_app_meta_data=$2::jsonb WHERE id=$1`, id, string(body.AppMetadata))
+		}
+		if body.BanDuration == "none" || body.BanDuration == "0" {
+			db.Exec(`UPDATE auth.users SET banned_until=NULL WHERE id=$1`, id)
+		} else if body.BanDuration != "" {
+			if d, err := time.ParseDuration(body.BanDuration); err == nil {
+				db.Exec(`UPDATE auth.users SET banned_until = now() + make_interval(secs => $2) WHERE id=$1`, id, int(d.Seconds()))
+				db.Exec(`UPDATE auth.refresh_tokens SET revoked=true WHERE user_id=$1`, id)
+			}
+		}
+		a.adminUserJSON(w, db, id)
+
+	case id != "" && r.Method == http.MethodDelete:
+		db.Exec(`DELETE FROM auth.refresh_tokens WHERE user_id=$1`, id)
+		db.Exec(`DELETE FROM auth.users WHERE id=$1`, id)
+		writeJSON(w, 200, map[string]string{"message": "user deleted"})
+
+	default:
+		writeJSON(w, 404, map[string]string{"message": "not found"})
+	}
+}
+
+func (a *app) adminUserJSON(w http.ResponseWriter, db *sql.DB, id string) {
+	var email, um, am string
+	var banned, created, last sql.NullTime
+	err := db.QueryRow(`SELECT email, raw_user_meta_data::text, raw_app_meta_data::text, banned_until, created_at, last_sign_in_at
+		FROM auth.users WHERE id=$1`, id).Scan(&email, &um, &am, &banned, &created, &last)
+	if err != nil {
+		writeJSON(w, 404, map[string]string{"message": "user not found"})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"id": id, "email": email,
+		"user_metadata": json.RawMessage(um), "app_metadata": json.RawMessage(am),
+		"banned_until": nullTimeStr(banned), "created_at": nullTimeStr(created), "last_sign_in_at": nullTimeStr(last)})
 }
 
 func (a *app) authConfig(slug string) (string, bool) {
