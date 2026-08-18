@@ -1152,7 +1152,14 @@ const realtimeBody = `
     <form method="post" action="/p/{{.Slug}}/realtime-disable"><button class="btn btn-ghost btn-sm">Disable</button></form></div>
   <div class="cs"><span class="tag">WS URL</span><code id="ws">{{.WS}}</code><button class="copy" onclick="cp('ws')">{{icon "copy"}}</button></div>
   <div class="cs"><span class="tag">Browser</span><code id="js">const ws = new WebSocket('{{.WS}}'); ws.onmessage = e => console.log(JSON.parse(e.data));</code><button class="copy" onclick="cp('js')">{{icon "copy"}}</button></div>
-  <p class="muted" style="font-size:11.5px;margin-top:.6rem">Messages look like <code>{"type":"INSERT","table":"customers","record":{...}}</code>. New tables created later need a "Re-scan tables".</p>
+  <p class="muted" style="font-size:11.5px;margin-top:.6rem">Messages look like <code>{"type":"INSERT","table":"customers","record":{...}}</code>. New tables created later need a "Re-scan tables". Filter with <code>?table=customers&amp;event=INSERT&amp;filter=id=eq.5</code>.</p>
+</div>
+<div class="card" style="margin-bottom:1rem">
+  <h2>Access</h2>
+  <form method="post" action="/p/{{.Slug}}/realtime-auth" style="margin-top:.5rem">
+    <label style="display:flex;align-items:center;gap:.45rem;font-size:12.5px;cursor:pointer"><input type="checkbox" name="require_auth" {{if .RequireAuth}}checked{{end}} onchange="this.form.submit()"> Require an authenticated key (block the public <code>anon</code> key)</label>
+  </form>
+  <p class="muted" style="font-size:11.5px;margin-top:.5rem">On (recommended): only <code>authenticated</code> and <code>service_role</code> keys can subscribe - the stream is not per-row RLS filtered, so the public <code>anon</code> key would otherwise see every change. Turn off only if your app subscribes with the anon key and the data is not sensitive.</p>
 </div>
 <div class="card">
   <div style="display:flex;align-items:center"><h2>Live tester</h2><div class="spacer"></div><span id="rtstatus" class="badge paused">connecting…</span></div>

@@ -24,10 +24,13 @@ var wsUpgrader = websocket.Upgrader{
 }
 
 // rtSub is a client's subscription filter: empty fields match everything, so a
-// client can subscribe to one table and/or one event instead of the firehose.
+// client can subscribe to one table, one event, and/or one column value instead
+// of the firehose.
 type rtSub struct {
-	Table string
-	Event string // INSERT / UPDATE / DELETE
+	Table  string
+	Event  string // INSERT / UPDATE / DELETE
+	Column string // optional equality filter column (?filter=id=eq.5)
+	Value  string
 }
 
 type rtHub struct {
@@ -45,6 +48,20 @@ func (a *app) realtimeEnabled(slug string) bool {
 	var enabled bool
 	a.db.QueryRow(`SELECT enabled FROM realtime_config WHERE slug=$1`, slug).Scan(&enabled)
 	return enabled
+}
+
+func (a *app) realtimeRequireAuth(slug string) bool {
+	var v bool
+	a.db.QueryRow(`SELECT require_auth FROM realtime_config WHERE slug=$1`, slug).Scan(&v)
+	return v
+}
+
+func (a *app) setRealtimeAuth(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	on := r.FormValue("require_auth") == "on"
+	a.db.Exec(`UPDATE realtime_config SET require_auth=$2 WHERE slug=$1`, slug, on)
+	a.audit(r, "realtime-auth", fmt.Sprintf("%s require_auth=%v", slug, on))
+	redirectMsg(w, r, "/p/"+slug+"/realtime", "Realtime access updated.")
 }
 
 // stopRealtimeHub tears down a project's LISTEN hub. Without this, deleting a
@@ -107,7 +124,10 @@ func (a *app) ensureChangeTriggers(slug string) error {
 }
 
 func (h *rtHub) broadcast(msg []byte) {
-	var ev struct{ Type, Table string }
+	var ev struct {
+		Type, Table string
+		Record      map[string]any
+	}
 	json.Unmarshal(msg, &ev)
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -117,6 +137,14 @@ func (h *rtHub) broadcast(msg []byte) {
 		}
 		if sub.Event != "" && sub.Event != ev.Type {
 			continue
+		}
+		if sub.Column != "" {
+			// column-equality filter; if the row is absent (large-payload case) or
+			// the value doesn't match, this subscriber doesn't get it.
+			rv, present := ev.Record[sub.Column]
+			if !present || fmt.Sprintf("%v", rv) != sub.Value {
+				continue
+			}
 		}
 		c.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		if err := c.WriteMessage(websocket.TextMessage, msg); err != nil {
@@ -146,14 +174,29 @@ func (a *app) serveRealtime(w http.ResponseWriter, r *http.Request, slug string)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"message": "data api not enabled"})
 		return
 	}
-	if _, ok := verifyUserJWT([]byte(secret), key); !ok {
+	claims, ok := verifyUserJWT([]byte(secret), key)
+	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "invalid apikey"})
 		return
 	}
-	// Optional subscription filter: ?table=<name>&event=<INSERT|UPDATE|DELETE>.
+	// Without per-row RLS on the stream, the public anon key would let anyone read
+	// every change. By default we require an authenticated/service_role key; an
+	// operator can allow anon per project from the Realtime page.
+	if role, _ := claims["role"].(string); role == "anon" && a.realtimeRequireAuth(slug) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"message": "realtime requires an authenticated key (the anon key is blocked for this project)"})
+		return
+	}
+	// Optional subscription filter: ?table=<name>&event=<INSERT|UPDATE|DELETE>
+	// and a column-equality filter ?filter=<column>=eq.<value>.
 	sub := rtSub{
 		Table: r.URL.Query().Get("table"),
 		Event: strings.ToUpper(r.URL.Query().Get("event")),
+	}
+	if f := r.URL.Query().Get("filter"); f != "" {
+		if i := strings.Index(f, "=eq."); i > 0 {
+			sub.Column = f[:i]
+			sub.Value = f[i+4:]
+		}
 	}
 	conn, err := wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -243,7 +286,8 @@ func (a *app) realtimePage(w http.ResponseWriter, r *http.Request) {
 	rtMu.Unlock()
 	content := renderContent(realtimeBody, map[string]any{
 		"Slug": slug, "Enabled": enabled, "Tables": tables, "Clients": clients,
-		"WS": "wss://" + slug + "." + a.cfg.domain + "/realtime/v1",
+		"RequireAuth": a.realtimeRequireAuth(slug),
+		"WS":          "wss://" + slug + "." + a.cfg.domain + "/realtime/v1",
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Realtime", Nav: "realtime", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Realtime"}}}, content)

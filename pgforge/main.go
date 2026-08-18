@@ -228,6 +228,7 @@ func main() {
 	mux.HandleFunc("GET /p/{slug}/realtime", a.auth(proj(a.realtimePage)))
 	mux.HandleFunc("POST /p/{slug}/realtime-enable", a.auth(proj(a.enableRealtime)))
 	mux.HandleFunc("POST /p/{slug}/realtime-disable", a.auth(proj(a.disableRealtime)))
+	mux.HandleFunc("POST /p/{slug}/realtime-auth", a.auth(proj(a.setRealtimeAuth)))
 	mux.HandleFunc("GET /p/{slug}/webhooks", a.auth(proj(a.webhooksPage)))
 	mux.HandleFunc("POST /p/{slug}/webhook-create", a.auth(proj(a.createWebhook)))
 	mux.HandleFunc("POST /p/{slug}/webhook-delete", a.auth(proj(a.deleteWebhook)))
@@ -341,8 +342,10 @@ func (a *app) ensureSchema() error {
 		`CREATE TABLE IF NOT EXISTS realtime_config (
 			slug text PRIMARY KEY,
 			enabled boolean NOT NULL DEFAULT false,
+			require_auth boolean NOT NULL DEFAULT true,
 			created_at timestamptz NOT NULL DEFAULT now()
 		)`,
+		`ALTER TABLE realtime_config ADD COLUMN IF NOT EXISTS require_auth boolean NOT NULL DEFAULT true`,
 		`CREATE TABLE IF NOT EXISTS oauth_providers (
 			slug text NOT NULL, provider text NOT NULL,
 			client_id text NOT NULL DEFAULT '', client_secret text NOT NULL DEFAULT '',
