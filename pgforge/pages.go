@@ -808,7 +808,9 @@ const storageBody = `
     <form class="card" method="post" action="/p/{{.Slug}}/storage/bucket" style="padding:.8rem">
       <div class="label" style="margin-bottom:.5rem">New bucket</div>
       <input type="text" name="name" placeholder="avatars" required style="margin-bottom:.5rem">
-      <label style="display:flex;align-items:center;gap:.4rem;font-size:12.5px;margin-bottom:.6rem;cursor:pointer"><input type="checkbox" name="public" style="width:auto"> Public bucket</label>
+      <label style="display:flex;align-items:center;gap:.4rem;font-size:12.5px;margin-bottom:.5rem;cursor:pointer"><input type="checkbox" name="public" style="width:auto"> Public bucket</label>
+      <input type="number" name="max_size_mb" min="0" placeholder="max MB per file (0 = no limit)" style="margin-bottom:.5rem;width:100%">
+      <input type="text" name="allowed_mime" placeholder="allowed types, e.g. image/,application/pdf" style="margin-bottom:.6rem;width:100%">
       <button class="btn btn-primary btn-sm" type="submit" style="width:100%">Create bucket</button>
     </form>
   </div>
@@ -817,7 +819,7 @@ const storageBody = `
     <div class="card" style="text-align:center;padding:3rem;color:hsl(var(--muted-fg))">Select or create a bucket to upload files.</div>
     {{else}}
     <div class="card" style="margin-bottom:1rem">
-      <div style="display:flex;align-items:center;gap:.6rem"><h2>{{.Sel}}</h2>{{if .SelPublic}}<span class="badge active">public</span>{{else}}<span class="badge paused">private</span>{{end}}
+      <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap"><h2>{{.Sel}}</h2>{{if .SelPublic}}<span class="badge active">public</span>{{else}}<span class="badge paused">private</span>{{end}}{{if .SelMaxMB}}<span class="badge" style="text-transform:none">max {{.SelMaxMB}} MB/file</span>{{end}}{{if .SelMime}}<span class="badge" style="text-transform:none">types: {{.SelMime}}</span>{{end}}
         <div class="spacer"></div>
         <form method="post" action="/p/{{.Slug}}/storage/bucket-delete" onsubmit="return confirm('Delete bucket {{.Sel}} and all its files?')"><input type="hidden" name="bucket" value="{{.Sel}}"><button class="btn btn-danger btn-sm">Delete bucket</button></form>
       </div>

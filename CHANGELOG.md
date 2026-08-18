@@ -13,6 +13,13 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.1.2] - 2026-08-18
+
+### Added
+- Storage buckets can set a maximum file size (MB) and an allowed MIME-type list
+  when created. Both the panel upload and the client upload API reject files that
+  are too large or of a disallowed type.
+
 ## [1.1.1] - 2026-08-18
 
 ### Security
@@ -197,7 +204,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/FutureForge-Studios/forgebase/compare/v1.0.2...v1.0.3

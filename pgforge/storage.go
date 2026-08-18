@@ -119,8 +119,10 @@ func (a *app) storagePage(w http.ResponseWriter, r *http.Request) {
 	}
 	var objects []object
 	var selPublic bool
+	var selMaxMB int
+	var selMime string
 	if sel != "" {
-		a.db.QueryRow(`SELECT public FROM storage_buckets WHERE slug=$1 AND bucket=$2`, slug, sel).Scan(&selPublic)
+		a.db.QueryRow(`SELECT public, max_size_mb, allowed_mime FROM storage_buckets WHERE slug=$1 AND bucket=$2`, slug, sel).Scan(&selPublic, &selMaxMB, &selMime)
 		orows, _ := a.db.Query(`SELECT path, pg_size_pretty(size), mime, to_char(created_at,'Mon DD, HH24:MI')
 			FROM storage_objects WHERE slug=$1 AND bucket=$2 ORDER BY path`, slug, sel)
 		if orows != nil {
@@ -139,10 +141,42 @@ func (a *app) storagePage(w http.ResponseWriter, r *http.Request) {
 	}
 	content := renderContent(storageBody, map[string]any{
 		"Slug": slug, "Buckets": buckets, "Sel": sel, "SelPublic": selPublic, "Objects": objects,
+		"SelMaxMB": selMaxMB, "SelMime": selMime,
 		"NBuckets": len(buckets), "TotObjects": totObjects, "TotSize": totSize,
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Storage", Nav: "storage", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Storage"}}}, content)
+}
+
+// bucketLimits returns a bucket's max object size in bytes (0 = unlimited) and
+// the list of allowed MIME prefixes (empty = any type).
+func (a *app) bucketLimits(slug, bucket string) (maxBytes int64, allowed []string) {
+	var mb int
+	var mime string
+	a.db.QueryRow(`SELECT max_size_mb, allowed_mime FROM storage_buckets WHERE slug=$1 AND bucket=$2`, slug, bucket).Scan(&mb, &mime)
+	if mb > 0 {
+		maxBytes = int64(mb) << 20
+	}
+	for _, m := range strings.Split(mime, ",") {
+		if m = strings.TrimSpace(m); m != "" {
+			allowed = append(allowed, m)
+		}
+	}
+	return
+}
+
+// mimeAllowed reports whether a MIME type matches one of the allowed prefixes
+// (so "image/" allows image/png). An empty allow-list permits anything.
+func mimeAllowed(mime string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, p := range allowed {
+		if strings.HasPrefix(mime, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *app) createBucket(w http.ResponseWriter, r *http.Request) {
@@ -153,12 +187,17 @@ func (a *app) createBucket(w http.ResponseWriter, r *http.Request) {
 	}
 	name := strings.ToLower(strings.TrimSpace(r.FormValue("name")))
 	public := r.FormValue("public") == "on"
+	maxMB, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("max_size_mb")))
+	if maxMB < 0 {
+		maxMB = 0
+	}
+	allowedMime := strings.TrimSpace(r.FormValue("allowed_mime"))
 	if !bucketRe.MatchString(name) {
 		redirectErr(w, r, "/p/"+slug+"/storage", "Bucket name: 2-41 chars, a-z 0-9 _ -.")
 		return
 	}
-	if _, err := a.db.Exec(`INSERT INTO storage_buckets(slug,bucket,public) VALUES ($1,$2,$3)
-		ON CONFLICT DO NOTHING`, slug, name, public); err != nil {
+	if _, err := a.db.Exec(`INSERT INTO storage_buckets(slug,bucket,public,max_size_mb,allowed_mime) VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT DO NOTHING`, slug, name, public, maxMB, allowedMime); err != nil {
 		redirectErr(w, r, "/p/"+slug+"/storage", err.Error())
 		return
 	}
@@ -193,6 +232,15 @@ func (a *app) uploadObject(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/storage?b="+bucket, "Bad filename.")
 		return
 	}
+	mime := hdr.Header.Get("Content-Type")
+	if mime == "" {
+		mime = "application/octet-stream"
+	}
+	maxBytes, allowed := a.bucketLimits(slug, bucket)
+	if !mimeAllowed(mime, allowed) {
+		redirectErr(w, r, "/p/"+slug+"/storage?b="+bucket, "File type "+mime+" is not allowed in this bucket.")
+		return
+	}
 	dst := filepath.Join(storageRoot, slug, bucket, rel)
 	os.MkdirAll(filepath.Dir(dst), 0o755)
 	out, err := os.Create(dst)
@@ -200,16 +248,21 @@ func (a *app) uploadObject(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/storage?b="+bucket, "Could not write file.")
 		return
 	}
-	n, cErr := io.Copy(out, file)
+	var src io.Reader = file
+	if maxBytes > 0 {
+		src = io.LimitReader(file, maxBytes+1) // read one extra byte to detect overflow
+	}
+	n, cErr := io.Copy(out, src)
 	closeErr := out.Close()
 	if cErr != nil || closeErr != nil {
 		os.Remove(dst) // don't record a truncated file as a complete object
 		redirectErr(w, r, "/p/"+slug+"/storage?b="+bucket, "Write failed (disk full?); nothing saved.")
 		return
 	}
-	mime := hdr.Header.Get("Content-Type")
-	if mime == "" {
-		mime = "application/octet-stream"
+	if maxBytes > 0 && n > maxBytes {
+		os.Remove(dst)
+		redirectErr(w, r, "/p/"+slug+"/storage?b="+bucket, fmt.Sprintf("File exceeds this bucket's %d MB limit.", maxBytes>>20))
+		return
 	}
 	a.db.Exec(`INSERT INTO storage_objects(slug,bucket,path,size,mime) VALUES ($1,$2,$3,$4,$5)
 		ON CONFLICT (slug,bucket,path) DO UPDATE SET size=$4, mime=$5, created_at=now()`,
@@ -400,6 +453,15 @@ func (a *app) storageUploadAPI(w http.ResponseWriter, r *http.Request, slug, p s
 		writeJSON(w, 400, map[string]string{"message": "unknown bucket or path"})
 		return
 	}
+	mime := r.Header.Get("Content-Type")
+	if mime == "" {
+		mime = "application/octet-stream"
+	}
+	maxBytes, allowed := a.bucketLimits(slug, bucket)
+	if !mimeAllowed(mime, allowed) {
+		writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"message": "file type not allowed in this bucket"})
+		return
+	}
 	dst := filepath.Join(storageRoot, slug, bucket, rel)
 	os.MkdirAll(filepath.Dir(dst), 0o755)
 	out, err := os.Create(dst)
@@ -407,16 +469,21 @@ func (a *app) storageUploadAPI(w http.ResponseWriter, r *http.Request, slug, p s
 		writeJSON(w, 500, map[string]string{"message": "could not write file"})
 		return
 	}
-	n, cErr := io.Copy(out, r.Body)
+	var src io.Reader = r.Body
+	if maxBytes > 0 {
+		src = io.LimitReader(r.Body, maxBytes+1)
+	}
+	n, cErr := io.Copy(out, src)
 	ce := out.Close()
 	if cErr != nil || ce != nil {
 		os.Remove(dst)
 		writeJSON(w, 500, map[string]string{"message": "write failed (disk full?)"})
 		return
 	}
-	mime := r.Header.Get("Content-Type")
-	if mime == "" {
-		mime = "application/octet-stream"
+	if maxBytes > 0 && n > maxBytes {
+		os.Remove(dst)
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"message": fmt.Sprintf("file exceeds the bucket's %d MB limit", maxBytes>>20)})
+		return
 	}
 	a.db.Exec(`INSERT INTO storage_objects(slug,bucket,path,size,mime) VALUES ($1,$2,$3,$4,$5)
 		ON CONFLICT (slug,bucket,path) DO UPDATE SET size=$4, mime=$5, created_at=now()`,

@@ -412,9 +412,13 @@ func (a *app) ensureSchema() error {
 		`CREATE TABLE IF NOT EXISTS storage_buckets (
 			slug text NOT NULL, bucket text NOT NULL,
 			public boolean NOT NULL DEFAULT false,
+			max_size_mb integer NOT NULL DEFAULT 0,
+			allowed_mime text NOT NULL DEFAULT '',
 			created_at timestamptz NOT NULL DEFAULT now(),
 			PRIMARY KEY (slug, bucket)
 		)`,
+		`ALTER TABLE storage_buckets ADD COLUMN IF NOT EXISTS max_size_mb integer NOT NULL DEFAULT 0`,
+		`ALTER TABLE storage_buckets ADD COLUMN IF NOT EXISTS allowed_mime text NOT NULL DEFAULT ''`,
 		`CREATE TABLE IF NOT EXISTS storage_objects (
 			id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 			slug text NOT NULL, bucket text NOT NULL, path text NOT NULL,
