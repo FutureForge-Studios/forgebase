@@ -13,6 +13,12 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.2] - 2026-08-18
+
+### Added
+- Invite end users by email (needs SMTP): `POST /auth/v1/admin/invite` with the
+  `service_role` key creates the account and emails a one-time sign-in link.
+
 ## [1.2.1] - 2026-08-18
 
 ### Added
@@ -288,7 +294,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.2...HEAD
+[1.2.2]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.9...v1.2.0
 [1.1.9]: https://github.com/FutureForge-Studios/forgebase/compare/v1.1.8...v1.1.9

@@ -507,6 +507,30 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte("<h2>Password updated</h2><p>You can now sign in with your new password.</p>"))
 
+	case path == "/admin/invite" && r.Method == http.MethodPost:
+		// Invite an end user: create the account (if new) and email a sign-in link.
+		if !a.isServiceRole(r, secret) {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "service_role key required"})
+			return
+		}
+		var body struct {
+			Email      string `json:"email"`
+			RedirectTo string `json:"redirect_to"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+		if !strings.Contains(body.Email, "@") {
+			writeJSON(w, 400, map[string]string{"message": "valid email required"})
+			return
+		}
+		db.Exec(`INSERT INTO auth.users(email, encrypted_password) VALUES ($1,'invited') ON CONFLICT (email) DO NOTHING`, body.Email)
+		if err := a.sendMagicLinkEmail(slug, body.Email, body.RedirectTo); err != nil {
+			writeJSON(w, 500, map[string]string{"message": "could not send invite: " + err.Error()})
+			return
+		}
+		a.auditRaw(body.Email, clientIP(r), "user-invited", slug)
+		writeJSON(w, 200, map[string]string{"message": "invitation email sent"})
+
 	case strings.HasPrefix(path, "/admin/users"):
 		// Admin user management, gated by the service_role key.
 		if !a.isServiceRole(r, secret) {
