@@ -2,7 +2,8 @@
 
 # ForgeBase
 
-<img width="1080" height="556" alt="image" src="https://github.com/user-attachments/assets/922aaed7-03e1-4725-88dc-270469a2c80e" />
+<img width="3181" height="1639" alt="image" src="https://github.com/user-attachments/assets/4c044286-9dca-4993-b69f-a5ec647f1f79" />
+
 
 **Your own Postgres backend platform - the Supabase/Neon experience, self-hosted, on one small server.**
 
