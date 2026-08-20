@@ -85,6 +85,20 @@ Full walkthrough, backup/restore runbook and security checklist:
 
 ---
 
+## License
+
+ForgeBase is licensed under the [GNU AGPL v3.0](LICENSE).
+
+In practice: self-host it, run it for your own projects, run it for your
+clients, modify it - no obligations. The copyleft only bites if you offer a
+modified ForgeBase to third parties as a network service, in which case you
+must publish your modifications under the same license.
+
+For a commercial license without the AGPL terms, contact
+[FutureForge Studios](https://ffstudios.io).
+
+---
+
 <div align="center">
 
 **ForgeBase** is designed, built and maintained by

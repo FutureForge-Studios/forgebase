@@ -53,6 +53,13 @@ When cutting a release: bump `appVersion`, add the release to both `releases` in
 in-app self-update compares the running build against the latest commit on
 `main`, so users see the new version as soon as it is pushed.
 
+## Licensing of contributions
+
+ForgeBase is AGPL-3.0. By submitting a pull request you agree that your
+contribution is licensed under the same terms, and you grant FutureForge
+Studios Private Limited the right to also distribute your contribution under
+other licensing terms, including commercial licenses.
+
 ## Reporting security issues
 
 Please do not open a public issue for security problems. See

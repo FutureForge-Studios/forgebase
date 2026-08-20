@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+//
 // pgforged - the ForgeBase control plane.
 //
 // One Go binary: the whole dashboard (projects, table editor, SQL editor,
