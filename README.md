@@ -2,6 +2,8 @@
 
 # ForgeBase
 
+<img width="1080" height="556" alt="image" src="https://github.com/user-attachments/assets/922aaed7-03e1-4725-88dc-270469a2c80e" />
+
 **Your own Postgres backend platform - the Supabase/Neon experience, self-hosted, on one small server.**
 
 Create isolated Postgres databases in under a second and get, per project, a
