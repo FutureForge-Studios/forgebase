@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.2.4"
+const appVersion = "1.2.5"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,16 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.2.5", Date: "2026-08-21",
+		Summary: "Self-update never gets stuck, and no more 502 during restart.",
+		Sections: []changeSection{
+			{"Fixed", []string{
+				"A self-update that wedged or never launched could leave the System page pinned on \"updating...\" forever and block all future updates as \"already in progress\". The in-progress state now also requires the update log to be recent, so a stale update is treated as finished and never locks updates out.",
+				"During a self-update the panel restarts for 1-3 seconds; a request arriving in that window could return a 502. The HTTPS proxy now briefly retries the control plane instead, so the restart no longer surfaces an error page.",
+			}},
+		},
+	},
 	{
 		Version: "1.2.4", Date: "2026-08-21",
 		Summary: "Clear \"updating\" state on the self-update.",

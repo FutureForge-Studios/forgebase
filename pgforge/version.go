@@ -77,11 +77,9 @@ func (a *app) systemPage(w http.ResponseWriter, r *http.Request) {
 		}
 		updLog = strings.Join(lines, "\n")
 	}
-	// an update is still in flight until the log reaches a terminal line
-	updateRunning := updLog != "" &&
-		!strings.Contains(updLog, "OK: updated") &&
-		!strings.Contains(updLog, "rolled back") &&
-		!strings.Contains(updLog, "failed")
+	// An update is "running" only while its log is non-terminal AND recent, so a
+	// wedged or abandoned update can't pin this page on "updating..." forever.
+	updateRunning := updateInFlight()
 
 	content := renderContent(systemBody, map[string]any{
 		"Version": version, "BuildTime": buildTime, "Commit": repoURL + "/commit/" + version,

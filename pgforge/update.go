@@ -131,6 +131,31 @@ func parseSemver(s string) [3]int {
 	return v
 }
 
+// updateInFlight reports whether a self-update is actually running right now. It
+// is true only when the update log exists, has NOT reached a terminal line
+// (OK / rolled back / failed), AND was written recently. The recency check is
+// what makes this safe: without it, an updater that wedges or never launches
+// leaves a permanently non-terminal log, which would pin the System page on
+// "updating..." forever and block every future update as "already in progress".
+// A real update writes its log continuously and finishes well within the window.
+func updateInFlight() bool {
+	fi, err := os.Stat("/opt/pgforge/update.log")
+	if err != nil {
+		return false
+	}
+	if time.Since(fi.ModTime()) > 10*time.Minute {
+		return false // stale: treat as finished/abandoned, not running
+	}
+	b, err := os.ReadFile("/opt/pgforge/update.log")
+	if err != nil {
+		return false
+	}
+	s := string(b)
+	return !strings.Contains(s, "OK: updated") &&
+		!strings.Contains(s, "rolled back") &&
+		!strings.Contains(s, "failed")
+}
+
 // applyUpdate stages an updater script and launches it as a TRANSIENT systemd
 // unit (systemd-run). That is deliberate: the script restarts pgforged, and a
 // plain background child would sit in pgforged's own cgroup and be killed by that
@@ -141,16 +166,14 @@ func parseSemver(s string) [3]int {
 // checks the real listen port, and rolls back to pgforged.prev on failure. All
 // progress goes to /opt/pgforge/update.log, tailed on the System page.
 func (a *app) applyUpdate(w http.ResponseWriter, r *http.Request) {
-	// Refuse to start a second update while one is already in flight. An update is
-	// "running" when the log exists but has not yet reached a terminal line. This
+	// Refuse to start a second update while one is genuinely in flight. This
 	// backstops the UI (which hides the button while running) against a second tab
-	// or a direct POST launching a concurrent updater on the same binary.
-	if b, err := os.ReadFile("/opt/pgforge/update.log"); err == nil {
-		s := string(b)
-		if !strings.Contains(s, "OK: updated") && !strings.Contains(s, "rolled back") && !strings.Contains(s, "failed") {
-			redirectMsg(w, r, "/system", "An update is already in progress.")
-			return
-		}
+	// or a direct POST launching a concurrent updater on the same binary. A stale
+	// log (see updateInFlight) does not block, so a past wedged update can't lock
+	// updates out permanently.
+	if updateInFlight() {
+		redirectMsg(w, r, "/system", "An update is already in progress.")
+		return
 	}
 	repoDir := ""
 	if b, err := os.ReadFile("/opt/pgforge/repo_dir"); err == nil {

@@ -13,6 +13,17 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.5] - 2026-08-21
+
+### Fixed
+- A self-update that wedged or never launched could leave the System page pinned
+  on "updating..." forever and block all future updates as "already in progress".
+  The in-progress state now also requires the update log to be recent, so a stale
+  update is treated as finished and never locks updates out.
+- During a self-update the control plane restarts for 1-3 seconds; a request that
+  arrived in that window could return a 502. The HTTPS proxy now briefly retries
+  the control plane instead, so the restart no longer surfaces an error page.
+
 ## [1.2.4] - 2026-08-21
 
 ### Fixed
@@ -314,7 +325,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.4...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.5...HEAD
+[1.2.5]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.4...v1.2.5
 [1.2.4]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.3...v1.2.4
 [1.2.3]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.1...v1.2.2
