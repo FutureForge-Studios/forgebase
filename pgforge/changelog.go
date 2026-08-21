@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.2.2"
+const appVersion = "1.2.3"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.2.3", Date: "2026-08-18",
+		Summary: "Live progress on background operations.",
+		Sections: []changeSection{
+			{"Fixed", []string{
+				"Pages with a running background operation now update on their own instead of sitting on a stale status until you manually reload. The Sync/Clone page, the Projects dashboard (while a project is cloning), and the System page during a self-update refresh automatically until the operation finishes. The operations themselves always completed - only the page was stale.",
+			}},
+		},
+	},
 	{
 		Version: "1.2.2", Date: "2026-08-18",
 		Summary: "Invite users by email.",

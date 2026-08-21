@@ -77,12 +77,17 @@ func (a *app) systemPage(w http.ResponseWriter, r *http.Request) {
 		}
 		updLog = strings.Join(lines, "\n")
 	}
+	// an update is still in flight until the log reaches a terminal line
+	updateRunning := updLog != "" &&
+		!strings.Contains(updLog, "OK: updated") &&
+		!strings.Contains(updLog, "rolled back") &&
+		!strings.Contains(updLog, "failed")
 
 	content := renderContent(systemBody, map[string]any{
 		"Version": version, "BuildTime": buildTime, "Commit": repoURL + "/commit/" + version,
 		"DBOK": dbOK, "PGVer": pgVer, "DBSize": dbSize, "ActiveAPIs": activeAPIs, "Svcs": svcs,
 		"Stats": a.hostStats(), "AppVersion": appVersion, "IsOwner": a.atLeast(r, "owner"),
-		"Checked": checked, "Upd": upd, "UpdateLog": updLog,
+		"Checked": checked, "Upd": upd, "UpdateLog": updLog, "UpdateRunning": updateRunning,
 	})
 	a.renderShell(w, r, shellData{Title: "System", Nav: "system",
 		Crumbs: []crumb{{Label: "System"}}}, content)

@@ -4,6 +4,7 @@ package main
 // (assets.go). Kept as strings so the whole UI ships in one Go binary.
 
 const dashboardBody = `
+{{if .AnyCloning}}<script>setTimeout(function(){location.reload()},5000)</script>{{end}}
 <div class="pagehead" style="display:flex;align-items:flex-end;gap:1rem;flex-wrap:wrap">
   <div><h1>Projects</h1><p>Each project is an isolated Postgres database with its own credentials.</p></div>
   <div class="spacer"></div>
@@ -1353,7 +1354,7 @@ const systemBody = `
     </div>
     <a class="btn btn-ghost btn-sm" href="/changelog" style="margin-top:.6rem">{{icon "sparkle"}} What's New</a>
   {{end}}
-  {{if .UpdateLog}}<div class="label" style="margin:.9rem 0 .2rem">Last update log</div><pre style="background:hsl(var(--primary) / .04);border:1px solid hsl(var(--border));border-radius:.5rem;padding:.7rem;font-size:11px;line-height:1.5;overflow:auto;max-height:220px;margin:0">{{.UpdateLog}}</pre>{{end}}
+  {{if .UpdateLog}}<div class="label" style="margin:.9rem 0 .2rem">Last update log</div><pre style="background:hsl(var(--primary) / .04);border:1px solid hsl(var(--border));border-radius:.5rem;padding:.7rem;font-size:11px;line-height:1.5;overflow:auto;max-height:220px;margin:0">{{.UpdateLog}}</pre>{{if .UpdateRunning}}<p class="muted" style="font-size:11.5px;margin:.5rem 0 0">Update in progress - this page refreshes automatically (the panel restarts mid-update, so a brief error is normal).</p><script>setTimeout(function(){location.reload()},4000)</script>{{end}}{{end}}
 </div>
 <div class="card" style="margin-bottom:1rem">
   <h2>Services</h2>
@@ -1429,13 +1430,14 @@ const syncBody = `
 <div class="grid g3" style="margin-bottom:1rem">
   <div class="card stat"><div class="k">Clone status</div><div class="v" style="font-size:20px;text-transform:capitalize">{{if eq .Status "cloning"}}<span class="badge cloning">cloning…</span>{{else if eq .Status "error"}}<span class="badge paused">error</span>{{else}}<span class="badge active">done</span>{{end}}</div></div>
   <div class="card stat"><div class="k">Live sync</div><div class="v" style="font-size:20px">{{if .SyncOn}}<span class="badge active">on</span>{{else}}<span class="badge paused">off</span>{{end}}</div></div>
-  <div class="card stat"><div class="k">Auto-refresh</div><div class="v" style="font-size:14px">reload to update</div></div>
+  <div class="card stat"><div class="k">Auto-refresh</div><div class="v" style="font-size:14px">{{if eq .Status "cloning"}}<span class="badge active">on · every 3s</span>{{else}}idle{{end}}</div></div>
 </div>
+{{if eq .Status "cloning"}}<script>setTimeout(function(){location.reload()},3000)</script>{{end}}
 <div class="card" style="margin-bottom:1rem">
   <h2>Source</h2>
   <div class="cs" style="margin-top:.6rem"><span class="tag">From</span><code>{{.Source}}</code></div>
   {{if .Message}}<p class="muted" style="font-size:12px;margin-top:.6rem">Last result: {{.Message}}</p>{{end}}
-  {{if eq .Status "cloning"}}<p class="muted" style="font-size:12px;margin-top:.6rem">Cloning is running in the background - reload this page to see when it finishes.</p>{{end}}
+  {{if eq .Status "cloning"}}<p class="muted" style="font-size:12px;margin-top:.6rem">Cloning is running in the background - this page refreshes automatically until it finishes.</p>{{end}}
 </div>
 <div class="grid g2">
   <div class="card">

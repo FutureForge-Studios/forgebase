@@ -63,8 +63,15 @@ func (a *app) dashboard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	anyCloning := false
+	for _, p := range projects {
+		if p.Status == "cloning" {
+			anyCloning = true
+			break
+		}
+	}
 	content := renderContent(dashboardBody, map[string]any{
-		"Projects": projects, "Stats": a.hostStats(),
+		"Projects": projects, "Stats": a.hostStats(), "AnyCloning": anyCloning,
 	})
 	a.renderShell(w, r, shellData{Title: "Projects", Nav: "projects",
 		Crumbs: []crumb{{Label: "Projects"}}}, content)
