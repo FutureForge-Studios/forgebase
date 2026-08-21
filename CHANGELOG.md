@@ -13,6 +13,17 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.4] - 2026-08-21
+
+### Fixed
+- Clicking "Update now" now clearly shows that an update is in progress: the
+  button turns into a spinner immediately, and the System page switches to an
+  "updating..." state with a live update log that refreshes on its own until the
+  update finishes.
+- You can no longer start a second update while one is already running. The
+  button is hidden during an update, and a duplicate request (for example from
+  another tab) is rejected instead of launching a concurrent updater.
+
 ## [1.2.3] - 2026-08-18
 
 ### Fixed
@@ -303,7 +314,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.3...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.4...HEAD
+[1.2.4]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.3...v1.2.4
 [1.2.3]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.0...v1.2.1

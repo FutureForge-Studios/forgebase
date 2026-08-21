@@ -141,6 +141,10 @@ input[type=file]::file-selector-button:hover{background:hsl(var(--accent))}
   padding:.2rem .55rem; border-radius:999px; border:1px solid transparent}
 .badge.active{background:hsl(var(--primary) / .12); color:hsl(var(--primary)); border-color:hsl(var(--primary) / .25)}
 .badge.paused,.badge.suspended,.badge.cloning{background:hsl(var(--warn) / .14); color:hsl(var(--warn)); border-color:hsl(var(--warn) / .3)}
+.spin{display:inline-block; width:.72em; height:.72em; border:2px solid currentColor;
+  border-right-color:transparent; border-radius:50%; animation:spin .7s linear infinite; vertical-align:-1px}
+.btn.is-loading{opacity:.7; pointer-events:none; cursor:progress}
+@keyframes spin{to{transform:rotate(360deg)}}
 
 /* connection string rows */
 .cs{display:flex; align-items:center; gap:.6rem; background:hsl(var(--bg));

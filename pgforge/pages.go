@@ -1318,7 +1318,17 @@ const systemBody = `
 </div>
 <div class="card" style="margin-bottom:1rem">
   <h2>Software updates</h2>
-  {{if not .Checked}}
+  {{if .UpdateRunning}}
+    <div style="display:flex;align-items:center;gap:.6rem;margin:.4rem 0 .3rem">
+      <span class="badge cloning"><span class="spin" aria-hidden="true"></span> updating&hellip;</span>
+      <span style="font-size:13px">ForgeBase is installing an update. The panel rebuilds and restarts - this page refreshes on its own until it finishes.</span>
+    </div>
+    <p class="muted" style="font-size:11.5px;margin:.4rem 0 .2rem">You can leave this page; the update continues in the background. Please don't start another update while this one is running.</p>
+    <div class="label" style="margin:.8rem 0 .2rem">Live update log</div>
+    <pre style="background:hsl(var(--primary) / .04);border:1px solid hsl(var(--border));border-radius:.5rem;padding:.7rem;font-size:11px;line-height:1.5;overflow:auto;max-height:220px;margin:0">{{.UpdateLog}}</pre>
+    <p class="muted" style="font-size:11.5px;margin:.5rem 0 0">The panel restarts mid-update, so a brief connection error on refresh is normal - it will come back on the new version.</p>
+    <script>setTimeout(function(){location.reload()},4000)</script>
+  {{else if not .Checked}}
     <p class="muted" style="font-size:12.5px;margin:.4rem 0 .8rem">Check GitHub for a newer ForgeBase build. Your databases keep serving throughout; only the control plane restarts.</p>
     <a class="btn btn-primary btn-sm" href="/system?check=1">{{icon "restore"}} Check for updates</a>
     <a class="btn btn-ghost btn-sm" href="/changelog">{{icon "sparkle"}} What's New</a>
@@ -1340,7 +1350,7 @@ const systemBody = `
     {{end}}
     {{end}}
     {{if .IsOwner}}
-    <form method="post" action="/system/update" onsubmit="return confirm('Update ForgeBase to {{.Upd.Latest}}? The panel will rebuild and restart. It rolls back automatically if the new build is unhealthy.')">
+    <form method="post" action="/system/update" onsubmit="if(!confirm('Update ForgeBase to {{.Upd.Latest}}? The panel will rebuild and restart. It rolls back automatically if the new build is unhealthy.'))return false; var b=this.querySelector('button'); b.disabled=true; b.classList.add('is-loading'); b.innerHTML='<span class=&quot;spin&quot;></span> Updating&hellip;'; return true;">
       <button class="btn btn-primary btn-sm">{{icon "bolt"}} Update now</button>
     </form>
     <p class="muted" style="font-size:11.5px;margin:.6rem 0 0">The updater keeps the previous binary and rolls back if the health check fails.</p>
@@ -1354,7 +1364,7 @@ const systemBody = `
     </div>
     <a class="btn btn-ghost btn-sm" href="/changelog" style="margin-top:.6rem">{{icon "sparkle"}} What's New</a>
   {{end}}
-  {{if .UpdateLog}}<div class="label" style="margin:.9rem 0 .2rem">Last update log</div><pre style="background:hsl(var(--primary) / .04);border:1px solid hsl(var(--border));border-radius:.5rem;padding:.7rem;font-size:11px;line-height:1.5;overflow:auto;max-height:220px;margin:0">{{.UpdateLog}}</pre>{{if .UpdateRunning}}<p class="muted" style="font-size:11.5px;margin:.5rem 0 0">Update in progress - this page refreshes automatically (the panel restarts mid-update, so a brief error is normal).</p><script>setTimeout(function(){location.reload()},4000)</script>{{end}}{{end}}
+  {{if and .UpdateLog (not .UpdateRunning)}}<div class="label" style="margin:.9rem 0 .2rem">Last update log</div><pre style="background:hsl(var(--primary) / .04);border:1px solid hsl(var(--border));border-radius:.5rem;padding:.7rem;font-size:11px;line-height:1.5;overflow:auto;max-height:220px;margin:0">{{.UpdateLog}}</pre>{{end}}
 </div>
 <div class="card" style="margin-bottom:1rem">
   <h2>Services</h2>

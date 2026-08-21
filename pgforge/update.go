@@ -141,6 +141,17 @@ func parseSemver(s string) [3]int {
 // checks the real listen port, and rolls back to pgforged.prev on failure. All
 // progress goes to /opt/pgforge/update.log, tailed on the System page.
 func (a *app) applyUpdate(w http.ResponseWriter, r *http.Request) {
+	// Refuse to start a second update while one is already in flight. An update is
+	// "running" when the log exists but has not yet reached a terminal line. This
+	// backstops the UI (which hides the button while running) against a second tab
+	// or a direct POST launching a concurrent updater on the same binary.
+	if b, err := os.ReadFile("/opt/pgforge/update.log"); err == nil {
+		s := string(b)
+		if !strings.Contains(s, "OK: updated") && !strings.Contains(s, "rolled back") && !strings.Contains(s, "failed") {
+			redirectMsg(w, r, "/system", "An update is already in progress.")
+			return
+		}
+	}
 	repoDir := ""
 	if b, err := os.ReadFile("/opt/pgforge/repo_dir"); err == nil {
 		repoDir = strings.TrimSpace(string(b))
@@ -187,6 +198,14 @@ fi
 		redirectErr(w, r, "/system", "Could not stage updater: "+err.Error())
 		return
 	}
+	// Write an immediate "running" marker BEFORE launching the updater. The System
+	// page derives its "updating..." state from this log, and the transient unit
+	// takes a moment to spawn and write its own first line - without this seed the
+	// redirect right after the click would briefly render as "not updating". The
+	// script truncates and rewrites the log on start, so this is only the seed.
+	os.WriteFile("/opt/pgforge/update.log",
+		[]byte("== update requested "+time.Now().UTC().Format("2006-01-02 15:04:05")+" UTC ==\n>> launching updater, this can take a minute...\n"),
+		0o644)
 	// Transient unit -> own cgroup -> survives the pgforged restart. --collect
 	// removes the unit afterwards even if it failed. Fall back to a detached child
 	// where systemd-run is unavailable.
@@ -194,5 +213,5 @@ fi
 		exec.Command("setsid", "sh", "-c", "/opt/pgforge/update.sh").Start()
 	}
 	a.audit(r, "self-update", "started")
-	redirectMsg(w, r, "/system", "Update started. The panel will rebuild and restart in a moment; refresh this page to see the result.")
+	redirectMsg(w, r, "/system", "Update started. Watch the live log below - this page refreshes on its own until it finishes.")
 }
