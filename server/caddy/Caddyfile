@@ -9,8 +9,15 @@
 	}
 }
 
+# The control plane (pgforged) restarts itself during a self-update, leaving its
+# port unbound for ~1-3s. lb_try_duration makes Caddy retry the upstream for a
+# few seconds instead of returning an immediate 502, so a request that lands in
+# that restart window waits and succeeds once pgforged is back up.
 __DOMAIN__ {
-	reverse_proxy 127.0.0.1:8080
+	reverse_proxy 127.0.0.1:8080 {
+		lb_try_duration 10s
+		lb_try_interval 250ms
+	}
 }
 
 db.__DOMAIN__ {
@@ -21,5 +28,8 @@ https:// {
 	tls {
 		on_demand
 	}
-	reverse_proxy 127.0.0.1:8080
+	reverse_proxy 127.0.0.1:8080 {
+		lb_try_duration 10s
+		lb_try_interval 250ms
+	}
 }
