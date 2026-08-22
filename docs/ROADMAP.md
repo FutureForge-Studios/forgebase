@@ -67,7 +67,7 @@ One optional SMTP client unlocks the top four at once.
 ## Band E - Edge Functions depth (vs Supabase Edge Functions)
 
 - [ ] 26. Cron / scheduled functions (a Go ticker + a `schedule` column). **S-M**
-- [ ] 27. Per-function config (timeout/memory) + a concurrency cap + memory limit on the Deno child. **S**
+- [ ] 27. Per-function config (timeout/memory). *(Global 128MB memory cap + per-project/global concurrency caps shipped v1.2.15/v1.2.21; per-FUNCTION overrides still open.)* **S**
 - [ ] 28. Request/invocation logs + metrics (today only errors are logged). **S-M**
 - [ ] 29. Warm-isolate pool to kill per-request cold starts; streaming responses. **L**
 
@@ -84,12 +84,12 @@ One optional SMTP client unlocks the top four at once.
 
 ## Band G - Platform (vs Neon + Supabase)
 
-- [ ] 38. Wire the proven **copy-on-write branching** into the Branches panel when `INSTANCES=1` (instant, no parent lock) + route branch connection strings through the proxy. *(Neon's headline; engine already built.)* **M-L**
-- [ ] 39. Wire **scale-to-zero + sleep/wake** into the panel; show per-project instance status. *(Neon scale-to-zero; engine already built.)* **M**
-- [ ] 40. Monitoring: threshold alerts via the existing webhook plumbing; longer/zoomable time ranges. **S-M**
+- [x] 38. ~~Wire copy-on-write branching into the panel~~ **Shipped v1.3.0**: dedicated-instance projects branch in ~2s (btrfs CoW, no parent lock), routed through the cold-start proxy.
+- [x] 39. ~~Scale-to-zero + sleep/wake in the panel~~ **Shipped v1.2.10 + v1.3.0**: soft sleep/wake-on-request for shared projects; true container-stop scale-to-zero for dedicated instances, status synced to the panel.
+- [x] 40. ~~Monitoring alerts + ranges~~ **Shipped v1.2.12 + v1.2.19**: 24h/7d/30d chart ranges; disk/WAL watchdog alerts to Discord + System-page banner; weekly digest.
 - [ ] 41. Per-project CPU/RAM attribution (arrives free once projects run as instances). **M** *(depends on 38/39)*
 - [ ] 42. Backups: per-project retention, an at-rest encryption option, and restore-to-same-project PITR. **M**
-- [ ] 43. Audit log: retention/export + server-side query + data-plane coverage. **S-M**
+- [ ] 43. Audit log: export + server-side query + data-plane coverage. *(Retention shipped v1.2.17: 90d/20k cap.)* **S-M**
 - [ ] 44. Read replica - a streaming standby + read routing. **L**
 - [ ] 45. Regions / multi-region. **XL** (out of scope for the single-box model)
 
