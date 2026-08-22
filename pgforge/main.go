@@ -318,6 +318,7 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/auth-smtp", a.auth(admin(a.saveAuthEmail)))
 	mux.HandleFunc("POST /p/{slug}/auth-anon", a.auth(admin(a.setAuthAnon)))
 	mux.HandleFunc("POST /p/{slug}/auth-policy", a.auth(admin(a.saveAuthPolicy)))
+	mux.HandleFunc("POST /p/{slug}/auth-user-revoke", a.auth(admin(a.revokeUserSessions)))
 	mux.HandleFunc("GET /p/{slug}/branch-diff", a.auth(proj(a.branchDiff)))
 	mux.HandleFunc("POST /p/{slug}/branch-reset", a.auth(admin(a.branchReset)))
 	mux.HandleFunc("GET /p/{slug}/realtime", a.auth(proj(a.realtimePage)))

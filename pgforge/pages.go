@@ -1384,15 +1384,24 @@ const authPageBody = `
     <button class="btn btn-primary btn-sm" type="submit">Create</button>
     <button class="btn btn-ghost btn-sm" type="button" onclick="document.getElementById('adduser').style.display='none'">Cancel</button>
   </form>
-  {{if not .Users}}<p class="muted" style="margin-top:.5rem">No users yet. They appear here after signing up, or add one above.</p>
+  <form method="get" action="/p/{{.Slug}}/auth" style="display:flex;gap:.4rem;margin-top:.7rem;align-items:center">
+    <input type="text" name="uq" value="{{.UserQuery}}" placeholder="Search by email or id..." style="width:240px;padding:.35rem .55rem;font-size:12px">
+    <button class="btn btn-ghost btn-sm" type="submit">Search</button>
+    {{if .UserQuery}}<a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/auth">Clear</a>{{end}}
+  </form>
+  {{if not .Users}}<p class="muted" style="margin-top:.5rem">{{if .UserQuery}}No users match "{{.UserQuery}}".{{else}}No users yet. They appear here after signing up, or add one above.{{end}}</p>
   {{else}}
   <div class="tblwrap" style="margin-top:.8rem"><table class="data">
-    <thead><tr><th>Email</th><th>Signed up</th><th>Last sign-in</th><th></th></tr></thead>
+    <thead><tr><th>Email</th><th>Signed up</th><th>Last sign-in</th><th>Sessions</th><th></th></tr></thead>
     <tbody>{{range .Users}}<tr>
-      <td><b>{{.Email}}</b><br><code class="muted" style="font-size:10px">{{.ID}}</code></td>
+      <td><b>{{if .Anon}}<span class="muted">anonymous</span>{{else}}{{.Email}}{{end}}</b><br><code class="muted" style="font-size:10px">{{.ID}}</code></td>
       <td class="muted">{{.Created}}</td><td class="muted">{{.LastSeen}}</td>
+      <td class="muted" style="white-space:nowrap">{{.Sessions}} live</td>
       <td>
         <div style="display:flex;gap:.5rem;justify-content:flex-end;align-items:center">
+          {{if .Sessions}}<form method="post" action="/p/{{$.Slug}}/auth-user-revoke" style="margin:0" onsubmit="return confirm('Sign this user out of every device?')">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <button class="btn btn-ghost btn-sm" title="Revoke all refresh tokens">Sign out all</button></form>{{end}}
           <form method="post" action="/p/{{$.Slug}}/auth-user-password" style="margin:0" onsubmit="this.password.value=prompt('New password for {{.Email}} (6+ chars):')||'';return this.password.value.length>=6">
             <input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="password">
             <button class="btn btn-ghost btn-sm">Reset password</button></form>

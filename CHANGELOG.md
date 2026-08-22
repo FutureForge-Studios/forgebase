@@ -13,6 +13,12 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.38] - 2026-08-23
+
+### Added
+- Auth admin depth: user search, live session counts, anonymous markers,
+  sign-out-everywhere per user.
+
 ## [1.3.37] - 2026-08-23
 
 ### Added
@@ -961,7 +967,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.37...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.38...HEAD
+[1.3.38]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.37...v1.3.38
 [1.3.37]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.36...v1.3.37
 [1.3.36]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.35...v1.3.36
 [1.3.35]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.34...v1.3.35

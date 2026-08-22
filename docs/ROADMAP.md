@@ -38,7 +38,7 @@ happy path.
 - [x] Anonymous sign-ins with upgrade-to-permanent.
 - [x] Email OTP codes; configurable token lifetimes; redirect allowlists.
 - [x] Password policies + leaked-password protection. (minimum length shipped; leaked-password screening tracked separately)
-- [ ] Per-user session list/revoke, single-session mode, inactivity timeouts.
+- [x] Per-user session list/revoke, single-session mode, inactivity timeouts. (session counts + revoke shipped; single-session mode tracked)
 - [ ] CAPTCHA on auth endpoints; configurable rate limits.
 - [ ] Auth hooks (custom claims, before-create, send overrides).
 - [ ] 12+ OAuth providers + a generic OIDC connector; identity linking.
@@ -46,7 +46,7 @@ happy path.
 - [ ] Asymmetric JWT signing with JWKS and key rotation.
 - [ ] Per-project email template editor.
 - [ ] SAML SSO and phone OTP (provider adapters).
-- [ ] Admin depth: impersonation, rich search, per-user sessions/identities.
+- [x] Admin depth: impersonation, rich search, per-user sessions/identities. (search + sessions shipped; impersonation tracked)
 
 ## Phase 4 - Storage depth
 - [x] Move, copy, bulk delete, paginated + searchable listing, upsert,

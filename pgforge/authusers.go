@@ -937,17 +937,28 @@ func (a *app) authPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, enabled := a.authConfig(slug)
-	type authUser struct{ ID, Email, Created, LastSeen string }
+	type authUser struct {
+		ID, Email, Created, LastSeen string
+		Sessions                     int
+		Anon                         bool
+	}
 	var users []authUser
 	var count int
+	search := strings.TrimSpace(r.URL.Query().Get("uq"))
 	if enabled {
 		if db, err := a.dbFor(slug); err == nil {
-			rows, _ := db.Query(`SELECT id, email, to_char(created_at,'Mon DD, YYYY'),
-				coalesce(to_char(last_sign_in_at,'Mon DD, HH24:MI'),'never') FROM auth.users ORDER BY created_at DESC LIMIT 200`)
+			rows, _ := db.Query(`SELECT u.id, coalesce(u.email,''), to_char(u.created_at,'Mon DD, YYYY'),
+				coalesce(to_char(u.last_sign_in_at,'Mon DD, HH24:MI'),'never'),
+				coalesce(u.is_anonymous,false),
+				(SELECT count(*) FROM auth.refresh_tokens rt
+					WHERE rt.user_id = u.id AND NOT rt.revoked AND rt.expires_at > now())
+				FROM auth.users u
+				WHERE $1 = '' OR u.email ILIKE '%'||$1||'%' OR u.id::text = $1
+				ORDER BY u.created_at DESC LIMIT 200`, search)
 			if rows != nil {
 				for rows.Next() {
 					var u authUser
-					rows.Scan(&u.ID, &u.Email, &u.Created, &u.LastSeen)
+					rows.Scan(&u.ID, &u.Email, &u.Created, &u.LastSeen, &u.Anon, &u.Sessions)
 					users = append(users, u)
 				}
 				rows.Close()
@@ -978,7 +989,7 @@ func (a *app) authPage(w http.ResponseWriter, r *http.Request) {
 		"Callback":  "https://" + slug + "." + a.cfg.domain + "/auth/v1/callback",
 		"Providers": providers,
 		"SMTPHost":  smtpHost, "SMTPPort": smtpPort, "SMTPUser": smtpUser, "SMTPFrom": smtpFrom,
-		"ConfirmEmail": confirmEmail, "AnonOn": a.authAnonEnabled(slug),
+		"ConfirmEmail": confirmEmail, "AnonOn": a.authAnonEnabled(slug), "UserQuery": search,
 		"TTLMin": func() int { t, _, _ := a.authPolicy(slug); return t / 60 }(),
 		"MinPw":  func() int { _, m, _ := a.authPolicy(slug); return m }(),
 		"Redirects": func() string {
@@ -1065,6 +1076,27 @@ func (a *app) setAuthUserPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	a.audit(r, "auth-user-password", slug+"/"+email)
 	redirectMsg(w, r, "/p/"+slug+"/auth", "Password reset.")
+}
+
+// revokeUserSessions kills every live refresh token for one end user - their
+// current access tokens age out within the project TTL.
+func (a *app) revokeUserSessions(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	uid := r.FormValue("id")
+	db, err := a.dbFor(slug)
+	if err != nil {
+		redirectErr(w, r, "/p/"+slug+"/auth", err.Error())
+		return
+	}
+	res, err := db.Exec(`UPDATE auth.refresh_tokens SET revoked=true
+		WHERE user_id = $1::uuid AND NOT revoked`, uid)
+	if err != nil {
+		redirectErr(w, r, "/p/"+slug+"/auth", "Revoke failed: "+err.Error())
+		return
+	}
+	n, _ := res.RowsAffected()
+	a.audit(r, "user-sessions-revoked", slug+"/"+uid)
+	redirectMsg(w, r, "/p/"+slug+"/auth", fmt.Sprintf("Signed the user out everywhere (%d session(s) revoked).", n))
 }
 
 func (a *app) deleteAuthUser(w http.ResponseWriter, r *http.Request) {
