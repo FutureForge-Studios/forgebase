@@ -287,6 +287,7 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/cron-delete", a.auth(proj(a.cronDelete)))
 	mux.HandleFunc("POST /p/{slug}/cron-run", a.auth(proj(a.cronRunNow)))
 	mux.HandleFunc("GET /p/{slug}/advisors", a.auth(proj(a.advisorsPage)))
+	mux.HandleFunc("GET /p/{slug}/types.ts", a.auth(proj(a.typesTS)))
 	mux.HandleFunc("GET /p/{slug}/auth", a.auth(proj(a.authPage)))
 	mux.HandleFunc("POST /p/{slug}/auth-enable", a.auth(proj(a.enableAuth)))
 	mux.HandleFunc("POST /p/{slug}/auth-disable", a.auth(proj(a.disableAuth)))

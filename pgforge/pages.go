@@ -1001,6 +1001,11 @@ const apiBody = `
   <div class="cs"><span class="tag">anon key</span><code id="anon">{{.Anon}}</code><button class="copy" onclick="cp('anon')">{{icon "copy"}}</button></div>
   <div class="cs"><span class="tag">service key</span><code id="svc">{{.Service}}</code><button class="copy" onclick="cp('svc')">{{icon "copy"}}</button></div>
   <p class="muted" style="font-size:11.5px;margin-top:.7rem">Keep the <b>service key</b> secret - it bypasses row-level security. Ship only the anon key to browsers.</p>
+  <div style="display:flex;gap:.5rem;align-items:center;margin-top:.8rem;padding-top:.8rem;border-top:1px solid hsl(var(--border));flex-wrap:wrap">
+    <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/types.ts" target="_blank">{{icon "book"}} View TypeScript types</a>
+    <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/types.ts?dl=1">{{icon "archive"}} Download database.types.ts</a>
+    <span class="muted" style="font-size:11.5px">generated live from your schema (tables, views, enums, relationships) - typed supabase-js clients autocomplete against it</span>
+  </div>
 </div>
 <div class="card" style="margin-bottom:1rem">
   <div style="display:flex;align-items:center"><h2>Endpoints</h2><div class="spacer"></div><span class="label">{{len .Tables}} table(s)</span></div>
