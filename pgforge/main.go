@@ -301,6 +301,10 @@ func main() {
 	mux.HandleFunc("GET /p/{slug}/migrations", a.auth(proj(a.migrationsPage)))
 	mux.HandleFunc("POST /p/{slug}/migration-apply", a.auth(proj(a.applyMigration)))
 	mux.HandleFunc("GET /p/{slug}/migrations.sql", a.auth(proj(a.migrationsSQL)))
+	mux.HandleFunc("POST /login/totp", a.totpSubmit)
+	mux.HandleFunc("POST /account/totp-setup", a.auth(a.totpSetup))
+	mux.HandleFunc("POST /account/totp-confirm", a.auth(a.totpConfirm))
+	mux.HandleFunc("POST /account/totp-disable", a.auth(a.totpDisable))
 	mux.HandleFunc("GET /p/{slug}/auth", a.auth(proj(a.authPage)))
 	mux.HandleFunc("POST /p/{slug}/auth-enable", a.auth(proj(a.enableAuth)))
 	mux.HandleFunc("POST /p/{slug}/auth-disable", a.auth(proj(a.disableAuth)))
@@ -457,6 +461,8 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE api_config ADD COLUMN IF NOT EXISTS max_rows integer NOT NULL DEFAULT 0`,
 		`ALTER TABLE edge_logs ADD COLUMN IF NOT EXISTS status integer NOT NULL DEFAULT 0`,
 		`ALTER TABLE edge_functions ADD COLUMN IF NOT EXISTS schedule text NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret text NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE edge_functions ADD COLUMN IF NOT EXISTS last_cron timestamptz`,
 		`ALTER TABLE edge_logs ADD COLUMN IF NOT EXISTS ms integer NOT NULL DEFAULT 0`,
 		`ALTER TABLE edge_logs ADD COLUMN IF NOT EXISTS ok boolean NOT NULL DEFAULT false`,

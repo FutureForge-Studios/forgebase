@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.27"
+const appVersion = "1.3.28"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.28", Date: "2026-08-22",
+		Summary: "Two-factor login for the panel.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Two-factor authentication for panel accounts (opt-in, Account page): pair any authenticator app and sign-in then requires your password plus a rotating 6-digit code. Enrollment only activates after a correct code confirms your app has the key, wrong codes count toward the account lockout, and you can turn it off with a current code.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.27", Date: "2026-08-22",
 		Summary: "Versioned migrations.",

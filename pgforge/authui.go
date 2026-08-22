@@ -99,6 +99,30 @@ const accountBody = `
     </form>
   </div>
   <div class="card">
+    <h2>Two-factor authentication</h2>
+    {{if not .HasRow}}
+    <p class="muted" style="font-size:12.5px;margin:.4rem 0 0">Available on registered accounts (not the built-in admin login).</p>
+    {{else if .TOTPOn}}
+    <p style="font-size:12.5px;margin:.4rem 0 .8rem"><span class="badge active">2FA on</span> <span class="muted">Sign-in requires your password plus an authenticator code.</span></p>
+    <form method="post" action="/account/totp-disable" style="display:flex;gap:.5rem;align-items:flex-end">
+      <label class="fld" style="margin:0"><span class="lt">Current code</span><input type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required style="width:110px;font-family:var(--mono)"></label>
+      <button class="btn btn-ghost btn-sm" type="submit" style="color:hsl(var(--destructive))">Turn off 2FA</button>
+    </form>
+    {{else if .TOTPSecret}}
+    <p class="muted" style="font-size:12.5px;margin:.4rem 0 .6rem">Add this key to your authenticator app (Google Authenticator, 1Password, Aegis...), then confirm with the current code:</p>
+    <div class="cs"><span class="tag">Key</span><code id="totpsec">{{.TOTPSecret}}</code><button class="copy" onclick="cp('totpsec')">{{icon "copy"}}</button></div>
+    <div class="cs"><span class="tag">URI</span><code id="totpuri" style="font-size:10.5px">{{.TOTPUri}}</code><button class="copy" onclick="cp('totpuri')">{{icon "copy"}}</button></div>
+    <form method="post" action="/account/totp-confirm" style="display:flex;gap:.5rem;align-items:flex-end;margin-top:.7rem">
+      <label class="fld" style="margin:0"><span class="lt">Code from the app</span><input type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autofocus style="width:110px;font-family:var(--mono)"></label>
+      <button class="btn btn-primary btn-sm" type="submit">Confirm and enable</button>
+    </form>
+    <form method="post" action="/account/totp-disable" style="margin-top:.4rem"><button class="btn btn-ghost btn-sm" type="submit">Cancel setup</button></form>
+    {{else}}
+    <p class="muted" style="font-size:12.5px;margin:.4rem 0 .8rem">Protect your panel account with an authenticator app: sign-in then needs your password AND a rotating 6-digit code.</p>
+    <form method="post" action="/account/totp-setup"><button class="btn btn-primary btn-sm" type="submit">{{icon "shield"}} Enable 2FA</button></form>
+    {{end}}
+  </div>
+  <div class="card">
     <h2>Personal API keys</h2>
     <p class="muted" style="font-size:12.5px;margin:.4rem 0 .8rem">For programmatic access. Never share a key or expose it client-side.</p>
     <form method="post" action="/account/apikey-create" style="display:flex;gap:.5rem;margin-bottom:.9rem">

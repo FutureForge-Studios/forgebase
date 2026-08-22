@@ -174,6 +174,12 @@ func (a *app) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if found && bcrypt.CompareHashAndPassword([]byte(hash), []byte(pass)) == nil {
+		if sec, on := a.userTOTP(name); on && sec != "" {
+			a.auditRaw(name, ip, "login-2fa-pending", "panel")
+			a.renderAuth(w, "Two-factor code", "Enter the 6-digit code from your authenticator app.",
+				renderContent(totpForm, map[string]any{"Token": a.preauthToken(name, remember)}))
+			return
+		}
 		a.setSession(w, r, name, remember)
 		a.auditRaw(name, ip, "login", "panel")
 		http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -414,9 +420,12 @@ func (a *app) accountPage(w http.ResponseWriter, r *http.Request) {
 			rows.Close()
 		}
 	}
+	totpSec, totpOn := a.userTOTP(name)
 	content := renderContent(accountBody, map[string]any{
 		"User": name, "Email": email, "First": first, "Last": last,
 		"HasRow": hasRow, "Keys": keys, "NewKey": r.URL.Query().Get("k"),
+		"TOTPSecret": totpSec, "TOTPOn": totpOn,
+		"TOTPUri": "otpauth://totp/ForgeBase:" + name + "?secret=" + totpSec + "&issuer=ForgeBase",
 	})
 	a.renderShell(w, r, shellData{Title: "Account", Nav: "account",
 		Crumbs: []crumb{{Label: "Account"}}}, content)

@@ -13,6 +13,12 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.28] - 2026-08-22
+
+### Added
+- Opt-in TOTP two-factor authentication for panel accounts (confirm-to-enable,
+  lockout-aware, code required to disable).
+
 ## [1.3.27] - 2026-08-22
 
 ### Added
@@ -892,7 +898,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.27...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.28...HEAD
+[1.3.28]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.27...v1.3.28
 [1.3.27]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.26...v1.3.27
 [1.3.26]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.25...v1.3.26
 [1.3.25]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.24...v1.3.25
