@@ -238,6 +238,8 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/enum-drop", a.auth(proj(a.enumDrop)))
 	mux.HandleFunc("POST /p/{slug}/index-create", a.auth(proj(a.indexCreate)))
 	mux.HandleFunc("POST /p/{slug}/index-drop", a.auth(proj(a.indexDrop)))
+	mux.HandleFunc("POST /p/{slug}/constraint-create", a.auth(proj(a.constraintCreate)))
+	mux.HandleFunc("POST /p/{slug}/constraint-drop", a.auth(proj(a.constraintDrop)))
 	mux.HandleFunc("POST /p/{slug}/table-comment", a.auth(proj(a.tableComment)))
 	mux.HandleFunc("POST /p/{slug}/table-duplicate", a.auth(proj(a.duplicateTable)))
 	mux.HandleFunc("POST /p/{slug}/import", a.auth(proj(a.importCSV)))

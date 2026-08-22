@@ -137,6 +137,140 @@ func (a *app) listIndexes(db *sql.DB, schema string) []dbIndex {
 	return out
 }
 
+type dbConstraint struct {
+	Name, Table, Kind, Def string
+	Primary                bool
+}
+
+var constraintKinds = map[string]string{
+	"p": "primary key", "u": "unique", "f": "foreign key", "c": "check", "x": "exclusion",
+}
+
+func (a *app) listConstraints(db *sql.DB, schema string) []dbConstraint {
+	rows, err := db.Query(`SELECT co.conname, c.relname, co.contype::text,
+			pg_get_constraintdef(co.oid, true)
+		FROM pg_constraint co
+		JOIN pg_class c ON c.oid = co.conrelid
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = $1 AND c.relkind IN ('r','p')
+		ORDER BY c.relname, co.contype, co.conname`, schema)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []dbConstraint
+	for rows.Next() {
+		var k string
+		var c dbConstraint
+		rows.Scan(&c.Name, &c.Table, &k, &c.Def)
+		c.Kind = constraintKinds[k]
+		c.Primary = k == "p"
+		out = append(out, c)
+	}
+	return out
+}
+
+// constraintCreate adds a UNIQUE or CHECK constraint to a table.
+func (a *app) constraintCreate(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	db, err := a.dbFor(slug)
+	if err != nil {
+		redirectErr(w, r, "/p/"+slug+"/objects", err.Error())
+		return
+	}
+	sc := a.edSchema(db, r.FormValue("__schema"))
+	back := "/p/" + slug + "/objects?tab=constraints&sc=" + sc
+	table := r.FormValue("table")
+	if !tableIn(db, sc, table) {
+		redirectErr(w, r, back, "Unknown table.")
+		return
+	}
+	name := sanitizeIdent(r.FormValue("name"))
+	var clause string
+	switch r.FormValue("kind") {
+	case "unique":
+		colSet := map[string]bool{}
+		for _, c := range a.tableCols(db, sc, table) {
+			colSet[c.Name] = true
+		}
+		var cols []string
+		for _, c := range strings.Split(r.FormValue("columns"), ",") {
+			c = strings.TrimSpace(c)
+			if c == "" {
+				continue
+			}
+			if !colSet[c] {
+				redirectErr(w, r, back, "Unknown column "+c+".")
+				return
+			}
+			cols = append(cols, pq.QuoteIdentifier(c))
+		}
+		if len(cols) == 0 {
+			redirectErr(w, r, back, "List at least one column.")
+			return
+		}
+		if name == "" {
+			name = sanitizeIdent(table + "_" + strings.ReplaceAll(r.FormValue("columns"), ",", "_") + "_key")
+		}
+		clause = "UNIQUE (" + strings.Join(cols, ", ") + ")"
+	case "check":
+		expr := strings.TrimSpace(r.FormValue("expr"))
+		if expr == "" {
+			redirectErr(w, r, back, "Write the CHECK expression.")
+			return
+		}
+		if name == "" {
+			name = sanitizeIdent(table + "_check")
+		}
+		clause = "CHECK (" + expr + ")"
+	default:
+		redirectErr(w, r, back, "Pick unique or check.")
+		return
+	}
+	if _, err := db.Exec(fmt.Sprintf(`ALTER TABLE %s ADD CONSTRAINT %s %s`,
+		qrel(sc, table), pq.QuoteIdentifier(name), clause)); err != nil {
+		redirectErr(w, r, back, "Add failed: "+err.Error())
+		return
+	}
+	a.reloadPostgRESTSchema(slug)
+	a.audit(r, "constraint-add", slug+"/"+sc+"."+table+"."+name)
+	redirectMsg(w, r, back, "Constraint "+name+" added.")
+}
+
+func (a *app) constraintDrop(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	db, err := a.dbFor(slug)
+	if err != nil {
+		redirectErr(w, r, "/p/"+slug+"/objects", err.Error())
+		return
+	}
+	sc := a.edSchema(db, r.FormValue("__schema"))
+	back := "/p/" + slug + "/objects?tab=constraints&sc=" + sc
+	table, name := r.FormValue("table"), r.FormValue("name")
+	found := false
+	for _, c := range a.listConstraints(db, sc) {
+		if c.Table == table && c.Name == name {
+			if c.Primary {
+				redirectErr(w, r, back, "Primary keys cannot be dropped here - the Table Editor depends on them.")
+				return
+			}
+			found = true
+		}
+	}
+	if !found {
+		redirectErr(w, r, back, "Unknown constraint.")
+		return
+	}
+	if _, err := db.Exec(fmt.Sprintf(`ALTER TABLE %s DROP CONSTRAINT %s`,
+		qrel(sc, table), pq.QuoteIdentifier(name))); err != nil {
+		redirectErr(w, r, back, "Drop failed: "+err.Error())
+		return
+	}
+	a.reloadPostgRESTSchema(slug)
+	a.audit(r, "constraint-drop", slug+"/"+sc+"."+table+"."+name)
+	redirectMsg(w, r, back, "Constraint "+name+" dropped.")
+}
+
 // trigger functions available to the trigger builder, across user schemas
 type trigFunc struct{ Schema, Name string }
 
@@ -174,7 +308,7 @@ func (a *app) objectsPage(w http.ResponseWriter, r *http.Request) {
 	}
 	sc := a.edSchema(db, r.URL.Query().Get("sc"))
 	tab := r.URL.Query().Get("tab")
-	if tab != "triggers" && tab != "enums" && tab != "indexes" {
+	if tab != "triggers" && tab != "enums" && tab != "indexes" && tab != "constraints" {
 		tab = "functions"
 	}
 	data := map[string]any{
@@ -195,6 +329,15 @@ func (a *app) objectsPage(w http.ResponseWriter, r *http.Request) {
 		data["Tables"] = tbls
 	case "enums":
 		data["Enums"] = a.listEnums(db, sc)
+	case "constraints":
+		data["Constraints"] = a.listConstraints(db, sc)
+		var tbls []string
+		for _, rel := range a.listRelations(db, sc) {
+			if rel.Kind == "table" {
+				tbls = append(tbls, rel.Name)
+			}
+		}
+		data["Tables"] = tbls
 	case "indexes":
 		data["Indexes"] = a.listIndexes(db, sc)
 		var tbls []string

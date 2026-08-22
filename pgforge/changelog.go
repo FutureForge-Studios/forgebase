@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.28"
+const appVersion = "1.3.29"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.29", Date: "2026-08-22",
+		Summary: "Constraints, managed visually.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Constraints tab on the Objects page: every constraint in the schema (primary keys, unique, foreign keys, checks, exclusions) with its full definition, guided creation of UNIQUE and CHECK constraints, and safe dropping - primary keys are protected.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.28", Date: "2026-08-22",
 		Summary: "Two-factor login for the panel.",

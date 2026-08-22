@@ -2269,6 +2269,7 @@ const objectsBody = `
   <a class="btn {{if eq .Tab "triggers"}}btn-primary{{else}}btn-ghost{{end}} btn-sm" href="/p/{{.Slug}}/objects?tab=triggers&sc={{.Schema}}">Triggers</a>
   <a class="btn {{if eq .Tab "enums"}}btn-primary{{else}}btn-ghost{{end}} btn-sm" href="/p/{{.Slug}}/objects?tab=enums&sc={{.Schema}}">Enums</a>
   <a class="btn {{if eq .Tab "indexes"}}btn-primary{{else}}btn-ghost{{end}} btn-sm" href="/p/{{.Slug}}/objects?tab=indexes&sc={{.Schema}}">Indexes</a>
+  <a class="btn {{if eq .Tab "constraints"}}btn-primary{{else}}btn-ghost{{end}} btn-sm" href="/p/{{.Slug}}/objects?tab=constraints&sc={{.Schema}}">Constraints</a>
   <div class="spacer"></div>
   <label class="label" style="display:flex;align-items:center;gap:.4rem">Schema
     <select onchange="location.href='/p/{{.Slug}}/objects?tab={{.Tab}}&sc='+encodeURIComponent(this.value)" style="width:auto;padding:.4rem .6rem">
@@ -2391,6 +2392,37 @@ $fn$ LANGUAGE plpgsql;" style="font-family:var(--mono);font-size:12.5px"></texta
 </div>
 {{end}}
 {{else}}<p class="muted">No enum types in <b>{{.Schema}}</b> yet.</p>{{end}}
+{{end}}
+
+{{if eq .Tab "constraints"}}
+<div class="card" style="margin-bottom:1rem">
+  <h2>New constraint</h2>
+  <form method="post" action="/p/{{.Slug}}/constraint-create" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.6rem">
+    <input type="hidden" name="__schema" value="{{.Schema}}">
+    <label class="fld" style="margin:0"><span class="lt">Table</span><select name="table" style="width:auto">{{range .Tables}}<option>{{.}}</option>{{end}}</select></label>
+    <label class="fld" style="margin:0"><span class="lt">Kind</span><select name="kind" style="width:auto" onchange="document.getElementById('cu').style.display=this.value==='unique'?'':'none';document.getElementById('cc').style.display=this.value==='check'?'':'none'">
+      <option value="unique">unique</option><option value="check">check</option></select></label>
+    <label class="fld" style="margin:0" id="cu"><span class="lt">Columns (comma separated)</span><input type="text" name="columns" placeholder="email" style="width:180px"></label>
+    <label class="fld" style="margin:0;display:none" id="cc"><span class="lt">CHECK expression</span><input type="text" name="expr" placeholder="price >= 0" style="width:220px;font-family:var(--mono);font-size:12px"></label>
+    <label class="fld" style="margin:0"><span class="lt">Name (optional)</span><input type="text" name="name" placeholder="auto" style="width:140px"></label>
+    <button class="btn btn-primary btn-sm" type="submit">Add constraint</button>
+  </form>
+</div>
+{{if .Constraints}}
+<div class="tblwrap"><table class="data">
+  <thead><tr><th>Constraint</th><th>Table</th><th>Kind</th><th>Definition</th><th></th></tr></thead>
+  <tbody>{{range .Constraints}}<tr>
+    <td><code>{{.Name}}</code></td><td class="muted">{{.Table}}</td>
+    <td>{{if .Primary}}<span class="badge active">{{.Kind}}</span>{{else}}<span class="muted" style="font-size:12px">{{.Kind}}</span>{{end}}</td>
+    <td class="muted" style="font-size:11px;max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Def}}">{{.Def}}</td>
+    <td style="text-align:right">{{if not .Primary}}
+      <form method="post" action="/p/{{$.Slug}}/constraint-drop" onsubmit="return confirm('Drop constraint {{.Name}}?')" style="display:inline">
+        <input type="hidden" name="__schema" value="{{$.Schema}}"><input type="hidden" name="table" value="{{.Table}}"><input type="hidden" name="name" value="{{.Name}}">
+        <button class="copy" style="color:hsl(var(--destructive))" title="Drop constraint">{{icon "trash"}}</button>
+      </form>{{end}}</td>
+  </tr>{{end}}</tbody>
+</table></div>
+{{else}}<p class="muted">No constraints in <b>{{.Schema}}</b> yet.</p>{{end}}
 {{end}}
 
 {{if eq .Tab "indexes"}}
