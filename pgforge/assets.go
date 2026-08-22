@@ -443,6 +443,7 @@ func projectNav(slug string) []navItem {
 		{"advisors", "Advisors", b + "/advisors", "sparkle"},
 		{"branches", "Branches", b + "/branches", "branch"},
 		{"database", "Database", b + "/database", "database"},
+		{"migrations", "Migrations", b + "/migrations", "list"},
 		{"backups", "Backup & Restore", b + "/backups", "archive"},
 		{"sync", "Sync / Clone", b + "/sync", "restore"},
 		{"logs", "Logs", b + "/logs", "list"},

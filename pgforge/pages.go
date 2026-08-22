@@ -2012,6 +2012,39 @@ const advisorsBody = `
 {{end}}
 `
 
+const migrationsBody = `
+<div class="pagehead"><h1>Migrations</h1><p>Versioned schema changes for <b>{{.Slug}}</b> - each applied atomically and recorded inside the database, so history travels with backups, branches and clones.</p></div>
+<div class="card" style="margin-bottom:1rem">
+  <h2>New migration</h2>
+  <form method="post" action="/p/{{.Slug}}/migration-apply" style="margin-top:.6rem">
+    <label class="fld"><span class="lt">Name</span><input type="text" name="name" placeholder="add orders table" required style="max-width:340px"></label>
+    <label class="fld"><span class="lt">SQL</span><textarea name="sql" rows="9" required placeholder="CREATE TABLE orders (
+  id bigserial PRIMARY KEY,
+  user_id bigint REFERENCES users(id),
+  total numeric(12,2) NOT NULL,
+  created_at timestamptz DEFAULT now()
+);" style="font-family:var(--mono);font-size:12.5px"></textarea></label>
+    <button class="btn btn-primary btn-sm" type="submit">{{icon "play"}} Apply migration</button>
+    <span class="muted" style="font-size:11.5px;margin-left:.6rem">runs in one transaction - a failure applies nothing and records nothing</span>
+  </form>
+</div>
+<div class="card">
+  <div style="display:flex;align-items:center;gap:.6rem"><h2>History</h2><span class="label">{{len .Migs}} applied</span><div class="spacer"></div>
+    {{if .Migs}}<a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/migrations.sql">{{icon "archive"}} Download all as .sql</a>{{end}}</div>
+  {{if not .Migs}}<p class="muted" style="margin-top:.5rem">No migrations yet. Changes made in the Table Editor or SQL editor are not auto-recorded - use migrations when you want a replayable history.</p>
+  {{else}}
+  {{range .Migs}}
+  <details style="margin-top:.6rem;border:1px solid hsl(var(--border));border-radius:.6rem;padding:.5rem .8rem">
+    <summary style="cursor:pointer;display:flex;gap:.6rem;align-items:center">
+      <code style="font-size:12px">{{.Version}}</code><b style="font-size:13px">{{.Name}}</b>
+      <span class="muted" style="font-size:11.5px;margin-left:auto">{{.Applied}}</span>
+    </summary>
+    <pre style="font-family:var(--mono);font-size:12px;overflow-x:auto;margin-top:.5rem;white-space:pre-wrap">{{.SQL}}</pre>
+  </details>
+  {{end}}{{end}}
+</div>
+`
+
 const cronBody = `
 <div class="pagehead"><h1>Cron Jobs</h1><p>Scheduled SQL against this project's database - cleanups, rollups, refreshes. Powered by pg_cron.</p></div>
 {{if .Unavailable}}
