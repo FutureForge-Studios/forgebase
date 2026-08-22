@@ -13,6 +13,12 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.22] - 2026-08-22
+
+### Added
+- Logs filters (time range, action, target search) and a slow-statements
+  dashboard ranked by mean execution time (pg_stat_statements).
+
 ## [1.3.21] - 2026-08-22
 
 ### Added
@@ -857,7 +863,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.21...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.22...HEAD
+[1.3.22]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.21...v1.3.22
 [1.3.21]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.20...v1.3.21
 [1.3.20]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.19...v1.3.20
 [1.3.19]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.18...v1.3.19

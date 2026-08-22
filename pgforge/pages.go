@@ -927,6 +927,31 @@ function filterLogs(){var q=document.getElementById('logsearch').value.toLowerCa
 
 const logsBody = `
 <div class="pagehead"><h1>Logs</h1><p>Activity for <b>{{.Slug}}</b> only - its actions and live database sessions. Platform-wide logins are in the <a href="/audit" style="color:hsl(var(--primary))">Audit log</a>.</p></div>
+<form method="get" action="/p/{{.Slug}}/logs" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:1rem">
+  <label class="fld" style="margin:0"><span class="lt">Range</span><select name="rng" style="width:auto" onchange="this.form.submit()">
+    <option value="1h" {{if eq .Rng "1h"}}selected{{end}}>last hour</option>
+    <option value="24h" {{if eq .Rng "24h"}}selected{{end}}>last 24 hours</option>
+    <option value="7d" {{if eq .Rng "7d"}}selected{{end}}>last 7 days</option>
+    <option value="30d" {{if eq .Rng "30d"}}selected{{end}}>last 30 days</option>
+  </select></label>
+  <label class="fld" style="margin:0"><span class="lt">Action contains</span><input type="text" name="act" value="{{.Act}}" placeholder="e.g. row-update" style="width:150px"></label>
+  <label class="fld" style="margin:0"><span class="lt">Target contains</span><input type="text" name="q" value="{{.Query}}" placeholder="table, column..." style="width:150px"></label>
+  <button class="btn btn-ghost btn-sm" type="submit">Filter</button>
+  {{if or .Act .Query}}<a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/logs">Clear</a>{{end}}
+</form>
+<div class="card" style="margin-bottom:1rem">
+  <div style="display:flex;align-items:center"><h2>Slow statements</h2><div class="spacer"></div><span class="label">by mean time</span></div>
+  {{if not .Slow}}<p class="muted" style="margin-top:.5rem">No statement statistics for this database yet.</p>{{else}}
+  <div class="tblwrap" style="margin-top:.8rem"><table class="data">
+    <thead><tr><th>Statement</th><th>Calls</th><th>Rows</th><th>Mean ms</th><th>Total s</th></tr></thead>
+    <tbody>{{range .Slow}}<tr>
+      <td><code style="font-size:11px">{{.Query}}</code></td>
+      <td class="muted">{{.Calls}}</td><td class="muted">{{.Rows}}</td>
+      <td class="muted">{{.Mean}}</td><td class="muted">{{.Total}}</td>
+    </tr>{{end}}</tbody>
+  </table></div>
+  <p class="muted" style="font-size:11px;margin-top:.5rem">Statistics accumulate since the database last restarted. EXPLAIN the slow ones in the SQL editor and check Advisors for missing indexes.</p>{{end}}
+</div>
 <div class="card" style="margin-bottom:1rem">
   <div style="display:flex;align-items:center"><h2>Live database activity</h2><div class="spacer"></div><span class="label">{{len .Acts}} session(s)</span></div>
   {{if not .Acts}}<p class="muted" style="margin-top:.5rem">No active sessions right now.</p>{{else}}

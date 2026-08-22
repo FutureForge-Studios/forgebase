@@ -159,17 +159,26 @@ func (a *app) logsPage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	// audit trail for this project (events whose target references the project)
-	// plus platform-wide auth/login events, newest first.
+	// audit trail for this project, filterable by time range, action and text
+	rng := r.URL.Query().Get("rng")
+	ivals := map[string]string{"1h": "1 hour", "24h": "24 hours", "7d": "7 days", "30d": "30 days"}
+	if _, ok := ivals[rng]; !ok {
+		rng = "7d"
+	}
+	act := strings.TrimSpace(r.URL.Query().Get("act"))
+	search := strings.TrimSpace(r.URL.Query().Get("q"))
 	type logRow struct{ At, Actor, IP, Action, Target string }
 	var events []logRow
 	rows, _ := a.db.Query(`SELECT to_char(at,'Mon DD, HH24:MI:SS'), actor, coalesce(ip,'-'),
 			action, coalesce(detail->>'target','')
 		FROM audit_log
-		WHERE detail->>'target' = $1
+		WHERE (detail->>'target' = $1
 		   OR detail->>'target' LIKE $1 || '/%'
-		   OR detail->>'target' LIKE $1 || ' %'
-		ORDER BY at DESC LIMIT 100`, slug)
+		   OR detail->>'target' LIKE $1 || ' %')
+		  AND at > now() - ($2)::interval
+		  AND ($3 = '' OR action ILIKE '%'||$3||'%')
+		  AND ($4 = '' OR coalesce(detail->>'target','') ILIKE '%'||$4||'%')
+		ORDER BY at DESC LIMIT 200`, slug, ivals[rng], act, search)
 	if rows != nil {
 		for rows.Next() {
 			var l logRow
@@ -195,7 +204,30 @@ func (a *app) logsPage(w http.ResponseWriter, r *http.Request) {
 		}
 		rows2.Close()
 	}
-	content := renderContent(logsBody, map[string]any{"Slug": slug, "Events": events, "Acts": acts})
+	// slow statements for this database (pg_stat_statements is preloaded
+	// cluster-wide; the view lives in the control-plane db)
+	a.db.Exec(`CREATE EXTENSION IF NOT EXISTS pg_stat_statements`)
+	type slowRow struct {
+		Query       string
+		Calls, Rows int64
+		Mean, Total string
+	}
+	var slow []slowRow
+	if srows, err := a.db.Query(`SELECT left(regexp_replace(s.query,'[[:space:]]+',' ','g'),160),
+			s.calls, s.rows, round(s.mean_exec_time::numeric,2)::text,
+			round((s.total_exec_time/1000)::numeric,2)::text
+		FROM pg_stat_statements s JOIN pg_database d ON d.oid = s.dbid
+		WHERE d.datname = $1 AND s.query NOT ILIKE '%pg_stat_statements%'
+		ORDER BY s.mean_exec_time DESC LIMIT 15`, slug); err == nil {
+		for srows.Next() {
+			var sr slowRow
+			srows.Scan(&sr.Query, &sr.Calls, &sr.Rows, &sr.Mean, &sr.Total)
+			slow = append(slow, sr)
+		}
+		srows.Close()
+	}
+	content := renderContent(logsBody, map[string]any{"Slug": slug, "Events": events, "Acts": acts,
+		"Rng": rng, "Act": act, "Query": search, "Slow": slow})
 	a.renderShell(w, r, shellData{Title: slug + " · Logs", Nav: "logs", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Logs"}}}, content)
 }
