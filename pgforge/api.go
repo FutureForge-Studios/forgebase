@@ -77,10 +77,13 @@ func (a *app) touchAndResume(slug string) {
 
 // reapPostgREST stops Data API processes with no requests for `idle`, freeing
 // their RAM. They start again automatically on the next request.
-func (a *app) reapPostgREST(idle time.Duration) {
+func (a *app) reapPostgREST(idle time.Duration, pinned map[string]bool) {
 	pgrstMu.Lock()
 	defer pgrstMu.Unlock()
 	for slug, p := range pgrstProc {
+		if pinned[slug] {
+			continue // kept warm - no cold starts for pinned projects
+		}
 		if time.Since(time.Unix(0, p.lastReq.Load())) > idle {
 			killAndReap(p.cmd)
 			delete(pgrstProc, slug)

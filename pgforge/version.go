@@ -81,8 +81,13 @@ func (a *app) systemPage(w http.ResponseWriter, r *http.Request) {
 	// wedged or abandoned update can't pin this page on "updating..." forever.
 	updateRunning := updateInFlight()
 
+	hook := a.discordHook()
+	hookMasked := ""
+	if hook != "" {
+		hookMasked = "..." + hook[max(0, len(hook)-18):]
+	}
 	content := renderContent(systemBody, map[string]any{
-		"Version": version, "BuildTime": buildTime, "Commit": repoURL + "/commit/" + version,
+		"Version": version, "BuildTime": buildTime, "Commit": repoURL + "/commit/" + version, "DiscordHook": hookMasked,
 		"DBOK": dbOK, "PGVer": pgVer, "DBSize": dbSize, "ActiveAPIs": activeAPIs, "Svcs": svcs,
 		"Stats": a.hostStats(), "AppVersion": appVersion, "IsOwner": a.atLeast(r, "owner"),
 		"Checked": checked, "Upd": upd, "UpdateLog": updLog, "UpdateRunning": updateRunning,

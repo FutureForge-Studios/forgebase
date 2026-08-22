@@ -30,6 +30,8 @@ const loginForm = `
     <input type="text" name="email" autocomplete="username" autofocus required></label>
   <label class="fld"><span class="lt">Password</span>
     <input type="password" name="pass" autocomplete="current-password" required></label>
+  <label style="display:flex;align-items:center;gap:.45rem;font-size:13px;margin:-.3rem 0 .9rem;cursor:pointer">
+    <input type="checkbox" name="remember" style="width:auto;margin:0"> Remember me for 7 days</label>
   <button class="btn btn-primary" type="submit">Sign in</button>
 </form>
 <div class="authfoot">

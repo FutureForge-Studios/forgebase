@@ -84,8 +84,19 @@ func (a *app) sampleOnce(full bool) {
 	}
 
 	a.autoSuspend()
-	a.reapPostgREST(15 * time.Minute)
-	a.reapRealtimeHubs(15 * time.Minute)
+	// "Keep awake" projects are also kept WARM: their API sidecar and realtime
+	// listener are exempt from idle reaping, so they never pay a cold start.
+	pinned := map[string]bool{}
+	if rows, err := a.db.Query(`SELECT slug FROM projects WHERE keep_awake`); err == nil {
+		for rows.Next() {
+			var s string
+			rows.Scan(&s)
+			pinned[s] = true
+		}
+		rows.Close()
+	}
+	a.reapPostgREST(15*time.Minute, pinned)
+	a.reapRealtimeHubs(15*time.Minute, pinned)
 }
 
 // clientActivitySubquery matches projects that have real client connections

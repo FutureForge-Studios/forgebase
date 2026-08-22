@@ -53,6 +53,20 @@ for t in "$REPO"/systemd/*.timer; do
 done
 log "systemd units installed: $(ls "$REPO"/systemd | wc -l); timers enabled"
 
+# ---- fail2ban jail for panel login brute-force (only where fail2ban exists)
+if command -v fail2ban-client >/dev/null 2>&1 && [ -d /etc/fail2ban ]; then
+  changed=0
+  if [ -f "$REPO/server/fail2ban/filter-forgebase.conf" ]; then
+    cmp -s "$REPO/server/fail2ban/filter-forgebase.conf" /etc/fail2ban/filter.d/forgebase.conf 2>/dev/null || {
+      install -m 0644 "$REPO/server/fail2ban/filter-forgebase.conf" /etc/fail2ban/filter.d/forgebase.conf; changed=1; }
+  fi
+  if [ -f "$REPO/server/fail2ban/jail-forgebase.conf" ]; then
+    cmp -s "$REPO/server/fail2ban/jail-forgebase.conf" /etc/fail2ban/jail.d/forgebase.conf 2>/dev/null || {
+      install -m 0644 "$REPO/server/fail2ban/jail-forgebase.conf" /etc/fail2ban/jail.d/forgebase.conf; changed=1; }
+  fi
+  [ "$changed" = 1 ] && { fail2ban-client reload >/dev/null 2>&1 || systemctl reload fail2ban >/dev/null 2>&1 || true; log "fail2ban jail updated + reloaded"; }
+fi
+
 if [ "$MODE" = "--with-compose" ]; then
   # docker log rotation defaults for FUTURE containers (existing ones keep
   # their config until recreated below). Only write if absent - never clobber

@@ -84,6 +84,8 @@ type app struct {
 
 	mu           sync.Mutex
 	attempts     map[string][]time.Time // panel login rate limiting per IP
+	acctFails    map[string][]time.Time // failed panel logins per account id (lockout)
+	surgeAlertAt time.Time              // last brute-force Discord alert (1/hour max)
 	authAttempts map[string][]time.Time // end-user /auth/v1 rate limiting per IP
 }
 
@@ -144,7 +146,8 @@ func main() {
 		log.Fatalf("bad PGFORGE_DSN: %v", err)
 	}
 	a := &app{cfg: cfg, db: db, baseURL: base,
-		attempts: map[string][]time.Time{}, authAttempts: map[string][]time.Time{}}
+		attempts: map[string][]time.Time{}, authAttempts: map[string][]time.Time{},
+		acctFails: map[string][]time.Time{}}
 	if err := a.ensureSchema(); err != nil {
 		log.Fatalf("schema init: %v", err)
 	}
@@ -179,6 +182,7 @@ func main() {
 	mux.HandleFunc("GET /system", a.auth(a.systemPage))
 	mux.HandleFunc("GET /changelog", a.auth(a.changelogPage))
 	mux.HandleFunc("POST /system/update", a.auth(a.requireRole("owner", a.applyUpdate)))
+	mux.HandleFunc("POST /system/discord", a.auth(a.requireRole("owner", a.setDiscordWebhook)))
 	// team (owner-only management)
 	mux.HandleFunc("GET /people", a.auth(a.peoplePage))
 	mux.HandleFunc("POST /people/add", a.auth(a.requireRole("owner", a.addMember)))

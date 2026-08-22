@@ -13,6 +13,28 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.11] - 2026-08-22
+
+### Security
+- Panel login now has a per-account lockout: 5 failed attempts on an account
+  lock it for 15 minutes, even with the correct password afterward. This is the
+  defense per-IP limits cannot provide against botnets that try one password
+  per IP.
+- Every failed login now costs the attacker 1 second, rising to 4 seconds
+  platform-wide while a distributed attack is underway.
+- The fail2ban firewall jail for the panel is now part of the product (tighter:
+  3 attempts = 1 hour IP ban, escalating for repeat offenders up to a week) and
+  installs automatically wherever fail2ban is present.
+
+### Added
+- Discord alerts: paste a webhook URL on the System page and ForgeBase pings
+  your Discord when something needs attention - starting with login
+  brute-force waves (more alert types coming).
+- "Remember me for 7 days" checkbox at login; sessions stay 12 hours without it.
+- "Keep always awake" projects are now also kept WARM: their API process and
+  realtime listener are never stopped for idleness, so pinned projects (your
+  production apps) never pay a cold start.
+
 ## [1.2.10] - 2026-08-22
 
 ### Changed
@@ -419,7 +441,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.10...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.11...HEAD
+[1.2.11]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.10...v1.2.11
 [1.2.10]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.9...v1.2.10
 [1.2.9]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.8...v1.2.9
 [1.2.8]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.7...v1.2.8

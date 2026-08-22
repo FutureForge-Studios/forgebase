@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.2.10"
+const appVersion = "1.2.11"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,22 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.2.11", Date: "2026-08-22",
+		Summary: "Login hardening against brute-force attacks, Discord alerts, and always-warm pinned projects.",
+		Sections: []changeSection{
+			{"Security", []string{
+				"Panel login now has a per-account lockout: 5 failed attempts on an account lock it for 15 minutes, even with the correct password afterward. This is the defense per-IP limits cannot provide against botnets that try one password per IP.",
+				"Every failed login now costs the attacker 1 second, rising to 4 seconds platform-wide while a distributed attack is underway.",
+				"The fail2ban firewall jail for the panel is now part of the product (tighter: 3 attempts = 1 hour IP ban, escalating for repeat offenders up to a week) and installs automatically wherever fail2ban is present.",
+			}},
+			{"Added", []string{
+				"Discord alerts: paste a webhook URL on the System page and ForgeBase pings your Discord when something needs attention - starting with login brute-force waves (with more alert types coming).",
+				"\"Remember me for 7 days\" checkbox at login; sessions stay 12 hours without it.",
+				"\"Keep always awake\" projects are now also kept WARM: their API process and realtime listener are never stopped for idleness, so pinned projects (your production apps) never pay a cold start.",
+			}},
+		},
+	},
 	{
 		Version: "1.2.10", Date: "2026-08-22",
 		Summary: "Neon-style sleep: idle projects cost nothing and wake on any request.",

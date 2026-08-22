@@ -108,7 +108,7 @@ func (a *app) reapHubIfUnused(slug string) {
 // least `idle` and serve no webhooks, releasing their dedicated LISTEN
 // backends. Called from the metrics sampler. Events NOTIFYed while no hub is
 // listening are dropped - which is already the behavior when nobody subscribes.
-func (a *app) reapRealtimeHubs(idle time.Duration) {
+func (a *app) reapRealtimeHubs(idle time.Duration, pinned map[string]bool) {
 	rtMu.Lock()
 	candidates := make(map[string]*rtHub, len(rtHubs))
 	for slug, h := range rtHubs {
@@ -116,6 +116,9 @@ func (a *app) reapRealtimeHubs(idle time.Duration) {
 	}
 	rtMu.Unlock()
 	for slug, h := range candidates {
+		if pinned[slug] {
+			continue // kept warm
+		}
 		h.mu.Lock()
 		emptyLong := len(h.clients) == 0 && !h.emptySince.IsZero() && time.Since(h.emptySince) > idle
 		h.mu.Unlock()

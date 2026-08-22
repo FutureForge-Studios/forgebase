@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -33,15 +34,19 @@ func (a *app) sign(msg string) string {
 	return hex.EncodeToString(m.Sum(nil))
 }
 
-func (a *app) setSession(w http.ResponseWriter, r *http.Request, name string) {
-	exp := strconv.FormatInt(time.Now().Add(12*time.Hour).Unix(), 10)
+func (a *app) setSession(w http.ResponseWriter, r *http.Request, name string, remember bool) {
+	ttl := 12 * time.Hour
+	if remember {
+		ttl = 7 * 24 * time.Hour // "remember me" on a trusted device
+	}
+	exp := strconv.FormatInt(time.Now().Add(ttl).Unix(), 10)
 	b64 := base64.RawURLEncoding.EncodeToString([]byte(name))
 	val := b64 + "." + exp + "." + a.sign("session:"+exp+":"+b64)
 	http.SetCookie(w, &http.Cookie{
 		Name: "pgforge_session", Value: val, Path: "/",
 		// Secure only when the request is actually HTTPS, so the cookie works
 		// behind Caddy (production) and on a plain-HTTP dev/test box alike.
-		HttpOnly: true, Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode, MaxAge: 12 * 3600,
+		HttpOnly: true, Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode, MaxAge: int(ttl.Seconds()),
 	})
 }
 
@@ -135,12 +140,23 @@ func (a *app) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	id := strings.TrimSpace(r.FormValue("email"))
 	pass := r.FormValue("pass")
+	remember := r.FormValue("remember") == "on"
+
+	// Per-ACCOUNT lockout: after 5 failed attempts on one account id within 15
+	// minutes, that account cannot be logged into at all for the window - even
+	// with the right password. This is what per-IP limits can't do: a botnet
+	// trying one password per IP against the real admin account hits this wall.
+	if a.acctLocked(id) {
+		a.auditRaw(id, ip, "login-locked", "panel")
+		a.renderAuth(w, "Locked", "", renderContent(loginForm, map[string]any{"Err": "This account is temporarily locked after repeated failed attempts. Try again in 15 minutes."}))
+		return
+	}
 
 	// 1) real user by email or name
 	var name, hash string
 	err := a.db.QueryRow(`SELECT name, pass_hash FROM users WHERE lower(email)=lower($1) OR lower(name)=lower($1)`, id).Scan(&name, &hash)
 	if err == nil && bcrypt.CompareHashAndPassword([]byte(hash), []byte(pass)) == nil {
-		a.setSession(w, r, name)
+		a.setSession(w, r, name, remember)
 		a.auditRaw(name, ip, "login", "panel")
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
@@ -148,15 +164,79 @@ func (a *app) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	// 2) break-glass env admin
 	if subtle.ConstantTimeCompare([]byte(id), []byte(a.cfg.panelUser)) == 1 &&
 		subtle.ConstantTimeCompare([]byte(pass), []byte(a.cfg.panelPass)) == 1 {
-		a.setSession(w, r, a.cfg.panelUser)
+		a.setSession(w, r, a.cfg.panelUser, remember)
 		a.auditRaw(a.cfg.panelUser, ip, "login", "panel (admin)")
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
 	a.recordAttempt(ip)
+	a.recordAcctFail(id)
 	a.auditRaw(id, ip, "login-failed", "panel")
 	log.Printf("FAILED LOGIN ip=%s user=%q", ip, id) // parseable for fail2ban
+	// Slow bots down: every failure costs a second, and during a platform-wide
+	// failure surge (distributed attack) it costs four. Also fires a Discord
+	// alert (max one per hour) so the operator sees the attack live.
+	delay := time.Second
+	if a.loginSurge() {
+		delay = 4 * time.Second
+	}
+	time.Sleep(delay)
 	a.renderAuth(w, "Welcome back", "", renderContent(loginForm, map[string]any{"Err": "Wrong email or password."}))
+}
+
+// acctLocked reports whether an account id has >=5 failed logins in 15 min.
+func (a *app) acctLocked(id string) bool {
+	key := strings.ToLower(strings.TrimSpace(id))
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	cut := time.Now().Add(-15 * time.Minute)
+	keep := a.acctFails[key][:0]
+	for _, t := range a.acctFails[key] {
+		if t.After(cut) {
+			keep = append(keep, t)
+		}
+	}
+	if len(keep) == 0 {
+		delete(a.acctFails, key)
+	} else {
+		a.acctFails[key] = keep
+	}
+	return len(keep) >= 5
+}
+
+func (a *app) recordAcctFail(id string) {
+	key := strings.ToLower(strings.TrimSpace(id))
+	a.mu.Lock()
+	a.acctFails[key] = append(a.acctFails[key], time.Now())
+	a.mu.Unlock()
+}
+
+// loginSurge reports whether the platform as a whole is seeing a brute-force
+// wave (>=15 failed logins across all IPs in 10 min) and, at most once an
+// hour, pushes a Discord alert about it.
+func (a *app) loginSurge() bool {
+	a.mu.Lock()
+	total := 0
+	cut := time.Now().Add(-10 * time.Minute)
+	for _, ts := range a.attempts {
+		for _, t := range ts {
+			if t.After(cut) {
+				total++
+			}
+		}
+	}
+	ips := len(a.attempts)
+	alert := total >= 15 && time.Since(a.surgeAlertAt) > time.Hour
+	if alert {
+		a.surgeAlertAt = time.Now()
+	}
+	a.mu.Unlock()
+	if alert {
+		go a.notifyDiscord(fmt.Sprintf(
+			"⚠️ ForgeBase: %d failed panel logins in the last 10 minutes from ~%d IPs. Lockouts, slowdowns and fail2ban are active - review the audit log.",
+			total, ips))
+	}
+	return total >= 15
 }
 
 func (a *app) logout(w http.ResponseWriter, r *http.Request) {
@@ -229,7 +309,7 @@ func (a *app) registerSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.auditRaw(email, clientIP(r), "register", name)
-	a.setSession(w, r, name)
+	a.setSession(w, r, name, false)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -298,7 +378,7 @@ func (a *app) inviteSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	a.db.Exec(`UPDATE users SET pass_hash=$1, invite_pending=false WHERE lower(email)=$2`, string(hash), email)
 	a.auditRaw(email, clientIP(r), "invite-accept", "")
-	a.setSession(w, r, name)
+	a.setSession(w, r, name, false)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 

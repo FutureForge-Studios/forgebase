@@ -1384,6 +1384,21 @@ const systemBody = `
   {{if and .UpdateLog (not .UpdateRunning)}}<div class="label" style="margin:.9rem 0 .2rem">Last update log</div><pre style="background:hsl(var(--primary) / .04);border:1px solid hsl(var(--border));border-radius:.5rem;padding:.7rem;font-size:11px;line-height:1.5;overflow:auto;max-height:220px;margin:0">{{.UpdateLog}}</pre>{{end}}
 </div>
 <div class="card" style="margin-bottom:1rem">
+  <h2>Alerts</h2>
+  {{if .DiscordHook}}
+  <p class="muted" style="font-size:12.5px;margin:.4rem 0 .6rem">Discord alerts are <span class="badge active">on</span> (webhook <code>{{.DiscordHook}}</code>). ForgeBase pings your server on security events like login brute-force waves.</p>
+  {{else}}
+  <p class="muted" style="font-size:12.5px;margin:.4rem 0 .6rem">Get a Discord ping when something needs attention (login brute-force waves, and more soon). Create a webhook in your Discord server (Server Settings &rarr; Integrations &rarr; Webhooks) and paste its URL.</p>
+  {{end}}
+  {{if .IsOwner}}
+  <form method="post" action="/system/discord" style="display:flex;gap:.5rem;flex-wrap:wrap">
+    <input type="text" name="webhook" placeholder="https://discord.com/api/webhooks/..." style="flex:1;min-width:260px">
+    <button class="btn btn-ghost btn-sm" type="submit">Save</button>
+  </form>
+  <p class="muted" style="font-size:11px;margin:.4rem 0 0">Saving sends a test message. Save empty to disable.</p>
+  {{end}}
+</div>
+<div class="card" style="margin-bottom:1rem">
   <h2>Services</h2>
   <div class="tblwrap" style="margin-top:.8rem"><table class="data">
     <thead><tr><th>Service</th><th>State</th></tr></thead>
