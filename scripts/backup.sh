@@ -38,7 +38,8 @@ KEEP_BASE="${RETENTION_BASE:-$(num /opt/pgforge/basebackup_keep 2)}"
 [ "$KEEP_BASE" -lt 1 ] && KEEP_BASE=1
 
 echo "== pgforge backup $(date -u '+%F %T') UTC =="
-mkdir -p "$OUT/dumps" "$OUT/physical" "$OUT/files"
+mkdir -p "$OUT/dumps" "$OUT/dumps/.state" "$OUT/physical" "$OUT/files"
+FORCE_DAYS="$(num /opt/pgforge/force_dump_days 7)"
 
 # tier_prune DIR GLOB - keep the newest $KEEP_DAILY files matching GLOB, plus
 # the newest file per ISO week for up to $KEEP_WEEKLY older weeks; delete the
@@ -73,6 +74,8 @@ prune_all() {
   find "$OUT/dumps" -maxdepth 1 -type f -mtime "+$RETENTION_DUMPS" -delete 2>/dev/null || true
   # deleted-project dumps land in .trash for a 7-day grace period
   find "$OUT/dumps/.trash" -type f -mtime +7 -delete 2>/dev/null || true
+  # signature files for databases that no longer produce dumps age out too
+  find "$OUT/dumps/.state" -type f -name '*.sig' -mtime +60 -delete 2>/dev/null || true
 
   # files: same tiered policy per archive kind
   tier_prune "$OUT/files" "storage-*.tgz"
@@ -135,8 +138,25 @@ prune_all || echo "  ! pre-prune had errors (continuing)"
 docker exec "$CONT" pg_dumpall -U postgres --globals-only > "$OUT/dumps/globals-$DATE.sql"
 for db in $(docker exec "$CONT" psql -U postgres -tAc \
     "select datname from pg_database where not datistemplate and datname <> 'pgforge_restore_test'"); do
+  # Skip-unchanged: a database whose data counters AND schema are identical to
+  # its last successful dump is not re-dumped - sleeping/idle projects stop
+  # costing a full dump every night. The signature is captured BEFORE dumping
+  # (writes racing the dump bump the counters and force a fresh dump tomorrow -
+  # the safe direction). stats_reset changing (crash, failover) also forces a
+  # dump. Safety valve: always dump when the newest dump is older than
+  # FORCE_DAYS, so a broken detector can never leave only stale backups.
+  sig="$(docker exec "$CONT" psql -U postgres -tAc "select coalesce(extract(epoch from stats_reset)::bigint,0)||'|'||tup_inserted||'|'||tup_updated||'|'||tup_deleted from pg_stat_database where datname='$db'" 2>/dev/null)"
+  schemasum="$(docker exec "$CONT" pg_dump -U postgres -s -d "$db" 2>/dev/null | sha256sum | cut -d' ' -f1)"
+  sig="$sig|$schemasum"
+  newest="$(ls -1t "$OUT/dumps/$db"-[0-9]*.dump 2>/dev/null | head -1)"
+  if [ -n "$newest" ] && [ "$(cat "$OUT/dumps/.state/$db.sig" 2>/dev/null)" = "$sig" ] \
+     && [ -n "$(find "$newest" -mtime -"$FORCE_DAYS" 2>/dev/null)" ]; then
+    echo "  == $db unchanged, skipped"
+    continue
+  fi
   if docker exec "$CONT" pg_dump -U postgres -Fc -d "$db" > "$OUT/dumps/$db-$DATE.dump" 2>"$OUT/.err"; then
     echo "  ok dump $db ($(wc -c < "$OUT/dumps/$db-$DATE.dump") bytes)"
+    printf '%s' "$sig" > "$OUT/dumps/.state/$db.sig"
   else
     echo "  ! dump $db failed: $(head -1 "$OUT/.err")"
     rm -f "$OUT/dumps/$db-$DATE.dump"

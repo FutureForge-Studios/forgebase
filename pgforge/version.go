@@ -65,6 +65,7 @@ func (a *app) systemPage(w http.ResponseWriter, r *http.Request) {
 	checked := r.URL.Query().Get("check") == "1"
 	if checked {
 		upd = a.updateStatus()
+		refreshUpdateCache(upd)
 	} else if info, _ := cachedUpdate(); info.Behind {
 		// the background checker already knows an update exists - show it
 		// without requiring a manual "Check for updates" click

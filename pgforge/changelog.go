@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.2.13"
+const appVersion = "1.2.14"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,21 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.2.14", Date: "2026-08-22",
+		Summary: "Smarter backups that skip unchanged databases, and a real retention panel.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Skip-unchanged backups: a database whose data and schema have not changed since its last dump is no longer re-dumped every night (with a weekly forced full as a safety valve). Sleeping and idle projects now cost essentially nothing in backup storage.",
+				"Backup retention panel: daily dumps kept, weekly dumps kept, and standing snapshots are now editable on the Backups page, which also shows how much disk each backup tier uses.",
+			}},
+			{"Fixed", []string{
+				"Update detection is now real-time: the version check reads GitHub's live tag list, so a release published seconds ago is detected immediately (the changelog file GitHub serves can lag a few minutes).",
+				"A manual \"Check for updates\" now also refreshes the sidebar update dot.",
+				"The sleeping badge and Sleep button now use a proper moon icon instead of an emoji, matching the rest of the interface.",
+			}},
+		},
+	},
 	{
 		Version: "1.2.13", Date: "2026-08-22",
 		Summary: "A public status page for your platform.",

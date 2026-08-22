@@ -279,6 +279,25 @@ func (a *app) backupsPage(w http.ResponseWriter, r *http.Request) {
 	if b, err := os.ReadFile("/opt/pgforge/backup_remote"); err == nil {
 		remote = strings.TrimSpace(string(b))
 	}
+	// tier settings + per-tier disk usage for the retention card
+	setting := func(key, def string) string {
+		v := def
+		a.db.QueryRow(`SELECT value FROM settings WHERE key=$1`, key).Scan(&v)
+		return v
+	}
+	type tierSize struct{ Name, Size string }
+	var tiers []tierSize
+	for _, t := range []struct{ name, path string }{
+		{"Dumps", "/opt/pgforge-backups/dumps"}, {"Snapshots", "/opt/pgforge-backups/physical"},
+		{"WAL archive", "/opt/pgforge-backups/wal"}, {"Files", "/opt/pgforge-backups/files"},
+	} {
+		if out, err := exec.Command("du", "-sh", t.path).Output(); err == nil {
+			if f := strings.Fields(string(out)); len(f) > 0 {
+				tiers = append(tiers, tierSize{t.name, f[0]})
+			}
+		}
+	}
+
 	// PITR window starts at the oldest kept cluster snapshot
 	pitrFrom := ""
 	if ents, err := os.ReadDir("/opt/pgforge-backups/physical"); err == nil {
@@ -293,7 +312,9 @@ func (a *app) backupsPage(w http.ResponseWriter, r *http.Request) {
 	}
 	content := renderContent(backupsBody, map[string]any{
 		"Slug": slug, "Files": files, "Retention": retention, "Remote": remote,
-		"PITRFrom": pitrFrom,
+		"PITRFrom": pitrFrom, "Tiers": tiers,
+		"KeepDaily": setting("dump_keep_daily", "7"), "KeepWeekly": setting("dump_keep_weekly", "4"),
+		"KeepBase": setting("basebackup_keep", "2"),
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Backups", Nav: "backups", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Backups"}}}, content)
@@ -347,6 +368,32 @@ func (a *app) setSuspendHours(w http.ResponseWriter, r *http.Request) {
 		msg = "Auto-sleep disabled platform-wide."
 	}
 	redirectMsg(w, r, "/p/"+slug+"/settings", msg)
+}
+
+// setRetentionTiers updates the tiered backup knobs: daily dumps kept, weekly
+// dumps kept, and standing cluster snapshots. Each is stored in settings AND
+// mirrored to /opt/pgforge/<key>, which is what backup.sh actually reads.
+func (a *app) setRetentionTiers(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	get := func(name string, lo, hi int) (int, bool) {
+		n := -1
+		fmt.Sscanf(strings.TrimSpace(r.FormValue(name)), "%d", &n)
+		return n, n >= lo && n <= hi
+	}
+	daily, ok1 := get("daily", 1, 30)
+	weekly, ok2 := get("weekly", 0, 12)
+	base, ok3 := get("basebackups", 1, 7)
+	if !ok1 || !ok2 || !ok3 {
+		redirectErr(w, r, "/p/"+slug+"/backups", "Valid ranges: daily 1-30, weekly 0-12, snapshots 1-7.")
+		return
+	}
+	for k, v := range map[string]int{"dump_keep_daily": daily, "dump_keep_weekly": weekly, "basebackup_keep": base} {
+		a.db.Exec(`INSERT INTO settings(key,value) VALUES ($1,$2)
+			ON CONFLICT (key) DO UPDATE SET value=$2`, k, fmt.Sprint(v))
+		os.WriteFile("/opt/pgforge/"+k, []byte(fmt.Sprint(v)), 0o644)
+	}
+	a.audit(r, "retention-tiers", fmt.Sprintf("daily=%d weekly=%d base=%d", daily, weekly, base))
+	redirectMsg(w, r, "/p/"+slug+"/backups", "Backup tiers updated (applies platform-wide from tonight's run).")
 }
 
 func (a *app) backupNow(w http.ResponseWriter, r *http.Request) {

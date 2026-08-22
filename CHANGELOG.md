@@ -13,6 +13,25 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.14] - 2026-08-22
+
+### Added
+- Skip-unchanged backups: a database whose data and schema have not changed
+  since its last dump is no longer re-dumped every night (with a weekly forced
+  full as a safety valve). Sleeping and idle projects now cost essentially
+  nothing in backup storage.
+- Backup retention panel: daily dumps kept, weekly dumps kept, and standing
+  snapshots are now editable on the Backups page, which also shows how much
+  disk each backup tier uses.
+
+### Fixed
+- Update detection is now real-time: the version check reads GitHub's live tag
+  list, so a release published seconds ago is detected immediately (the
+  changelog file GitHub serves can lag a few minutes).
+- A manual "Check for updates" now also refreshes the sidebar update dot.
+- The sleeping badge and Sleep button now use a proper moon icon instead of an
+  emoji, matching the rest of the interface.
+
 ## [1.2.13] - 2026-08-22
 
 ### Added
@@ -476,7 +495,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.13...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.14...HEAD
+[1.2.14]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.13...v1.2.14
 [1.2.13]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.12...v1.2.13
 [1.2.12]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.11...v1.2.12
 [1.2.11]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.10...v1.2.11

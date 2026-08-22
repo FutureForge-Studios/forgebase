@@ -50,7 +50,7 @@ const dashboardBody = `
   <div class="card proj-card" data-slug="{{.Slug}}">
     <div style="display:flex;align-items:center;gap:.6rem">
       <a href="/p/{{.Slug}}" style="font-family:var(--serif);font-size:18px;font-weight:600">{{.Slug}}</a>
-      <span class="badge {{.Status}}">{{if eq .Status "suspended"}}&#127769; sleeping{{else}}{{.Status}}{{end}}</span>
+      <span class="badge {{.Status}}">{{if eq .Status "suspended"}}{{icon "moon"}} sleeping{{else}}{{.Status}}{{end}}</span>
       <div class="spacer"></div>
       <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}">Open</a>
     </div>
@@ -60,7 +60,7 @@ const dashboardBody = `
     <div style="display:flex;gap:.5rem;margin-top:.9rem">
       {{if eq .Status "active"}}
       <form method="post" action="/pause"><input type="hidden" name="slug" value="{{.Slug}}"><button class="btn btn-ghost btn-sm">{{icon "pause"}} Pause</button></form>
-      <form method="post" action="/sleep"><input type="hidden" name="slug" value="{{.Slug}}"><button class="btn btn-ghost btn-sm" title="Release this project's resources now - it wakes automatically on the next request">&#127769; Sleep now</button></form>
+      <form method="post" action="/sleep"><input type="hidden" name="slug" value="{{.Slug}}"><button class="btn btn-ghost btn-sm" title="Release this project's resources now - it wakes automatically on the next request">{{icon "moon"}} Sleep now</button></form>
       {{else if eq .Status "suspended"}}
       <form method="post" action="/wake"><input type="hidden" name="slug" value="{{.Slug}}"><button class="btn btn-primary btn-sm">{{icon "bolt"}} Wake</button></form>
       {{else}}
@@ -453,12 +453,25 @@ const backupsBody = `
 <div class="grid g2" style="margin-bottom:1rem">
   <div class="card">
     <h2>Retention</h2>
-    <p class="muted" style="font-size:12.5px;margin:.3rem 0 .7rem">Automatic nightly dumps at 03:30 UTC, kept as a rolling window then pruned. Applies to every project.</p>
-    <form method="post" action="/p/{{.Slug}}/retention" style="display:flex;gap:.5rem;align-items:center">
-      <input type="number" name="days" min="1" max="365" value="{{.Retention}}" style="width:90px">
-      <span class="muted" style="font-size:13px">days</span>
+    <p class="muted" style="font-size:12.5px;margin:.3rem 0 .7rem">Nightly at 03:30 UTC. Tiered: recent dailies + one per week, unchanged databases are skipped. Applies platform-wide.</p>
+    <form method="post" action="/p/{{.Slug}}/retention-tiers" style="display:flex;gap:.9rem;align-items:flex-end;flex-wrap:wrap">
+      <label style="font-size:12px"><span class="label" style="display:block;margin-bottom:.25rem">Daily dumps</span>
+        <input type="number" name="daily" min="1" max="30" value="{{.KeepDaily}}" style="width:72px"></label>
+      <label style="font-size:12px"><span class="label" style="display:block;margin-bottom:.25rem">Weekly dumps</span>
+        <input type="number" name="weekly" min="0" max="12" value="{{.KeepWeekly}}" style="width:72px"></label>
+      <label style="font-size:12px"><span class="label" style="display:block;margin-bottom:.25rem">Snapshots</span>
+        <input type="number" name="basebackups" min="1" max="7" value="{{.KeepBase}}" style="width:72px"></label>
       <button class="btn btn-ghost btn-sm" type="submit">Save</button>
     </form>
+    <form method="post" action="/p/{{.Slug}}/retention" style="display:flex;gap:.5rem;align-items:center;margin-top:.6rem">
+      <span class="muted" style="font-size:12px">Age ceiling</span>
+      <input type="number" name="days" min="1" max="365" value="{{.Retention}}" style="width:72px">
+      <span class="muted" style="font-size:12px">days</span>
+      <button class="btn btn-ghost btn-sm" type="submit">Save</button>
+    </form>
+    {{if .Tiers}}<div style="display:flex;gap:1.2rem;flex-wrap:wrap;margin-top:.8rem">
+      {{range .Tiers}}<div><div class="label">{{.Name}}</div><div style="font-family:var(--serif);font-size:16px">{{.Size}}</div></div>{{end}}
+    </div>{{end}}
   </div>
   <div class="card">
     <h2>Off-box copy</h2>
@@ -508,7 +521,7 @@ const settingsBody = `
   <h2>Project details</h2>
   <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));margin-top:.8rem;gap:1rem">
     <div><div class="label">Project ID</div><code style="font-size:13px">{{.Slug}}</code></div>
-    <div><div class="label">Status</div><div style="font-size:15px;text-transform:capitalize">{{if eq .Status "suspended"}}&#127769; sleeping{{else}}{{.Status}}{{end}}</div></div>
+    <div><div class="label">Status</div><div style="font-size:15px;text-transform:capitalize;display:flex;align-items:center;gap:.35rem">{{if eq .Status "suspended"}}{{icon "moon"}} sleeping{{else}}{{.Status}}{{end}}</div></div>
     <div><div class="label">Size</div><div style="font-size:15px">{{.Size}}</div></div>
     <div><div class="label">Postgres</div><div style="font-size:15px">{{.Version}}</div></div>
     <div><div class="label">Created</div><div style="font-size:15px">{{.Created}}</div></div>
@@ -691,7 +704,7 @@ function filterLogs(){var q=document.getElementById('logsearch').value.toLowerCa
 const branchesBody = `
 <div class="pagehead"><h1>Branches</h1><p>Isolated copies of <b>{{.Slug}}</b> for staging, a feature, or a migration test.</p></div>
 <div class="card" style="margin-bottom:1rem;border-color:hsl(var(--warn)/.4)">
-  <p class="muted" style="font-size:12.5px;margin:.2rem 0">&#9888;&#65039; A branch today is a <b style="color:hsl(var(--fg))">full copy</b>: it doubles this project's storage and gets its own nightly backups. Instant copy-on-write branching (a branch in ~1 second, sharing storage with its parent) is in active development and will replace this.</p>
+  <p class="muted" style="font-size:12.5px;margin:.2rem 0">A branch today is a <b style="color:hsl(var(--fg))">full copy</b>: it doubles this project's storage and gets its own nightly backups. Instant copy-on-write branching (a branch in ~1 second, sharing storage with its parent) is in active development and will replace this.</p>
 </div>
 <form class="card" method="post" action="/p/{{.Slug}}/branch-create" style="display:flex;gap:.6rem;align-items:center;margin-bottom:1.2rem">
   <span class="mono muted" style="font-size:13px">{{.Slug}}-</span>

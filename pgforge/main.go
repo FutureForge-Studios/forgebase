@@ -232,6 +232,7 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/restore", a.auth(admin(a.restoreBackup)))
 	mux.HandleFunc("POST /p/{slug}/pitr", a.auth(admin(a.pitrRestore)))
 	mux.HandleFunc("POST /p/{slug}/retention", a.auth(admin(a.setRetention)))
+	mux.HandleFunc("POST /p/{slug}/retention-tiers", a.auth(admin(a.setRetentionTiers)))
 	mux.HandleFunc("POST /p/{slug}/keep-awake", a.auth(admin(a.setKeepAwake)))
 	mux.HandleFunc("POST /p/{slug}/public-status", a.auth(admin(a.setPublicStatus)))
 	mux.HandleFunc("POST /p/{slug}/suspend-hours", a.auth(admin(a.setSuspendHours)))
@@ -362,6 +363,13 @@ func (a *app) ensureSchema() error {
 			ON CONFLICT (key) DO NOTHING`,
 		// hours of zero client activity before a project goes to sleep (0 = never)
 		`INSERT INTO settings(key,value) VALUES ('suspend_hours','168')
+			ON CONFLICT (key) DO NOTHING`,
+		// tiered backup retention knobs (mirrored to /opt/pgforge/<key> for backup.sh)
+		`INSERT INTO settings(key,value) VALUES ('dump_keep_daily','7')
+			ON CONFLICT (key) DO NOTHING`,
+		`INSERT INTO settings(key,value) VALUES ('dump_keep_weekly','4')
+			ON CONFLICT (key) DO NOTHING`,
+		`INSERT INTO settings(key,value) VALUES ('basebackup_keep','2')
 			ON CONFLICT (key) DO NOTHING`,
 		// pinned projects are never auto-suspended (for production apps)
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS keep_awake boolean NOT NULL DEFAULT false`,

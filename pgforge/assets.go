@@ -141,6 +141,7 @@ input[type=file]::file-selector-button:hover{background:hsl(var(--accent))}
   padding:.2rem .55rem; border-radius:999px; border:1px solid transparent}
 .badge.active{background:hsl(var(--primary) / .12); color:hsl(var(--primary)); border-color:hsl(var(--primary) / .25)}
 .badge.paused,.badge.suspended,.badge.cloning{background:hsl(var(--warn) / .14); color:hsl(var(--warn)); border-color:hsl(var(--warn) / .3)}
+.badge svg{width:11px; height:11px}
 .upddot{display:inline-block; width:8px; height:8px; border-radius:50%; background:hsl(var(--warn));
   margin-left:auto; animation:pulse 2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
@@ -372,6 +373,7 @@ func icon(name string) template.HTML {
 		"upload":   `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>`,
 		"book":     `<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20"/>`,
 		"bolt":     `<path d="M13 2 3 14h7l-1 8 10-12h-7z"/>`,
+		"moon":     `<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>`,
 		"sparkle":  `<path d="M12 3l1.9 5.6L19.5 10l-5.6 1.4L12 17l-1.9-5.6L4.5 10l5.6-1.4z"/><path d="M19 15l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/>`,
 		"webhook":  `<path d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c.01-.7.2-1.4.57-2M6 17l3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06M12 6l3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 1 1-4 6"/>`,
 		"restore":  `<path d="M3 12a9 9 0 1 0 3-6.7L3 8m0-5v5h5"/>`,

@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -33,37 +35,73 @@ type updateInfo struct {
 	Err       string
 }
 
-// updateStatus reads the published CHANGELOG.md from GitHub and compares its
-// latest released version to the running one. Updates are release-based (they
-// track version bumps + changelog entries), and we show the actual release notes -
-// not raw git commit subjects, which mean nothing to an operator.
+// updateStatus determines the newest released version and its notes. The
+// SOURCE OF TRUTH for "what is the latest version" is the GitHub Tags API -
+// it reflects a new tag within seconds. CHANGELOG.md (raw, cache-busted) is
+// fetched for the human-readable notes; raw can lag a push by a couple of
+// minutes, so when the API knows a newer tag than the changelog does, we still
+// report the update and show whatever notes are available.
 func (a *app) updateStatus() updateInfo {
 	info := updateInfo{Current: appVersion}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	// The unique query param busts GitHub's raw-CDN cache (up to ~5 min per
-	// edge), so a check always sees a just-pushed release immediately.
+
+	// 1) real-time latest from tags
+	tagLatest := ""
+	tagURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/tags?per_page=15", updateOwner, updateRepo)
+	if req, _ := http.NewRequestWithContext(ctx, "GET", tagURL, nil); req != nil {
+		req.Header.Set("Accept", "application/vnd.github+json")
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				var tags []struct {
+					Name string `json:"name"`
+				}
+				if json.Unmarshal(body, &tags) == nil {
+					for _, t := range tags {
+						v := strings.TrimPrefix(t.Name, "v")
+						if semverRe.MatchString(v) && (tagLatest == "" || semverLess(tagLatest, v)) {
+							tagLatest = v
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 2) notes (and fallback latest) from the changelog
 	url := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/CHANGELOG.md?cb=%d", updateOwner, updateRepo, time.Now().Unix())
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		info.Err = err.Error()
-		return info
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		info.Err = fmt.Sprintf("could not fetch the changelog (%d)", resp.StatusCode)
-		return info
-	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	latest, sections := parseChangelog(string(body), appVersion)
-	info.Latest = latest
-	info.Behind = latest != "" && semverLess(appVersion, latest)
-	if info.Behind {
+		if tagLatest == "" {
+			info.Err = err.Error()
+			return info
+		}
+	} else {
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 && tagLatest == "" {
+			info.Err = fmt.Sprintf("could not fetch the changelog (%d)", resp.StatusCode)
+			return info
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		clLatest, sections := parseChangelog(string(body), appVersion)
+		info.Latest = clLatest
 		info.Changelog = sections
+	}
+	// the tags API wins when it knows a newer version than the changelog copy
+	if tagLatest != "" && (info.Latest == "" || semverLess(info.Latest, tagLatest)) {
+		info.Latest = tagLatest
+	}
+	info.Behind = info.Latest != "" && semverLess(appVersion, info.Latest)
+	if !info.Behind {
+		info.Changelog = nil
 	}
 	return info
 }
+
+var semverRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
 // parseChangelog reads a Keep-a-Changelog document and returns the newest released
 // version plus the notes for every release strictly newer than `current` (newest
@@ -197,6 +235,14 @@ func (a *app) startUpdateChecker() {
 			time.Sleep(6 * time.Hour)
 		}
 	}()
+}
+
+// refreshUpdateCache stores a manual check's result so the sidebar dot and the
+// cached System-page state stay in sync with what the operator just saw.
+func refreshUpdateCache(info updateInfo) {
+	updCheck.mu.Lock()
+	updCheck.info, updCheck.at = info, time.Now()
+	updCheck.mu.Unlock()
 }
 
 // cachedUpdate returns the last background check result (zero value if none yet).
