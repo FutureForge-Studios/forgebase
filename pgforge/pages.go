@@ -1037,6 +1037,8 @@ const apiBody = `
   <div style="display:flex;gap:.5rem;align-items:center;margin-top:.8rem;padding-top:.8rem;border-top:1px solid hsl(var(--border));flex-wrap:wrap">
     <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/types.ts" target="_blank">{{icon "book"}} View TypeScript types</a>
     <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/types.ts?dl=1">{{icon "archive"}} Download database.types.ts</a>
+    <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/openapi.json" target="_blank">{{icon "api"}} OpenAPI spec</a>
+    <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/openapi.json?dl=1">{{icon "archive"}} Download spec</a>
     <span class="muted" style="font-size:11.5px">generated live from your schema (tables, views, enums, relationships) - typed supabase-js clients autocomplete against it</span>
   </div>
   <form method="post" action="/p/{{.Slug}}/api-settings" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.8rem;padding-top:.8rem;border-top:1px solid hsl(var(--border))">

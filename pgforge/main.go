@@ -296,6 +296,7 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/webhook-test", a.auth(proj(a.testWebhook)))
 	mux.HandleFunc("POST /p/{slug}/api-settings", a.auth(proj(a.apiSettings)))
 	mux.HandleFunc("POST /p/{slug}/db-timeouts", a.auth(proj(a.setDbTimeouts)))
+	mux.HandleFunc("GET /p/{slug}/openapi.json", a.auth(proj(a.openapiJSON)))
 	mux.HandleFunc("GET /p/{slug}/auth", a.auth(proj(a.authPage)))
 	mux.HandleFunc("POST /p/{slug}/auth-enable", a.auth(proj(a.enableAuth)))
 	mux.HandleFunc("POST /p/{slug}/auth-disable", a.auth(proj(a.disableAuth)))

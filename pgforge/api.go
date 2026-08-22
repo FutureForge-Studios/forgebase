@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -500,6 +501,37 @@ func (a *app) serveAPI(w http.ResponseWriter, r *http.Request, slug string) {
 }
 
 // ----------------------------------------------------------------- page
+
+// openapiJSON proxies the PostgREST-generated OpenAPI spec for this project -
+// importable into Postman/Insomnia or any client generator.
+func (a *app) openapiJSON(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	secret, enabled := a.apiConfig(slug)
+	if !enabled || secret == "" {
+		http.Error(w, "data api not enabled", 404)
+		return
+	}
+	p, err := a.ensurePostgREST(slug)
+	if err != nil {
+		http.Error(w, err.Error(), 502)
+		return
+	}
+	req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet,
+		fmt.Sprintf("http://127.0.0.1:%d/", p.port), nil)
+	req.Header.Set("Accept", "application/openapi+json")
+	req.Header.Set("Authorization", "Bearer "+signJWT([]byte(secret), "anon"))
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		http.Error(w, "api starting, retry shortly", 502)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/openapi+json; charset=utf-8")
+	if r.URL.Query().Get("dl") == "1" {
+		w.Header().Set("Content-Disposition", `attachment; filename="`+slug+`-openapi.json"`)
+	}
+	io.Copy(w, io.LimitReader(resp.Body, 16<<20))
+}
 
 // apiSettings stores the row cap and extra exposed schemas, then recycles the
 // PostgREST sidecar so the change applies on the next request.

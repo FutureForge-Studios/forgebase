@@ -13,6 +13,11 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.24] - 2026-08-22
+
+### Added
+- OpenAPI spec view/download for the Data API (Postman/codegen importable).
+
 ## [1.3.23] - 2026-08-22
 
 ### Added
@@ -869,7 +874,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.23...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.24...HEAD
+[1.3.24]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.23...v1.3.24
 [1.3.23]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.22...v1.3.23
 [1.3.22]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.21...v1.3.22
 [1.3.21]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.20...v1.3.21
