@@ -131,10 +131,16 @@ func (a *app) statusPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	title := "ForgeBase Status"
+	if v := ""; true {
+		if a.db.QueryRow(`SELECT value FROM settings WHERE key='status_title'`).Scan(&v); strings.TrimSpace(v) != "" {
+			title = strings.TrimSpace(v)
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=30")
 	statusTmpl.Execute(w, map[string]any{
-		"Banner": banner, "BannerClass": bannerClass, "Days": days,
+		"Title": title, "Banner": banner, "BannerClass": bannerClass, "Days": days,
 		"Uptime": fmt.Sprintf("%.2f", uptime), "Projs": projs,
 		"Domain": a.cfg.domain, "At": time.Now().UTC().Format("Jan 2, 2006 15:04 UTC"),
 	})
@@ -161,6 +167,11 @@ func (a *app) statusCustomDomain() string {
 }
 
 func (a *app) setStatusDomain(w http.ResponseWriter, r *http.Request) {
+	// the same form carries the optional page title
+	if t := strings.TrimSpace(r.FormValue("title")); len(t) <= 60 {
+		a.db.Exec(`INSERT INTO settings(key,value) VALUES ('status_title',$1)
+			ON CONFLICT (key) DO UPDATE SET value=$1`, t)
+	}
 	d := strings.ToLower(strings.TrimSpace(r.FormValue("domain")))
 	if d != "" && !hostRe.MatchString(d) {
 		redirectErr(w, r, "/system", "That does not look like a valid hostname.")
@@ -178,7 +189,7 @@ func (a *app) setStatusDomain(w http.ResponseWriter, r *http.Request) {
 
 var statusTmpl = template.Must(template.New("status").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Status · ForgeBase</title>
+<title>{{.Title}}</title>
 <meta http-equiv="refresh" content="60">
 <style>` + cssDesign + `
 .swrap{max-width:760px;margin:0 auto;padding:3rem 1.2rem}
@@ -200,7 +211,7 @@ var statusTmpl = template.Must(template.New("status").Parse(`<!doctype html>
 </style></head><body><div class="aurora"></div>
 <div class="swrap">
   <div style="display:flex;align-items:center;gap:.7rem;margin-bottom:1.6rem">
-    <div style="font-family:var(--serif);font-size:22px;font-weight:600">ForgeBase Status</div>
+    <div style="font-family:var(--serif);font-size:22px;font-weight:600">{{.Title}}</div>
     <div class="spacer" style="flex:1"></div>
     <div class="muted" style="font-size:12px">{{.At}}</div>
   </div>

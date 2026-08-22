@@ -13,6 +13,26 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.15] - 2026-08-22
+
+### Added
+- Edge Functions are now resource-capped: each invocation gets a 128MB memory
+  limit and at most 4 run concurrently (a 5th waits briefly, then gets a clean
+  429 retry signal). Previously a single hungry or looping function could
+  exhaust the whole server's RAM.
+- The public status page title is customizable (System page) - put your
+  company's name in front of your clients.
+- The control plane itself now runs under a memory ceiling, so even a
+  pathological case restarts one service in seconds instead of freezing the
+  host.
+
+### Changed
+- New projects get a direct-connection limit of 10 (was 20) - the pooled port
+  multiplexes far beyond it, and this doubles how many projects fit per server.
+  Existing projects keep their current limit; the panel now accepts 1-100.
+- Creating a project now warns when the combined connection limits approach the
+  cluster's capacity.
+
 ## [1.2.14] - 2026-08-22
 
 ### Added
@@ -495,7 +515,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.14...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.15...HEAD
+[1.2.15]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.14...v1.2.15
 [1.2.14]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.13...v1.2.14
 [1.2.13]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.12...v1.2.13
 [1.2.12]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.11...v1.2.12

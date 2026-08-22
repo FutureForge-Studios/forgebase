@@ -178,8 +178,8 @@ func (a *app) setConnLimit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(r.FormValue("limit")))
-	if err != nil || n < -1 || n > 10000 {
-		redirectErr(w, r, "/p/"+slug+"/database", "Connection limit must be -1 (unlimited) or 0-10000.")
+	if err != nil || n < 1 || n > 100 {
+		redirectErr(w, r, "/p/"+slug+"/database", "Connection limit must be 1-100 (the pooled port multiplexes beyond it; unlimited is no longer offered from the panel).")
 		return
 	}
 	if _, err := a.db.Exec(fmt.Sprintf(`ALTER ROLE %s CONNECTION LIMIT %d`,

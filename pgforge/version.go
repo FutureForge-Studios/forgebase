@@ -96,7 +96,11 @@ func (a *app) systemPage(w http.ResponseWriter, r *http.Request) {
 		"DBOK": dbOK, "PGVer": pgVer, "DBSize": dbSize, "ActiveAPIs": activeAPIs, "Svcs": svcs,
 		"Stats": a.hostStats(), "AppVersion": appVersion, "IsOwner": a.atLeast(r, "owner"),
 		"Checked": checked, "Upd": upd, "UpdateLog": updLog, "UpdateRunning": updateRunning,
-		"AutoUpd": a.settingOn("auto_update"), "Domain": a.cfg.domain, "StatusDomain": a.statusCustomDomain(),
+		"AutoUpd": a.settingOn("auto_update"), "Domain": a.cfg.domain, "StatusDomain": a.statusCustomDomain(), "StatusTitle": func() string {
+			var v string
+			a.db.QueryRow(`SELECT value FROM settings WHERE key='status_title'`).Scan(&v)
+			return v
+		}(),
 	})
 	a.renderShell(w, r, shellData{Title: "System", Nav: "system",
 		Crumbs: []crumb{{Label: "System"}}}, content)

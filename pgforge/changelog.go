@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.2.14"
+const appVersion = "1.2.15"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,21 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.2.15", Date: "2026-08-22",
+		Summary: "One tenant can no longer take down the box, and the status page is yours to brand.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Edge Functions are now resource-capped: each invocation gets a 128MB memory limit and at most 4 run concurrently (a 5th waits briefly, then gets a clean 429 retry signal). Previously a single hungry or looping function could exhaust the whole server's RAM.",
+				"The public status page title is customizable (System page) - put your company's name in front of your clients.",
+				"The control plane itself now runs under a memory ceiling, so even a pathological case restarts one service in seconds instead of freezing the host.",
+			}},
+			{"Changed", []string{
+				"New projects get a direct-connection limit of 10 (was 20) - the pooled port multiplexes far beyond it, and this doubles how many projects fit per server. Existing projects keep their current limit; the panel now accepts 1-100.",
+				"Creating a project now warns when the combined connection limits approach the cluster's capacity.",
+			}},
+		},
+	},
 	{
 		Version: "1.2.14", Date: "2026-08-22",
 		Summary: "Smarter backups that skip unchanged databases, and a real retention panel.",

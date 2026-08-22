@@ -1453,6 +1453,7 @@ const systemBody = `
   <p class="muted" style="font-size:12.5px;margin:.4rem 0 .6rem">A public page at <a href="https://status.{{.Domain}}" target="_blank" style="color:hsl(var(--primary))"><b>status.{{.Domain}}</b></a> shows platform uptime and the health of projects that opted in (each project's Settings page). No data or names are exposed unless you opt a project in.</p>
   {{if .IsOwner}}
   <form method="post" action="/system/status-domain" style="display:flex;gap:.5rem;flex-wrap:wrap">
+    <input type="text" name="title" placeholder="page title (default: ForgeBase Status)" value="{{.StatusTitle}}" maxlength="60" style="flex:1;min-width:200px">
     <input type="text" name="domain" placeholder="optional custom domain, e.g. status.mycompany.com" value="{{.StatusDomain}}" style="flex:1;min-width:260px">
     <button class="btn btn-ghost btn-sm" type="submit">Save</button>
   </form>

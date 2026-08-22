@@ -84,8 +84,10 @@ func (a *app) dashboard(w http.ResponseWriter, r *http.Request) {
 func (a *app) provisionProject(slug string) (string, error) {
 	pw := randHex(18)
 	q := pq.QuoteIdentifier(slug)
+	// 10 direct connections per new project (the pooled port multiplexes far
+	// beyond this); existing projects keep their configured limit.
 	steps := []string{
-		fmt.Sprintf(`CREATE ROLE %s LOGIN PASSWORD %s CONNECTION LIMIT 20`, q, pq.QuoteLiteral(pw)),
+		fmt.Sprintf(`CREATE ROLE %s LOGIN PASSWORD %s CONNECTION LIMIT 10`, q, pq.QuoteLiteral(pw)),
 		fmt.Sprintf(`CREATE DATABASE %s OWNER %s`, q, q),
 		fmt.Sprintf(`REVOKE CONNECT ON DATABASE %s FROM PUBLIC`, q),
 	}
@@ -159,7 +161,17 @@ func (a *app) createProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.audit(r, "create", slug)
-	msg := "Project " + slug + " is ready."
+	// connection-budget heads-up: warn (never block) when the sum of per-project
+	// limits approaches the cluster's max_connections
+	var budgetNote string
+	var sumLimits, maxConns int
+	a.db.QueryRow(`SELECT coalesce(sum(rolconnlimit),0) FROM pg_roles r
+		JOIN projects p ON p.slug = r.rolname WHERE rolconnlimit > 0`).Scan(&sumLimits)
+	a.db.QueryRow(`SELECT setting::int FROM pg_settings WHERE name='max_connections'`).Scan(&maxConns)
+	if maxConns > 0 && sumLimits > maxConns-15 {
+		budgetNote = fmt.Sprintf(" Note: project connection limits now total %d of %d cluster slots - consider raising max_connections on the Database page.", sumLimits, maxConns)
+	}
+	msg := "Project " + slug + " is ready." + budgetNote
 	if slug != asked {
 		msg = "\"" + asked + "\" was taken, so your project was created as " + slug + "."
 	}

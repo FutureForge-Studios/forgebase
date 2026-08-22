@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -23,6 +24,19 @@ const funcRoot = "/opt/pgforge-functions"
 const edgeRunner = "/opt/pgforge/edge-runner.ts"
 
 var funcNameRe = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,40}$`)
+
+// edgeSlots bounds concurrent Deno invocations platform-wide (default 4,
+// EDGE_MAX_CONCURRENCY overrides). Combined with the per-invocation 128MB V8
+// heap cap this bounds worst-case edge RAM at roughly slots x ~200MB.
+var edgeSlots = func() chan struct{} {
+	n := 4
+	if v := os.Getenv("EDGE_MAX_CONCURRENCY"); v != "" {
+		if i, err := strconv.Atoi(v); err == nil && i > 0 && i <= 64 {
+			n = i
+		}
+	}
+	return make(chan struct{}, n)
+}()
 
 const defaultFunc = `export default async (req: Request): Promise<Response> => {
   const url = new URL(req.url);
@@ -192,6 +206,22 @@ func (a *app) serveFunction(w http.ResponseWriter, r *http.Request, slug string)
 		"method": r.Method, "url": rq, "headers": hdr, "body": string(body),
 	})
 
+	// Concurrency cap: each invocation is a fresh Deno process (~40-80MB), so
+	// unbounded parallel invocations were the box's most likely OOM trigger.
+	// At the cap, callers wait up to 5s for a slot, then get a 429 to retry.
+	select {
+	case edgeSlots <- struct{}{}:
+		defer func() { <-edgeSlots }()
+	case <-time.After(5 * time.Second):
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "2")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"message":"function capacity busy, retry shortly"}`))
+		return
+	case <-r.Context().Done():
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	// Scoped env: NEVER inherit os.Environ() (it holds PANEL_PASS, SESSION_SECRET
@@ -217,6 +247,7 @@ func (a *app) serveFunction(w http.ResponseWriter, r *http.Request, slug string)
 		rows.Close()
 	}
 	cmd := exec.CommandContext(ctx, "/usr/local/bin/deno", "run", "--quiet",
+		"--v8-flags=--max-old-space-size=128", // cap each invocation's JS heap
 		"--allow-net", "--allow-env="+allow, "--allow-read="+funcRoot, edgeRunner, file)
 	cmd.Stdin = bytes.NewReader(input)
 	cmd.Env = env

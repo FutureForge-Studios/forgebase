@@ -7,6 +7,11 @@ Requires=docker.service
 ExecStart=/opt/pgforge/bin/pgforged
 EnvironmentFile=/opt/pgforge/pgforged.env
 Restart=always
+# Bounds the whole control-plane cgroup INCLUDING its PostgREST and Deno
+# children - one runaway function cannot take the host down. Breaching the hard
+# cap kills pgforged; systemd restarts it in ~2s.
+MemoryHigh=1G
+MemoryMax=1536M
 RestartSec=2
 
 [Install]
