@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.29"
+const appVersion = "1.3.30"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,20 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.30", Date: "2026-08-23",
+		Summary: "WAL storms contained for good, QR enrollment, private snippets.",
+		Sections: []changeSection{
+			{"Fixed", []string{
+				"The WAL archive could balloon when two basebackups landed on the same date - pruning anchored on the wrong one and kept a full day of dead WAL (15 GB on 2026-08-22). Pruning now reads each basebackup's own manifest for the exact cut point.",
+			}},
+			{"Added", []string{
+				"Three independent guards so a disk-full can never happen again: WAL hygiene now runs every 15 minutes instead of hourly; the archive has a hard 8 GB cap (oldest segments dropped with an alert - a shorter recovery window beats a dead server); and the archiver itself refuses to overflow past a 12 GB panic ceiling by ring-buffering the oldest segments at write time.",
+				"Two-factor enrollment now shows a scannable QR code (plus the manual key, as before).",
+				"Saved SQL snippets can be private (only you see them) or shared, and can be renamed. Private snippets are protected from other users loading, renaming or deleting them.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.29", Date: "2026-08-22",
 		Summary: "Constraints, managed visually.",

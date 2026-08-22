@@ -113,34 +113,35 @@ prune_all() {
 
   # Prune WAL to exactly what PITR needs: everything logically older than the
   # START segment of the oldest kept basebackup is useless without that backup.
-  OLDEST_BASE="$(ls -d "$OUT"/physical/base-* 2>/dev/null | sort | head -1 | sed 's/.*base-//')" || true
-  CUTSEG="$([ -n "$OLDEST_BASE" ] && wal_cutoff "$OLDEST_BASE")" || true
+  OLDEST_DIR="$(ls -d "$OUT"/physical/base-* 2>/dev/null | sort | head -1)" || true
+  CUTSEG="$([ -n "$OLDEST_DIR" ] && wal_cutoff "$OLDEST_DIR")" || true
   if [ -n "$CUTSEG" ]; then
     docker exec "$CONT" pg_archivecleanup -x .gz /wal-archive "$CUTSEG" 2>/dev/null \
-      && echo "  ok wal pruned to $CUTSEG (oldest basebackup $OLDEST_BASE)"
+      && echo "  ok wal pruned to $CUTSEG (oldest basebackup $(basename "$OLDEST_DIR"))"
   fi
 
   # Emergency guard: at >=85% disk keep only the WAL the NEWEST basebackup needs.
   USED_PCT="$(df --output=pcent "$OUT" 2>/dev/null | tail -1 | tr -dc '0-9')"
   if [ "${USED_PCT:-0}" -ge 85 ]; then
-    NEWEST_BASE="$(ls -d "$OUT"/physical/base-* 2>/dev/null | sort | tail -1 | sed 's/.*base-//')" || true
-    CUTSEG="$([ -n "$NEWEST_BASE" ] && wal_cutoff "$NEWEST_BASE")" || true
+    NEWEST_DIR="$(ls -d "$OUT"/physical/base-* 2>/dev/null | sort | tail -1)" || true
+    CUTSEG="$([ -n "$NEWEST_DIR" ] && wal_cutoff "$NEWEST_DIR")" || true
     [ -n "$CUTSEG" ] && docker exec "$CONT" pg_archivecleanup -x .gz /wal-archive "$CUTSEG" 2>/dev/null
-    echo "  ! disk at ${USED_PCT}% - emergency WAL prune to newest basebackup ($NEWEST_BASE)"
+    echo "  ! disk at ${USED_PCT}% - emergency WAL prune to newest basebackup ($(basename "${NEWEST_DIR:-?}"))"
   fi
 }
 
-# wal_cutoff BASE_DATE - echoes the basebackup's START WAL segment name. The
-# .backup history files in the archive record each basebackup's start.
+# wal_cutoff BASE_DIR - echoes the basebackup's START WAL segment name from its
+# own backup_manifest. Never key this by date: on 2026-08-22 two basebackups
+# shared one date, a date-grep matched the older history file, and pruning
+# anchored a day early while 15GB of dead WAL accumulated.
 wal_cutoff() {
-  for f in "$OUT"/wal/*.backup "$OUT"/wal/*.backup.gz; do
-    [ -f "$f" ] || continue
-    case "$f" in *.gz) reader=zcat;; *) reader=cat;; esac
-    if $reader "$f" 2>/dev/null | grep -q "START TIME: $1"; then
-      $reader "$f" 2>/dev/null | sed -n 's/.*(file \([0-9A-F]*\)).*/\1/p' | head -1
-      return
-    fi
-  done
+  python3 - "$1/backup_manifest" <<'PYEOF' 2>/dev/null
+import json, sys
+m = json.load(open(sys.argv[1]))
+r = m["WAL-Ranges"][0]
+hi, lo = r["Start-LSN"].split("/")
+print("%08X%08X%08X" % (int(r["Timeline"]), int(hi, 16), int(lo, 16) >> 24))
+PYEOF
 }
 
 # ---- retention FIRST: free space before writing anything, and guarantee that

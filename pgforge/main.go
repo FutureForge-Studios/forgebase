@@ -251,6 +251,7 @@ func main() {
 	mux.HandleFunc("GET /p/{slug}/sql", a.auth(proj(a.sqlPage)))
 	mux.HandleFunc("POST /p/{slug}/sql", a.auth(proj(a.sqlRun)))
 	mux.HandleFunc("POST /p/{slug}/sql/save", a.auth(proj(a.saveQuery)))
+	mux.HandleFunc("POST /p/{slug}/sql/rename", a.auth(proj(a.renameSavedQuery)))
 	mux.HandleFunc("POST /p/{slug}/sql/delete", a.auth(proj(a.deleteSavedQuery)))
 	mux.HandleFunc("GET /p/{slug}/database", a.auth(proj(a.databasePage)))
 	mux.HandleFunc("POST /p/{slug}/db-password", a.auth(admin(a.changeDBPassword)))
@@ -464,6 +465,8 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE edge_logs ADD COLUMN IF NOT EXISTS status integer NOT NULL DEFAULT 0`,
 		`ALTER TABLE edge_functions ADD COLUMN IF NOT EXISTS schedule text NOT NULL DEFAULT ''`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret text NOT NULL DEFAULT ''`,
+		`ALTER TABLE saved_queries ADD COLUMN IF NOT EXISTS owner text NOT NULL DEFAULT ''`,
+		`ALTER TABLE saved_queries ADD COLUMN IF NOT EXISTS is_private boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE edge_functions ADD COLUMN IF NOT EXISTS last_cron timestamptz`,
 		`ALTER TABLE edge_logs ADD COLUMN IF NOT EXISTS ms integer NOT NULL DEFAULT 0`,

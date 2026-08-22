@@ -430,11 +430,15 @@ const sqlBody = `
     <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;margin-bottom:.6rem">
       <span class="label">Saved:</span>
       {{range .Saved}}<span style="display:inline-flex;align-items:center;gap:.2rem;background:hsl(var(--bg));border:1px solid hsl(var(--border));border-radius:99px;padding:.15rem .3rem .15rem .6rem;font-size:12px">
-        <a href="/p/{{$.Slug}}/sql?load={{.ID}}">{{.Name}}</a>
+        {{if .Private}}<span class="muted" style="font-size:10px" title="Private - only you see this snippet">{{icon "key"}}</span>{{end}}
+        <a href="/p/{{$.Slug}}/sql?load={{.ID}}" title="{{if .Private}}private{{else}}shared{{end}}">{{.Name}}</a>
+        <form method="post" action="/p/{{$.Slug}}/sql/rename" style="margin:0;display:flex" onsubmit="var n=prompt('Rename to:',this.querySelector('[name=id]').getAttribute('data-n'));if(!n)return false;this.querySelector('[name=name]').value=n;return true">
+          <input type="hidden" name="id" value="{{.ID}}" data-n="{{.Name}}"><input type="hidden" name="name" value="">
+          <button class="copy" style="padding:.1rem" title="Rename">{{icon "settings"}}</button></form>
         <form method="post" action="/p/{{$.Slug}}/sql/delete" style="margin:0;display:flex" onsubmit="return confirm('Delete saved query?')"><input type="hidden" name="id" value="{{.ID}}"><button class="copy" style="color:hsl(var(--destructive));padding:.1rem">{{icon "trash"}}</button></form>
       </span>{{end}}
     </div>{{end}}
-    <form id="saveform" method="post" action="/p/{{.Slug}}/sql/save" style="display:none"><input type="hidden" name="name" id="savename"><input type="hidden" name="query" id="savequery"></form>
+    <form id="saveform" method="post" action="/p/{{.Slug}}/sql/save" style="display:none"><input type="hidden" name="name" id="savename"><input type="hidden" name="query" id="savequery"><input type="hidden" name="private" id="savepriv" value="0"></form>
     <div id="tabbar" style="display:flex;gap:.3rem;align-items:center;margin-bottom:.5rem;flex-wrap:wrap"></div>
     <form method="post" action="/p/{{.Slug}}/sql" id="sqlform">
       <input type="hidden" name="buffer" id="buf"><input type="hidden" name="explain" id="explainfld" value="">
@@ -501,7 +505,10 @@ var q=document.getElementById('q');
 q.addEventListener('keydown',function(e){if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){this.form.submit();}});
 function ins(t){var s=q.selectionStart,v=q.value;q.value=v.slice(0,s)+t+v.slice(q.selectionEnd);paint();q.focus();q.selectionStart=q.selectionEnd=s+t.length;}
 function setq(t){q.value=t;paint();q.focus();}
-function saveq(){var n=prompt('Save this query as:');if(!n)return;document.getElementById('savename').value=n;document.getElementById('savequery').value=q.value;document.getElementById('saveform').submit();}
+function saveq(){var n=prompt('Save this query as:');if(!n)return;
+ var priv=confirm('Save as PRIVATE (only you)? OK = private, Cancel = shared with the team.');
+ document.getElementById('savename').value=n;document.getElementById('savequery').value=q.value;
+ document.getElementById('savepriv').value=priv?'1':'0';document.getElementById('saveform').submit();}
 var HKEY='fb_sqlhist_'+"{{.Slug}}";
 function loadHist(){try{var h=JSON.parse(localStorage.getItem(HKEY)||'[]');var s=document.getElementById('histsel');h.forEach(function(x){var o=document.createElement('option');o.value=x;o.textContent=(x.length>55?x.slice(0,55)+'...':x).replace(/\s+/g,' ');s.appendChild(o);});}catch(e){}}
 function pushHist(x){if(!x||!x.trim())return;try{var h=JSON.parse(localStorage.getItem(HKEY)||'[]');h=h.filter(function(v){return v!==x});h.unshift(x);h=h.slice(0,25);localStorage.setItem(HKEY,JSON.stringify(h));}catch(e){}}

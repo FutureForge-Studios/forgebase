@@ -112,6 +112,7 @@ const accountBody = `
     <p class="muted" style="font-size:12.5px;margin:.4rem 0 .6rem">Add this key to your authenticator app (Google Authenticator, 1Password, Aegis...), then confirm with the current code:</p>
     <div class="cs"><span class="tag">Key</span><code id="totpsec">{{.TOTPSecret}}</code><button class="copy" onclick="cp('totpsec')">{{icon "copy"}}</button></div>
     <div class="cs"><span class="tag">URI</span><code id="totpuri" style="font-size:10.5px">{{.TOTPUri}}</code><button class="copy" onclick="cp('totpuri')">{{icon "copy"}}</button></div>
+    <div id="qrbox" title="Scan with your authenticator app"></div>
     <form method="post" action="/account/totp-confirm" style="display:flex;gap:.5rem;align-items:flex-end;margin-top:.7rem">
       <label class="fld" style="margin:0"><span class="lt">Code from the app</span><input type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autofocus style="width:110px;font-family:var(--mono)"></label>
       <button class="btn btn-primary btn-sm" type="submit">Confirm and enable</button>
@@ -138,4 +139,4 @@ const accountBody = `
     {{else}}<p class="muted" style="font-size:12.5px">No API keys yet.</p>{{end}}
   </div>
 </div>
-` + copyJS
+` + copyJS + qrVendorJS

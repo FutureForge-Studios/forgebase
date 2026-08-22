@@ -1,8 +1,8 @@
 [Unit]
-Description=Run ForgeBase WAL hygiene hourly
+Description=Run ForgeBase WAL hygiene every 15 minutes
 
 [Timer]
-OnCalendar=hourly
+OnCalendar=*:0/15
 RandomizedDelaySec=5m
 Persistent=true
 

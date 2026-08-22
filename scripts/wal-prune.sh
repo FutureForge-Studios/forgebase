@@ -16,21 +16,24 @@ set -e
 CONT=pgforge-db
 OUT=/opt/pgforge-backups
 
-# The .backup history files in the archive record each basebackup's start.
-wal_cutoff() { # $1 = base-<date> date; echoes the backup's START segment name
-  for f in "$OUT"/wal/*.backup "$OUT"/wal/*.backup.gz; do
-    [ -f "$f" ] || continue
-    case "$f" in *.gz) reader=zcat;; *) reader=cat;; esac
-    if $reader "$f" 2>/dev/null | grep -q "START TIME: $1"; then
-      $reader "$f" 2>/dev/null | sed -n 's/.*(file \([0-9A-F]*\)).*/\1/p' | head -1
-      return
-    fi
-  done
+# A basebackup's exact start segment comes from its own backup_manifest - the
+# only authoritative source. Keying by START TIME date proved WRONG on
+# 2026-08-22: two basebackups landed on one date, the date-grep matched the
+# OLDER one's history file, and the prune anchored a whole day too early while
+# 15GB of dead WAL piled up.
+manifest_cutseg() { # $1 = base-<date> dir path; echoes the start SEGMENT name
+  python3 - "$1/backup_manifest" <<'PYEOF' 2>/dev/null
+import json, sys
+m = json.load(open(sys.argv[1]))
+r = m["WAL-Ranges"][0]
+hi, lo = r["Start-LSN"].split("/")
+print("%08X%08X%08X" % (int(r["Timeline"]), int(hi, 16), int(lo, 16) >> 24))
+PYEOF
 }
 
 # 1) routine prune: drop WAL older than the oldest kept basebackup needs.
-OLDEST_BASE="$(ls -d "$OUT"/physical/base-* 2>/dev/null | sort | head -1 | sed 's/.*base-//')" || true
-CUTSEG="$([ -n "$OLDEST_BASE" ] && wal_cutoff "$OLDEST_BASE")" || true
+OLDEST_DIR="$(ls -d "$OUT"/physical/base-* 2>/dev/null | sort | head -1)" || true
+CUTSEG="$([ -n "$OLDEST_DIR" ] && manifest_cutseg "$OLDEST_DIR")" || true
 if [ -n "$CUTSEG" ]; then
   docker exec "$CONT" pg_archivecleanup -x .gz /wal-archive "$CUTSEG" 2>/dev/null || true
 fi
@@ -39,14 +42,37 @@ fi
 #    Older days stay restorable from their nightly logical dumps.
 USED_PCT="$(df --output=pcent "$OUT" 2>/dev/null | tail -1 | tr -dc '0-9')"
 if [ "${USED_PCT:-0}" -ge 80 ]; then
-  NEWEST_BASE="$(ls -d "$OUT"/physical/base-* 2>/dev/null | sort | tail -1 | sed 's/.*base-//')" || true
-  CUTSEG="$([ -n "$NEWEST_BASE" ] && wal_cutoff "$NEWEST_BASE")" || true
+  NEWEST_DIR="$(ls -d "$OUT"/physical/base-* 2>/dev/null | sort | tail -1)" || true
+  CUTSEG="$([ -n "$NEWEST_DIR" ] && manifest_cutseg "$NEWEST_DIR")" || true
   if [ -n "$CUTSEG" ]; then
     docker exec "$CONT" pg_archivecleanup -x .gz /wal-archive "$CUTSEG" 2>/dev/null || true
-    echo "wal-prune: disk was ${USED_PCT}%, pruned WAL to newest basebackup ($NEWEST_BASE)"
+    echo "wal-prune: disk was ${USED_PCT}%, pruned WAL to newest basebackup ($(basename "$NEWEST_DIR"))"
   fi
   # drop stale .part temp files from interrupted archiving
   find "$OUT/wal" -maxdepth 1 -type f -name '*.part' -mmin +10 -delete 2>/dev/null || true
+fi
+
+# 2b) hard size cap: a write-churn-heavy tenant can produce dead WAL faster
+# than any anchor logic reclaims it. Above WAL_ARCHIVE_MAX_GB (default 8) the
+# oldest segments go regardless - shrinking the PITR window, loudly, beats
+# the box dying of a full disk (the 2026-08-22 lesson, twice).
+CAP_GB="${WAL_ARCHIVE_MAX_GB:-8}"
+WAL_KB="$(du -sk "$OUT/wal" 2>/dev/null | cut -f1)"
+CAP_KB=$((CAP_GB * 1024 * 1024))
+if [ "${WAL_KB:-0}" -gt "$CAP_KB" ]; then
+  for f in $(ls "$OUT"/wal/0*.gz 2>/dev/null | sort); do
+    rm -f "$f"
+    WAL_KB="$(du -sk "$OUT/wal" | cut -f1)"
+    [ "$WAL_KB" -le "$CAP_KB" ] && break
+  done
+  echo "wal-prune: archive exceeded ${CAP_GB}GB cap - oldest segments dropped (PITR window shortened)"
+  mkdir -p /opt/pgforge/alerts
+  if [ ! -f /opt/pgforge/alerts/wal_cap ]; then
+    echo "WAL archive exceeded ${CAP_GB}GB and was cut to the cap - point-in-time recovery reaches less far back today. A heavy-write tenant is churning; see Logs > Slow statements." > /opt/pgforge/alerts/wal_cap
+    sh /opt/pgforge/bin/alert-notify.sh "WARNING ForgeBase: WAL archive hit the ${CAP_GB}GB cap and was trimmed. A tenant is writing heavily." || true
+  fi
+else
+  rm -f /opt/pgforge/alerts/wal_cap 2>/dev/null || true
 fi
 
 # 3) watchdogs. Each writes an alert file (System page shows a red banner while

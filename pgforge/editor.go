@@ -1420,10 +1420,16 @@ func (a *app) schemaTree(slug string) []schemaTable {
 	return out
 }
 
-type savedQuery struct{ ID, Name, SQL string }
+type savedQuery struct {
+	ID, Name, SQL, Owner string
+	Private              bool
+}
 
-func (a *app) savedQueries(slug string) []savedQuery {
-	rows, err := a.db.Query(`SELECT id, name, sql FROM saved_queries WHERE slug=$1 ORDER BY name`, slug)
+// savedQueries returns shared snippets plus the caller's private ones.
+func (a *app) savedQueries(slug, user string) []savedQuery {
+	rows, err := a.db.Query(`SELECT id, name, sql, coalesce(owner,''), coalesce(is_private,false)
+		FROM saved_queries WHERE slug=$1 AND (coalesce(is_private,false)=false OR owner=$2)
+		ORDER BY is_private DESC, name`, slug, user)
 	if err != nil {
 		return nil
 	}
@@ -1431,7 +1437,7 @@ func (a *app) savedQueries(slug string) []savedQuery {
 	var out []savedQuery
 	for rows.Next() {
 		var q savedQuery
-		rows.Scan(&q.ID, &q.Name, &q.SQL)
+		rows.Scan(&q.ID, &q.Name, &q.SQL, &q.Owner, &q.Private)
 		out = append(out, q)
 	}
 	return out
@@ -1445,10 +1451,11 @@ func (a *app) sqlPage(w http.ResponseWriter, r *http.Request) {
 	}
 	q := ""
 	if id := r.URL.Query().Get("load"); id != "" {
-		a.db.QueryRow(`SELECT sql FROM saved_queries WHERE id=$1 AND slug=$2`, id, slug).Scan(&q)
+		a.db.QueryRow(`SELECT sql FROM saved_queries WHERE id=$1 AND slug=$2
+			AND (coalesce(is_private,false)=false OR owner=$3)`, id, slug, currentUser(r)).Scan(&q)
 	}
 	content := renderContent(sqlBody, map[string]any{"Slug": slug, "Query": q,
-		"Schema": a.schemaTree(slug), "Saved": a.savedQueries(slug),
+		"Schema": a.schemaTree(slug), "Saved": a.savedQueries(slug, currentUser(r)),
 		"History": a.sqlHistory(slug), "Limit": 0})
 	a.renderShell(w, r, shellData{Title: slug + " · SQL", Nav: "sql", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "SQL Editor"}}}, content)
@@ -1462,16 +1469,33 @@ func (a *app) saveQuery(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/sql", "Enter a name and a query to save.")
 		return
 	}
-	a.db.Exec(`INSERT INTO saved_queries(slug,name,sql) VALUES ($1,$2,$3)`, slug, name, sql)
+	a.db.Exec(`INSERT INTO saved_queries(slug,name,sql,owner,is_private) VALUES ($1,$2,$3,$4,$5)`,
+		slug, name, sql, currentUser(r), r.FormValue("private") == "1")
 	a.audit(r, "sql-save", slug+"/"+name)
 	redirectMsg(w, r, "/p/"+slug+"/sql", "Saved query \""+name+"\".")
 }
 
 func (a *app) deleteSavedQuery(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
-	a.db.Exec(`DELETE FROM saved_queries WHERE id=$1 AND slug=$2`, r.FormValue("id"), slug)
+	// a private snippet is only deletable by its owner
+	a.db.Exec(`DELETE FROM saved_queries WHERE id=$1 AND slug=$2
+		AND (coalesce(is_private,false)=false OR owner=$3)`, r.FormValue("id"), slug, currentUser(r))
 	a.audit(r, "sql-delete", slug)
 	redirectMsg(w, r, "/p/"+slug+"/sql", "Saved query deleted.")
+}
+
+func (a *app) renameSavedQuery(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		redirectErr(w, r, "/p/"+slug+"/sql", "Enter a name.")
+		return
+	}
+	a.db.Exec(`UPDATE saved_queries SET name=$3 WHERE id=$1 AND slug=$2
+		AND (coalesce(is_private,false)=false OR owner=$4)`,
+		r.FormValue("id"), slug, name, currentUser(r))
+	a.audit(r, "sql-rename", slug+"/"+name)
+	redirectMsg(w, r, "/p/"+slug+"/sql", "Renamed to "+name+".")
 }
 
 func (a *app) sqlRun(w http.ResponseWriter, r *http.Request) {
@@ -1504,7 +1528,7 @@ func (a *app) sqlRun(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(echo) == "" {
 		echo = r.FormValue("query")
 	}
-	data := map[string]any{"Slug": slug, "Query": echo, "Schema": a.schemaTree(slug), "Saved": a.savedQueries(slug), "RunAs": "", "Limit": rowLimit, "History": a.sqlHistory(slug)}
+	data := map[string]any{"Slug": slug, "Query": echo, "Schema": a.schemaTree(slug), "Saved": a.savedQueries(slug, currentUser(r)), "RunAs": "", "Limit": rowLimit, "History": a.sqlHistory(slug)}
 	if err != nil {
 		data["Error"] = err.Error()
 	} else {
