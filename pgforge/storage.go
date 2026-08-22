@@ -516,6 +516,10 @@ func (a *app) serveStorage(w http.ResponseWriter, r *http.Request, slug string) 
 		a.storageCreateSignedURL(w, r, slug, strings.TrimPrefix(p, "sign/"))
 		return
 	}
+	if strings.HasPrefix(p, "list/") && r.Method == http.MethodPost {
+		a.storageListAPI(w, r, slug, strings.TrimPrefix(p, "list/"))
+		return
+	}
 	switch r.Method {
 	case http.MethodPost, http.MethodPut:
 		a.storageUploadAPI(w, r, slug, p)
@@ -526,6 +530,96 @@ func (a *app) serveStorage(w http.ResponseWriter, r *http.Request, slug string) 
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"message": "method not allowed"})
 	}
+}
+
+// storageListAPI implements supabase-js storage.from(bucket).list(): POST
+// /storage/v1/object/list/<bucket> with {prefix, limit, offset, search}.
+// One level per call - subpaths appear as folder entries with null id and
+// metadata, exactly as typed clients expect.
+func (a *app) storageListAPI(w http.ResponseWriter, r *http.Request, slug, bucket string) {
+	role, ok := a.storageAuth(r, slug)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "authentication required"})
+		return
+	}
+	if !a.bucketExists(slug, bucket) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "bucket not found"})
+		return
+	}
+	var public bool
+	a.db.QueryRow(`SELECT public FROM storage_buckets WHERE slug=$1 AND bucket=$2`, slug, bucket).Scan(&public)
+	if !public && role != "authenticated" && role != "service_role" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"message": "private bucket - authenticated key required"})
+		return
+	}
+	var body struct {
+		Prefix string `json:"prefix"`
+		Limit  int    `json:"limit"`
+		Offset int    `json:"offset"`
+		Search string `json:"search"`
+	}
+	json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body)
+	if body.Limit <= 0 || body.Limit > 1000 {
+		body.Limit = 100
+	}
+	if body.Offset < 0 {
+		body.Offset = 0
+	}
+	pfx := safeRel(body.Prefix)
+	if pfx != "" {
+		pfx += "/"
+	}
+	rows, err := a.db.Query(`SELECT path, size, mime,
+			to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		FROM storage_objects WHERE slug=$1 AND bucket=$2 AND path LIKE $3
+		ORDER BY path LIMIT 5000`, slug, bucket, pfx+"%")
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "listing failed"})
+		return
+	}
+	defer rows.Close()
+	type entry struct {
+		Name      string         `json:"name"`
+		ID        *string        `json:"id"`
+		UpdatedAt *string        `json:"updated_at"`
+		CreatedAt *string        `json:"created_at"`
+		Metadata  map[string]any `json:"metadata"`
+	}
+	seenDir := map[string]bool{}
+	var all []entry
+	for rows.Next() {
+		var path, mime, created string
+		var size int64
+		rows.Scan(&path, &size, &mime, &created)
+		rel := strings.TrimPrefix(path, pfx)
+		if i := strings.IndexByte(rel, '/'); i >= 0 {
+			d := rel[:i]
+			if !seenDir[d] {
+				seenDir[d] = true
+				all = append(all, entry{Name: d})
+			}
+			continue
+		}
+		if body.Search != "" && !strings.Contains(strings.ToLower(rel), strings.ToLower(body.Search)) {
+			continue
+		}
+		id := bucket + "/" + path
+		c := created
+		all = append(all, entry{Name: rel, ID: &id, UpdatedAt: &c, CreatedAt: &c,
+			Metadata: map[string]any{"size": size, "mimetype": mime}})
+	}
+	if body.Offset >= len(all) {
+		all = nil
+	} else {
+		all = all[body.Offset:]
+	}
+	if len(all) > body.Limit {
+		all = all[:body.Limit]
+	}
+	if all == nil {
+		all = []entry{}
+	}
+	writeJSON(w, http.StatusOK, all)
 }
 
 // storageAuth verifies the caller's project JWT (apikey / Bearer) and returns

@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.18"
+const appVersion = "1.3.19"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.19", Date: "2026-08-22",
+		Summary: "Clients can finally list objects.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Storage list endpoint: supabase-js storage.from(bucket).list() now works - POST /storage/v1/object/list/<bucket> with prefix, limit, offset and search, returning folder and file entries exactly as typed clients expect. Public buckets list with any valid key; private buckets need an authenticated or service key.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.18", Date: "2026-08-22",
 		Summary: "A real storage explorer.",
