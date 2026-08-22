@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.2"
+const appVersion = "1.3.3"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,16 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.3", Date: "2026-08-22",
+		Summary: "SQL Editor interaction fix.",
+		Sections: []changeSection{
+			{"Fixed", []string{
+				"Clicking a table or column in the schema sidebar inserts it into the editor again, and the snippet buttons (SELECT, INSERT, UPDATE...) work again - a malformed script literal was stopping the editor's JavaScript from loading at all.",
+				"Syntax highlighting now correctly colors SQL keywords (the keyword patterns were matching a stray control character instead of word boundaries).",
+			}},
+		},
+	},
 	{
 		Version: "1.3.2", Date: "2026-08-22",
 		Summary: "A much stronger table editor.",

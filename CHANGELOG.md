@@ -13,6 +13,13 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.3] - 2026-08-22
+
+### Fixed
+- Schema sidebar clicks and snippet buttons in the SQL Editor work again - a
+  malformed script literal was preventing the editor's JavaScript from loading.
+- SQL keyword highlighting matches word boundaries correctly again.
+
 ## [1.3.2] - 2026-08-22
 
 ### Added
@@ -697,7 +704,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.2...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.3...HEAD
+[1.3.3]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.2...v1.3.3
 [1.3.2]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.21...v1.3.0
