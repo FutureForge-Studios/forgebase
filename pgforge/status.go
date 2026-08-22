@@ -131,6 +131,30 @@ func (a *app) statusPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// manual incident notes: an unresolved incident overrides the banner, and
+	// the last few resolved ones form a short history
+	type incident struct{ Title, Note, Started, Resolved string }
+	var active *incident
+	var history []incident
+	if rows, err := a.db.Query(`SELECT title, note, to_char(started_at,'Mon DD, HH24:MI'),
+		coalesce(to_char(resolved_at,'Mon DD, HH24:MI'),'') FROM incidents
+		ORDER BY started_at DESC LIMIT 6`); err == nil {
+		for rows.Next() {
+			var in incident
+			rows.Scan(&in.Title, &in.Note, &in.Started, &in.Resolved)
+			if in.Resolved == "" && active == nil {
+				v := in
+				active = &v
+			} else if in.Resolved != "" {
+				history = append(history, in)
+			}
+		}
+		rows.Close()
+	}
+	if active != nil && bannerClass == "ok" {
+		banner, bannerClass = active.Title, "warn"
+	}
+
 	title := "ForgeBase Status"
 	if v := ""; true {
 		if a.db.QueryRow(`SELECT value FROM settings WHERE key='status_title'`).Scan(&v); strings.TrimSpace(v) != "" {
@@ -141,9 +165,47 @@ func (a *app) statusPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "public, max-age=30")
 	statusTmpl.Execute(w, map[string]any{
 		"Title": title, "Banner": banner, "BannerClass": bannerClass, "Days": days,
+		"Incident": active, "History": history,
 		"Uptime": fmt.Sprintf("%.2f", uptime), "Projs": projs,
 		"Domain": a.cfg.domain, "At": time.Now().UTC().Format("Jan 2, 2006 15:04 UTC"),
 	})
+}
+
+// ----------------------------------------------------------------- incidents
+
+// saveIncident opens a new incident or updates the note of the active one.
+// Shown as a banner on the public status page until resolved.
+func (a *app) saveIncident(w http.ResponseWriter, r *http.Request) {
+	title := strings.TrimSpace(r.FormValue("title"))
+	note := strings.TrimSpace(r.FormValue("note"))
+	if title == "" {
+		redirectErr(w, r, "/system", "Incident needs a title.")
+		return
+	}
+	var id int64
+	a.db.QueryRow(`SELECT id FROM incidents WHERE resolved_at IS NULL ORDER BY started_at DESC LIMIT 1`).Scan(&id)
+	if id > 0 {
+		a.db.Exec(`UPDATE incidents SET title=$2, note=$3 WHERE id=$1`, id, title, note)
+		a.audit(r, "incident-update", title)
+		redirectMsg(w, r, "/system", "Incident updated on the status page.")
+		return
+	}
+	a.db.Exec(`INSERT INTO incidents(title, note) VALUES ($1,$2)`, title, note)
+	a.audit(r, "incident-open", title)
+	go a.notifyDiscord("🟠 Incident opened: " + title)
+	redirectMsg(w, r, "/system", "Incident is now showing on the status page.")
+}
+
+func (a *app) resolveIncident(w http.ResponseWriter, r *http.Request) {
+	var title string
+	a.db.QueryRow(`UPDATE incidents SET resolved_at=now() WHERE resolved_at IS NULL RETURNING title`).Scan(&title)
+	if title == "" {
+		redirectMsg(w, r, "/system", "No active incident.")
+		return
+	}
+	a.audit(r, "incident-resolve", title)
+	go a.notifyDiscord("🟢 Incident resolved: " + title)
+	redirectMsg(w, r, "/system", "Incident marked resolved.")
 }
 
 // setPublicStatus toggles a project's presence on the public status page.
@@ -216,6 +278,11 @@ var statusTmpl = template.Must(template.New("status").Parse(`<!doctype html>
     <div class="muted" style="font-size:12px">{{.At}}</div>
   </div>
   <div class="sbanner {{.BannerClass}}"><span class="dot"></span> {{.Banner}}</div>
+  {{if .Incident}}<div class="card" style="margin-top:.8rem;border-color:hsl(var(--warn)/.4)">
+    <div style="display:flex;gap:.6rem;align-items:baseline"><h2 style="font-size:15px">{{.Incident.Title}}</h2>
+    <div class="spacer" style="flex:1"></div><span class="muted" style="font-size:11.5px">since {{.Incident.Started}} UTC</span></div>
+    {{if .Incident.Note}}<p class="muted" style="font-size:13px;margin:.4rem 0 0">{{.Incident.Note}}</p>{{end}}
+  </div>{{end}}
   <div class="card" style="margin-top:1.2rem">
     <div style="display:flex;align-items:baseline;gap:.7rem">
       <h2 style="font-size:15px">Platform</h2>
@@ -234,6 +301,17 @@ var statusTmpl = template.Must(template.New("status").Parse(`<!doctype html>
       <div class="spacer" style="flex:1"></div>
       <span class="sstate {{.Class}}" style="font-size:13px;font-weight:600">{{.State}}</span>
     </div>
+    {{end}}
+  </div>
+  {{end}}
+  {{if .History}}
+  <div class="card" style="margin-top:1rem">
+    <h2 style="font-size:15px;margin-bottom:.4rem">Past incidents</h2>
+    {{range .History}}
+    <div class="srow"><div><div style="font-weight:600;font-size:13.5px">{{.Title}}</div>
+      {{if .Note}}<div class="muted" style="font-size:12px">{{.Note}}</div>{{end}}</div>
+      <div class="spacer" style="flex:1"></div>
+      <span class="muted" style="font-size:11.5px;white-space:nowrap">{{.Started}} &rarr; {{.Resolved}} UTC</span></div>
     {{end}}
   </div>
   {{end}}

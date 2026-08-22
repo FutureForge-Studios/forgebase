@@ -13,6 +13,27 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.19] - 2026-08-22
+
+### Added
+- Watchdogs: an hourly check alerts if the database's write-ahead log is
+  growing abnormally (the early symptom of the class of problem that once
+  filled the disk) or if the disk passes 85%. You get a red banner on the
+  System page AND a Discord ping - once per episode, with an all-clear when it
+  recovers.
+- Incident notes: post "Investigating X..." to your public status page from
+  the System page while you work on something; resolving moves it into a
+  visible history. Discord is pinged on open and resolve.
+- Weekly Discord digest (Sundays ~10:00 IST): uptime, RAM and disk, project
+  counts (sleeping/pinned), backup sizes per tier, and updates installed that
+  week.
+- Self-updates now ping Discord on success and, importantly, on an automatic
+  rollback. Failed nightly backups alert too.
+
+### Fixed
+- Instance-mode setup can no longer create a storage image larger than the
+  disk (it sizes to 40% of free space and refuses oversize requests).
+
 ## [1.2.18] - 2026-08-22
 
 ### Added
@@ -566,7 +587,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.18...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.19...HEAD
+[1.2.19]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.18...v1.2.19
 [1.2.18]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.17...v1.2.18
 [1.2.17]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.16...v1.2.17
 [1.2.16]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.15...v1.2.16

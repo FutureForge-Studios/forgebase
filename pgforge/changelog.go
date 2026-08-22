@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.2.18"
+const appVersion = "1.2.19"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,21 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.2.19", Date: "2026-08-22",
+		Summary: "The platform now tells you when something needs attention - before it hurts.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Watchdogs: an hourly check alerts if the database's write-ahead log is growing abnormally (the early symptom of the class of problem that once filled the disk) or if the disk passes 85%. You get a red banner on the System page AND a Discord ping - once per episode, with an all-clear when it recovers.",
+				"Incident notes: post \"Investigating X...\" to your public status page from the System page while you work on something; resolving moves it into a visible history. Discord is pinged on open and resolve.",
+				"Weekly Discord digest (Sundays ~10:00 IST): uptime, RAM and disk, project counts (sleeping/pinned), backup sizes per tier, and updates installed that week.",
+				"Self-updates now ping Discord on success and, importantly, on an automatic rollback. Failed nightly backups alert too.",
+			}},
+			{"Fixed", []string{
+				"Instance-mode setup can no longer create a storage image larger than the disk (it sizes to 40% of free space and refuses oversize requests).",
+			}},
+		},
+	},
 	{
 		Version: "1.2.18", Date: "2026-08-22",
 		Summary: "Serve your platform on a second domain - with zero risk to the first.",

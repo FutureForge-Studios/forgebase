@@ -160,6 +160,7 @@ for db in $(docker exec "$CONT" psql -U postgres -tAc \
   else
     echo "  ! dump $db failed: $(head -1 "$OUT/.err")"
     rm -f "$OUT/dumps/$db-$DATE.dump"
+    HAD_FAIL=1
   fi
 done
 rm -f "$OUT/.err"
@@ -169,6 +170,7 @@ if docker exec "$CONT" sh -c "rm -rf /physical/base-$DATE && pg_basebackup -U po
   echo "  ok basebackup base-$DATE"
 else
   echo "  ! basebackup failed: $(head -1 "$OUT/.err")"; rm -f "$OUT/.err"
+  HAD_FAIL=1
 fi
 
 # ---- layer 3: file plane (storage objects + edge functions) so a restore can
@@ -203,5 +205,8 @@ if [ -n "$REMOTE" ] && command -v rclone >/dev/null 2>&1; then
   echo "  off-box: synced to $REMOTE"
 else
   echo "  off-box: NOT CONFIGURED (echo '<rclone-remote>:<path>' > /opt/pgforge/backup_remote)"
+fi
+if [ "${HAD_FAIL:-0}" = "1" ]; then
+  sh /opt/pgforge/bin/alert-notify.sh "WARNING ForgeBase: last night's backup completed WITH ERRORS - check the backup log on the server." || true
 fi
 echo "== done; usage: $(du -sh "$OUT" | cut -f1) =="

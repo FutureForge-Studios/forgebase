@@ -348,11 +348,13 @@ if curl -fsS -o /dev/null "http://$LISTEN/healthz"; then
   echo ">> applying infra (scripts + systemd units)"
   sh "` + repoDir + `/scripts/apply-infra.sh" --safe || echo "!! infra apply failed (binary is fine)"
   echo ">> OK: updated to $VER"
+  sh /opt/pgforge/bin/alert-notify.sh "ForgeBase updated successfully to $VER." || true
 else
   echo "!! health check failed - rolling back"
   install -m 0755 /opt/pgforge/bin/pgforged.prev /opt/pgforge/bin/pgforged
   systemctl restart pgforged
   echo ">> rolled back to previous build"
+  sh /opt/pgforge/bin/alert-notify.sh "WARNING ForgeBase: update to $VER FAILED its health check and was rolled back automatically. The previous version is running." || true
 fi
 # hygiene: the build cache regrows on every update and nothing else prunes it;
 # the module cache is kept unless it has grown past 1GB.

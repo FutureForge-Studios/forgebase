@@ -187,6 +187,8 @@ func main() {
 	mux.HandleFunc("POST /system/auto-update", a.auth(a.requireRole("owner", a.setAutoUpdate)))
 	mux.HandleFunc("POST /system/status-domain", a.auth(a.requireRole("owner", a.setStatusDomain)))
 	mux.HandleFunc("POST /system/secondary-domain", a.auth(a.requireRole("owner", a.setSecondaryDomain)))
+	mux.HandleFunc("POST /system/incident", a.auth(a.requireRole("owner", a.saveIncident)))
+	mux.HandleFunc("POST /system/incident-resolve", a.auth(a.requireRole("owner", a.resolveIncident)))
 	// team (owner-only management)
 	mux.HandleFunc("GET /people", a.auth(a.peoplePage))
 	mux.HandleFunc("POST /people/add", a.auth(a.requireRole("owner", a.addMember)))
@@ -395,6 +397,14 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS keep_awake boolean NOT NULL DEFAULT false`,
 		// opt-in visibility on the public status page
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_status boolean NOT NULL DEFAULT false`,
+		// manual incident notes shown on the public status page
+		`CREATE TABLE IF NOT EXISTS incidents (
+			id bigserial PRIMARY KEY,
+			title text NOT NULL,
+			note text NOT NULL DEFAULT '',
+			started_at timestamptz NOT NULL DEFAULT now(),
+			resolved_at timestamptz
+		)`,
 		`CREATE TABLE IF NOT EXISTS api_config (
 			slug text PRIMARY KEY,
 			jwt_secret text NOT NULL,

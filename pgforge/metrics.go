@@ -89,6 +89,7 @@ func (a *app) sampleOnce(full bool) {
 		a.db.Exec(`DELETE FROM edge_logs WHERE at < now() - interval '30 days'`)
 		a.db.Exec(`DELETE FROM edge_logs e WHERE e.id NOT IN (
 			SELECT id FROM edge_logs e2 WHERE e2.slug = e.slug ORDER BY at DESC LIMIT 200)`)
+		a.maybeWeeklyDigest()
 	}
 
 	a.autoSuspend()

@@ -48,3 +48,41 @@ if [ "${USED_PCT:-0}" -ge 80 ]; then
   # drop stale .part temp files from interrupted archiving
   find "$OUT/wal" -maxdepth 1 -type f -name '*.part' -mmin +10 -delete 2>/dev/null || true
 fi
+
+# 3) watchdogs. Each writes an alert file (System page shows a red banner while
+# one exists) and pings Discord ONCE per episode - on the healthy->unhealthy
+# transition, not every hour. Cleared automatically when healthy again.
+ALERTS=/opt/pgforge/alerts
+NOTIFY=/opt/pgforge/bin/alert-notify.sh
+mkdir -p "$ALERTS"
+
+# pg_wal inside the data dir: if it exceeds 2GB (double max_wal_size) the
+# archiver is lagging or wedged - the exact chain that once filled the disk.
+WALDIR_MB="$(docker exec "$CONT" psql -U postgres -tAc \
+  "SELECT coalesce(sum(size),0)/1024/1024 FROM pg_ls_waldir()" 2>/dev/null | cut -d. -f1)"
+if [ "${WALDIR_MB:-0}" -ge 2048 ]; then
+  if [ ! -f "$ALERTS/pg_wal" ]; then
+    { echo "pg_wal is ${WALDIR_MB}MB (limit 2048MB) - WAL archiving is lagging or stuck."
+      docker exec "$CONT" psql -U postgres -tAc \
+        "SELECT 'last_archived='||coalesce(last_archived_wal,'-')||' failed_count='||failed_count FROM pg_stat_archiver" 2>/dev/null
+    } > "$ALERTS/pg_wal"
+    sh "$NOTIFY" "WARNING ForgeBase: pg_wal is ${WALDIR_MB}MB - WAL archiving looks stuck. The System page has details." || true
+  else
+    # refresh contents so the banner shows current numbers, no re-notify
+    sed -i "1s/.*/pg_wal is ${WALDIR_MB}MB (limit 2048MB) - WAL archiving is lagging or stuck./" "$ALERTS/pg_wal" 2>/dev/null || true
+  fi
+else
+  [ -f "$ALERTS/pg_wal" ] && rm -f "$ALERTS/pg_wal" \
+    && sh "$NOTIFY" "RESOLVED ForgeBase: pg_wal back to ${WALDIR_MB}MB - archiving healthy." || true
+fi
+
+# disk usage: warn at 85% (the emergency pruning kicks in at the same line)
+if [ "${USED_PCT:-0}" -ge 85 ]; then
+  if [ ! -f "$ALERTS/disk" ]; then
+    df -h "$OUT" | tail -1 > "$ALERTS/disk"
+    sh "$NOTIFY" "WARNING ForgeBase: disk at ${USED_PCT}% - emergency backup pruning is active. Check the System page." || true
+  fi
+else
+  [ -f "$ALERTS/disk" ] && rm -f "$ALERTS/disk" \
+    && sh "$NOTIFY" "RESOLVED ForgeBase: disk back to ${USED_PCT}%." || true
+fi

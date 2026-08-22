@@ -86,6 +86,19 @@ func (a *app) systemPage(w http.ResponseWriter, r *http.Request) {
 	// wedged or abandoned update can't pin this page on "updating..." forever.
 	updateRunning := updateInFlight()
 
+	// watchdog alert files -> red banner (wal-prune.sh writes/clears these)
+	var alerts []string
+	if ents, err := os.ReadDir("/opt/pgforge/alerts"); err == nil {
+		for _, e := range ents {
+			if b, err := os.ReadFile("/opt/pgforge/alerts/" + e.Name()); err == nil {
+				alerts = append(alerts, strings.TrimSpace(string(b)))
+			}
+		}
+	}
+
+	var incTitle, incNote string
+	a.db.QueryRow(`SELECT title, note FROM incidents WHERE resolved_at IS NULL ORDER BY started_at DESC LIMIT 1`).Scan(&incTitle, &incNote)
+
 	hook := a.discordHook()
 	hookMasked := ""
 	if hook != "" {
@@ -96,6 +109,7 @@ func (a *app) systemPage(w http.ResponseWriter, r *http.Request) {
 		"DBOK": dbOK, "PGVer": pgVer, "DBSize": dbSize, "ActiveAPIs": activeAPIs, "Svcs": svcs,
 		"Stats": a.hostStats(), "AppVersion": appVersion, "IsOwner": a.atLeast(r, "owner"),
 		"Checked": checked, "Upd": upd, "UpdateLog": updLog, "UpdateRunning": updateRunning,
+		"Alerts": alerts, "ActiveIncident": incTitle, "ActiveIncidentNote": incNote,
 		"AutoUpd": a.settingOn("auto_update"), "Domain": a.cfg.domain, "StatusDomain": a.statusCustomDomain(), "SecondaryDomain": a.secondaryDomain(), "PanelRedirect": a.panelRedirectOn(), "StatusTitle": func() string {
 			var v string
 			a.db.QueryRow(`SELECT value FROM settings WHERE key='status_title'`).Scan(&v)

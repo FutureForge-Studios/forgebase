@@ -9,7 +9,19 @@
 set -e
 REPO_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
 ROOT=/opt/pgforge/instances
-SIZE="${INSTANCES_SIZE:-50G}"
+# Default: 40% of current free space, capped 20G, floor 5G. A fixed large
+# default once created a 50G sparse image on a 38G disk - an ENOSPC trap where
+# btrfs reports space the host cannot deliver.
+free_kb="$(df --output=avail /opt 2>/dev/null | tail -1 | tr -dc 0-9)"
+def_g=$(( ${free_kb:-20000000} * 40 / 100 / 1024 / 1024 ))
+[ "$def_g" -gt 20 ] && def_g=20
+[ "$def_g" -lt 5 ] && def_g=5
+SIZE="${INSTANCES_SIZE:-${def_g}G}"
+want_g="$(printf '%s' "$SIZE" | tr -dc 0-9)"
+have_g=$(( ${free_kb:-0} / 1024 / 1024 ))
+if [ "${want_g:-0}" -gt "$have_g" ]; then
+  echo "refusing: INSTANCES_SIZE=$SIZE exceeds free space (${have_g}G)"; exit 1
+fi
 
 echo "==> per-instance mode: btrfs store + cold-start proxy + reaper"
 apt-get install -y -qq btrfs-progs >/dev/null 2>&1 || true
@@ -19,7 +31,7 @@ mkdir -p "$ROOT"
 # operator already provided one at $ROOT; otherwise back it with a loopback image.
 if ! mountpoint -q "$ROOT"; then
   if [ ! -f /opt/pgforge/instances.img ]; then
-    truncate -s "$SIZE" /opt/pgforge/instances.img
+    fallocate -l "$SIZE" /opt/pgforge/instances.img
     mkfs.btrfs -q -f /opt/pgforge/instances.img
   fi
   mount -o loop /opt/pgforge/instances.img "$ROOT"

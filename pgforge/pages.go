@@ -1359,6 +1359,10 @@ const edgeBody = `
 
 const systemBody = `
 <div class="pagehead"><h1>System</h1><p>Running version, service health, and the resilience model for this ForgeBase deployment.</p></div>
+{{if .Alerts}}<div class="card" style="margin-bottom:1rem;border-color:hsl(var(--destructive)/.5);background:hsl(var(--destructive)/.05)">
+  <h2 style="color:hsl(var(--destructive))">Attention needed</h2>
+  {{range .Alerts}}<pre style="font-size:12px;margin:.4rem 0 0;white-space:pre-wrap">{{.}}</pre>{{end}}
+</div>{{end}}
 <div class="grid g2" style="margin-bottom:1rem">
   <div class="card">
     <h2>Version</h2>
@@ -1449,6 +1453,18 @@ const systemBody = `
     <button class="btn btn-ghost btn-sm" type="submit">Save</button>
   </form>
   <p class="muted" style="font-size:11px;margin:.4rem 0 0">Saving sends a test message. Save empty to disable.</p>
+  {{end}}
+</div>
+<div class="card" style="margin-bottom:1rem">
+  <h2>Incident notes</h2>
+  <p class="muted" style="font-size:12.5px;margin:.4rem 0 .6rem">Post a note to the public status page while you work on something ("Investigating slow queries..."). Clients see you are on it; resolving moves it to the history.</p>
+  {{if .IsOwner}}
+  <form method="post" action="/system/incident" style="display:flex;gap:.5rem;flex-wrap:wrap">
+    <input type="text" name="title" placeholder="{{if .ActiveIncident}}{{.ActiveIncident}}{{else}}what's happening (title){{end}}" value="{{.ActiveIncident}}" maxlength="120" style="flex:1;min-width:200px">
+    <input type="text" name="note" placeholder="details (optional)" value="{{.ActiveIncidentNote}}" maxlength="500" style="flex:2;min-width:240px">
+    <button class="btn btn-ghost btn-sm" type="submit">{{if .ActiveIncident}}Update{{else}}Post{{end}}</button>
+    {{if .ActiveIncident}}</form><form method="post" action="/system/incident-resolve" style="display:inline">
+    <button class="btn btn-primary btn-sm" type="submit">Resolve</button></form>{{else}}</form>{{end}}
   {{end}}
 </div>
 <div class="card" style="margin-bottom:1rem">
