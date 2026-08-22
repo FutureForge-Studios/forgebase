@@ -316,6 +316,7 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/auth-user-delete", a.auth(proj(a.deleteAuthUser)))
 	mux.HandleFunc("POST /p/{slug}/oauth-save", a.auth(admin(a.saveOAuth)))
 	mux.HandleFunc("POST /p/{slug}/auth-smtp", a.auth(admin(a.saveAuthEmail)))
+	mux.HandleFunc("POST /p/{slug}/auth-anon", a.auth(admin(a.setAuthAnon)))
 	mux.HandleFunc("GET /p/{slug}/realtime", a.auth(proj(a.realtimePage)))
 	mux.HandleFunc("POST /p/{slug}/realtime-enable", a.auth(proj(a.enableRealtime)))
 	mux.HandleFunc("POST /p/{slug}/realtime-disable", a.auth(proj(a.disableRealtime)))
@@ -466,6 +467,7 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE edge_functions ADD COLUMN IF NOT EXISTS schedule text NOT NULL DEFAULT ''`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret text NOT NULL DEFAULT ''`,
 		`ALTER TABLE saved_queries ADD COLUMN IF NOT EXISTS owner text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS anon_signins boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE saved_queries ADD COLUMN IF NOT EXISTS is_private boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE edge_functions ADD COLUMN IF NOT EXISTS last_cron timestamptz`,
@@ -512,6 +514,7 @@ func (a *app) ensureSchema() error {
 			smtp_pass_enc bytea,
 			smtp_from text NOT NULL DEFAULT '',
 			confirm_email boolean NOT NULL DEFAULT false,
+			anon_signins boolean NOT NULL DEFAULT false,
 			created_at timestamptz NOT NULL DEFAULT now()
 		)`,
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS smtp_host text NOT NULL DEFAULT ''`,

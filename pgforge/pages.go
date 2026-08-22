@@ -1300,6 +1300,10 @@ const authPageBody = `
 {{else}}
 <div class="card" style="margin-bottom:1rem">
   <div style="display:flex;align-items:center;gap:.6rem"><h2>Endpoints</h2><span class="badge active">live</span><div class="spacer"></div>
+    <form method="post" action="/p/{{.Slug}}/auth-anon" style="display:flex;align-items:center;margin-right:.6rem">
+      <label class="muted" style="font-size:12px;display:flex;align-items:center;gap:.3rem;cursor:pointer" title="Lets clients call signInAnonymously() - a real user without credentials, upgradeable later">
+        <input type="checkbox" name="anon" {{if .AnonOn}}checked{{end}} onchange="this.form.submit()"> anonymous sign-ins</label>
+    </form>
     <form method="post" action="/p/{{.Slug}}/auth-disable"><button class="btn btn-ghost btn-sm">Disable</button></form></div>
   <div class="cs"><span class="tag">Sign up</span><code id="a1">curl -X POST '{{.Base}}/signup' -H "Content-Type: application/json" -d '{"email":"user@example.com","password":"secret123"}'</code><button class="copy" onclick="cp('a1')">{{icon "copy"}}</button></div>
   <div class="cs"><span class="tag">Log in</span><code id="a2">curl -X POST '{{.Base}}/token?grant_type=password' -H "Content-Type: application/json" -d '{"email":"user@example.com","password":"secret123"}'</code><button class="copy" onclick="cp('a2')">{{icon "copy"}}</button></div>

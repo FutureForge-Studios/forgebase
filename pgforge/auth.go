@@ -11,6 +11,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -421,11 +422,17 @@ func (a *app) accountPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	totpSec, totpOn := a.userTOTP(name)
+	// authenticator label: the EMAIL identifies the account (owner request);
+	// the display name only as a fallback when no email is set
+	totpLabel := email
+	if totpLabel == "" {
+		totpLabel = name
+	}
 	content := renderContent(accountBody, map[string]any{
 		"User": name, "Email": email, "First": first, "Last": last,
 		"HasRow": hasRow, "Keys": keys, "NewKey": r.URL.Query().Get("k"),
 		"TOTPSecret": totpSec, "TOTPOn": totpOn,
-		"TOTPUri": "otpauth://totp/ForgeBase:" + name + "?secret=" + totpSec + "&issuer=ForgeBase",
+		"TOTPUri": "otpauth://totp/ForgeBase:" + url.PathEscape(totpLabel) + "?secret=" + totpSec + "&issuer=ForgeBase",
 	})
 	a.renderShell(w, r, shellData{Title: "Account", Nav: "account",
 		Crumbs: []crumb{{Label: "Account"}}}, content)

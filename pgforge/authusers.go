@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -69,8 +70,22 @@ func (a *app) issueTokens(db *sql.DB, secret, sub, email, familyID string) (stri
 		return "", "", err
 	}
 	userMeta, appMeta := "{}", "{}"
-	db.QueryRow(`SELECT raw_user_meta_data::text, raw_app_meta_data::text FROM auth.users WHERE id=$1`, sub).Scan(&userMeta, &appMeta)
-	return signUserJWT([]byte(secret), sub, email, userMeta, appMeta), refresh, nil
+	isAnon := false
+	db.QueryRow(`SELECT raw_user_meta_data::text, raw_app_meta_data::text, coalesce(is_anonymous,false)
+		FROM auth.users WHERE id=$1`, sub).Scan(&userMeta, &appMeta, &isAnon)
+	tok := signUserJWT([]byte(secret), sub, email, userMeta, appMeta)
+	if isAnon {
+		// re-sign with the is_anonymous claim folded into app_metadata so
+		// policies can gate on (auth.jwt()->'app_metadata'->>'is_anonymous')
+		am := strings.TrimSuffix(strings.TrimSpace(appMeta), "}")
+		if am == "{" {
+			am += `"is_anonymous":true}`
+		} else {
+			am += `,"is_anonymous":true}`
+		}
+		tok = signUserJWT([]byte(secret), sub, email, userMeta, am)
+	}
+	return tok, refresh, nil
 }
 
 // handleRefresh validates a refresh token, ROTATES it (revoke the used one, mint
@@ -90,7 +105,7 @@ func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request, db *sql.DB, 
 	th := hex.EncodeToString(sum[:])
 	var id, email, familyID string
 	var revoked, expired bool
-	err := db.QueryRow(`SELECT rt.user_id, u.email, rt.family_id, rt.revoked, rt.expires_at <= now()
+	err := db.QueryRow(`SELECT rt.user_id, coalesce(u.email,''), rt.family_id, rt.revoked, rt.expires_at <= now()
 		FROM auth.refresh_tokens rt JOIN auth.users u ON u.id = rt.user_id
 		WHERE rt.token_hash=$1`, th).Scan(&id, &email, &familyID, &revoked, &expired)
 	if err != nil {
@@ -199,6 +214,8 @@ func (a *app) ensureAuth(slug string) (string, error) {
 		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS raw_app_meta_data jsonb NOT NULL DEFAULT '{}'`,
 		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS banned_until timestamptz`,
 		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email_confirmed_at timestamptz`,
+		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS is_anonymous boolean NOT NULL DEFAULT false`,
+		`ALTER TABLE auth.users ALTER COLUMN email DROP NOT NULL`,
 		`DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN NOINHERIT; END IF; END $$`,
 		`GRANT USAGE ON SCHEMA public TO authenticated`,
 		`GRANT SELECT ON ALL TABLES IN SCHEMA public TO authenticated`,
@@ -262,6 +279,34 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		}
 		json.NewDecoder(r.Body).Decode(&body)
 		body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+		if body.Email == "" && body.Password == "" {
+			// Anonymous sign-in: a real user row without credentials; later
+			// upgradeable to permanent via PUT /user with email+password.
+			if !a.authAnonEnabled(slug) {
+				writeJSON(w, http.StatusForbidden, map[string]string{"message": "anonymous sign-ins are disabled for this project"})
+				return
+			}
+			meta := "{}"
+			if len(body.Data) > 0 && json.Valid(body.Data) {
+				meta = string(body.Data)
+			}
+			var id string
+			if err := db.QueryRow(`INSERT INTO auth.users(email, encrypted_password, raw_user_meta_data, is_anonymous, email_confirmed_at)
+					VALUES (NULL, '', $1::jsonb, true, now()) RETURNING id`, meta).Scan(&id); err != nil {
+				writeJSON(w, 500, map[string]string{"message": err.Error()})
+				return
+			}
+			acc, ref, terr := a.issueTokens(db, secret, id, "", "")
+			if terr != nil {
+				writeJSON(w, 500, map[string]string{"message": terr.Error()})
+				return
+			}
+			a.auditRaw("anonymous:"+id, clientIP(r), "user-signup-anon", slug)
+			writeJSON(w, 200, map[string]any{"access_token": acc, "refresh_token": ref,
+				"token_type": "bearer", "expires_in": accessTokenTTL,
+				"user": map[string]any{"id": id, "email": nil, "is_anonymous": true}})
+			return
+		}
 		if !strings.Contains(body.Email, "@") || len(body.Password) < 6 {
 			writeJSON(w, 400, map[string]string{"message": "valid email and password (6+) required"})
 			return
@@ -381,9 +426,47 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		}
 		sub, _ := claims["sub"].(string)
 		var body struct {
-			Data json.RawMessage `json:"data"`
+			Data     json.RawMessage `json:"data"`
+			Email    string          `json:"email"`
+			Password string          `json:"password"`
 		}
 		json.NewDecoder(r.Body).Decode(&body)
+		// Upgrade an anonymous account to permanent: email + password arrive
+		// on the authenticated (anonymous) session.
+		if body.Email != "" || body.Password != "" {
+			var isAnon bool
+			db.QueryRow(`SELECT coalesce(is_anonymous,false) FROM auth.users WHERE id=$1`, sub).Scan(&isAnon)
+			if !isAnon {
+				writeJSON(w, 400, map[string]string{"message": "email/password changes are only supported when upgrading an anonymous account"})
+				return
+			}
+			body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+			if !strings.Contains(body.Email, "@") || len(body.Password) < 6 {
+				writeJSON(w, 400, map[string]string{"message": "valid email and password (6+) required to upgrade"})
+				return
+			}
+			hash, herr := hashPassword(body.Password)
+			if herr != nil {
+				writeJSON(w, 400, map[string]string{"message": "password too long (max 72 bytes)"})
+				return
+			}
+			confirmed := "now()"
+			if a.authConfirmEmail(slug) {
+				confirmed = "NULL"
+			}
+			if _, err := db.Exec(`UPDATE auth.users SET email=$2, encrypted_password=$3,
+					is_anonymous=false, email_confirmed_at=`+confirmed+` WHERE id=$1`,
+				sub, body.Email, hash); err != nil {
+				writeJSON(w, 400, map[string]string{"message": "that email is already registered"})
+				return
+			}
+			if a.authConfirmEmail(slug) {
+				a.sendConfirmationEmail(slug, body.Email)
+			}
+			a.auditRaw(body.Email, clientIP(r), "user-anon-upgrade", slug)
+			writeJSON(w, 200, map[string]any{"id": sub, "email": body.Email, "is_anonymous": false})
+			return
+		}
 		if len(body.Data) == 0 || !json.Valid(body.Data) {
 			writeJSON(w, 400, map[string]string{"message": "a JSON object in \"data\" is required"})
 			return
@@ -678,6 +761,21 @@ func (a *app) adminUserJSON(w http.ResponseWriter, db *sql.DB, id string) {
 		"banned_until": nullTimeStr(banned), "created_at": nullTimeStr(created), "last_sign_in_at": nullTimeStr(last)})
 }
 
+// authAnonEnabled reports whether this project allows anonymous sign-ins.
+func (a *app) authAnonEnabled(slug string) bool {
+	var v bool
+	a.db.QueryRow(`SELECT coalesce(anon_signins,false) FROM auth_config WHERE slug=$1`, slug).Scan(&v)
+	return v
+}
+
+func (a *app) setAuthAnon(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	on := r.FormValue("anon") == "on"
+	a.db.Exec(`UPDATE auth_config SET anon_signins=$2 WHERE slug=$1`, slug, on)
+	a.audit(r, "auth-anon", fmt.Sprintf("%s=%t", slug, on))
+	redirectMsg(w, r, "/p/"+slug+"/auth", "Anonymous sign-ins updated.")
+}
+
 func (a *app) authConfig(slug string) (string, bool) {
 	var enabled bool
 	a.db.QueryRow(`SELECT enabled FROM auth_config WHERE slug=$1`, slug).Scan(&enabled)
@@ -735,7 +833,7 @@ func (a *app) authPage(w http.ResponseWriter, r *http.Request) {
 		"Callback":  "https://" + slug + "." + a.cfg.domain + "/auth/v1/callback",
 		"Providers": providers,
 		"SMTPHost":  smtpHost, "SMTPPort": smtpPort, "SMTPUser": smtpUser, "SMTPFrom": smtpFrom,
-		"ConfirmEmail": confirmEmail,
+		"ConfirmEmail": confirmEmail, "AnonOn": a.authAnonEnabled(slug),
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Auth", Nav: "authn", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Auth"}}}, content)

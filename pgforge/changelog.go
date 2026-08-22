@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.30"
+const appVersion = "1.3.31"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,18 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.31", Date: "2026-08-23",
+		Summary: "Anonymous sign-ins.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Anonymous sign-ins (opt-in toggle on the Auth page): clients call signup with no credentials and get a real, RLS-scoped user - then upgrade it to a permanent account later by setting an email and password on the same session. Anonymous sessions carry is_anonymous in their token metadata so policies can treat them differently.",
+			}},
+			{"Fixed", []string{
+				"The two-factor QR/URI now labels the account with your email in authenticator apps instead of your display name.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.30", Date: "2026-08-23",
 		Summary: "WAL storms contained for good, QR enrollment, private snippets.",

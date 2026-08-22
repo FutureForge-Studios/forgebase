@@ -13,6 +13,15 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.31] - 2026-08-23
+
+### Added
+- Anonymous sign-ins (opt-in): credential-less users with upgrade-to-permanent
+  via PUT /user; is_anonymous claim in token metadata.
+
+### Fixed
+- 2FA authenticator label uses the account email.
+
 ## [1.3.30] - 2026-08-23
 
 ### Fixed
@@ -917,7 +926,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.30...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.31...HEAD
+[1.3.31]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.30...v1.3.31
 [1.3.30]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.29...v1.3.30
 [1.3.29]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.28...v1.3.29
 [1.3.28]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.27...v1.3.28
