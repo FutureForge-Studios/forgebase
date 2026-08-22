@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.2.16"
+const appVersion = "1.2.17"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,17 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.2.17", Date: "2026-08-22",
+		Summary: "Every internal log is now bounded, and deleted projects clean up fully.",
+		Sections: []changeSection{
+			{"Changed", []string{
+				"The audit log and edge-function logs are now bounded (90 days / 20,000 entries and 30 days / 200 per project respectively). Previously both grew forever - a crash-looping function could write unlimited log rows.",
+				"Deleting a project now also moves its backup dumps to a trash area (kept 7 days, then purged) and a one-time sweep does the same for dumps of projects deleted in the past. Backups of deleted projects previously lingered invisibly.",
+				"Edge-function dependency downloads now cache in a managed location that is pruned automatically past 500MB.",
+			}},
+		},
+	},
 	{
 		Version: "1.2.16", Date: "2026-08-22",
 		Summary: "The server tunes itself to its hardware, and every log is bounded.",

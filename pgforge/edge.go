@@ -231,6 +231,7 @@ func (a *app) serveFunction(w http.ResponseWriter, r *http.Request, slug string)
 	// --allow-env is restricted to exactly those names.
 	anon, service, _, _ := a.apiKeys(slug)
 	env := []string{
+		"DENO_DIR=/opt/pgforge/deno-cache", // bounded location (backup.sh prunes >500MB)
 		"FORGEBASE_PROJECT=" + slug,
 		"FORGEBASE_URL=https://" + slug + "." + a.cfg.domain,
 		"FORGEBASE_ANON_KEY=" + anon,

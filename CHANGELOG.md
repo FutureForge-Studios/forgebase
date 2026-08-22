@@ -13,6 +13,19 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.17] - 2026-08-22
+
+### Changed
+- The audit log and edge-function logs are now bounded (90 days / 20,000
+  entries and 30 days / 200 per project respectively). Previously both grew
+  forever - a crash-looping function could write unlimited log rows.
+- Deleting a project now also moves its backup dumps to a trash area (kept 7
+  days, then purged) and a one-time sweep does the same for dumps of projects
+  deleted in the past. Backups of deleted projects previously lingered
+  invisibly.
+- Edge-function dependency downloads now cache in a managed location that is
+  pruned automatically past 500MB.
+
 ## [1.2.16] - 2026-08-22
 
 ### Changed
@@ -537,7 +550,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.16...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.17...HEAD
+[1.2.17]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.16...v1.2.17
 [1.2.16]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.15...v1.2.16
 [1.2.15]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.14...v1.2.15
 [1.2.14]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.13...v1.2.14

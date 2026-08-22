@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -40,6 +41,14 @@ func (a *app) reconcileInfra() {
 		}
 	}
 
+	// One-time sweep: dumps whose database no longer exists move to .trash
+	// (7-day grace). Runs once per box (marker file), because after this,
+	// dropProjectFully handles it at delete time.
+	if _, err := os.Stat("/opt/pgforge/orphan_sweep_done"); err != nil {
+		a.sweepOrphanDumps()
+		os.WriteFile("/opt/pgforge/orphan_sweep_done", []byte("done\n"), 0o644)
+	}
+
 	// WAL safety settings. ALTER SYSTEM (not compose -c flags, which would
 	// override it) so this works on every existing box with zero downtime -
 	// all three are reloadable. Prevents a repeat of the 2026-08-22 disk-full
@@ -54,6 +63,43 @@ func (a *app) reconcileInfra() {
 		}
 	}
 	a.db.Exec(`SELECT pg_reload_conf()`)
+}
+
+// sweepOrphanDumps moves dump files whose database no longer exists into
+// dumps/.trash. A deleted project used to leave its dumps behind invisibly
+// until the age ceiling; the grace-period trash makes the cleanup observable
+// and reversible for a week.
+func (a *app) sweepOrphanDumps() {
+	const dumps = "/opt/pgforge-backups/dumps"
+	ents, err := os.ReadDir(dumps)
+	if err != nil {
+		return
+	}
+	live := map[string]bool{}
+	if rows, err := a.db.Query(`SELECT datname FROM pg_database WHERE NOT datistemplate`); err == nil {
+		for rows.Next() {
+			var d string
+			rows.Scan(&d)
+			live[d] = true
+		}
+		rows.Close()
+	}
+	if len(live) == 0 {
+		return // never sweep on a failed query
+	}
+	re := regexp.MustCompile(`^(.+)-\d{4}-\d{2}-\d{2}(-\d{6})?\.dump$`)
+	moved := map[string]bool{}
+	for _, e := range ents {
+		m := re.FindStringSubmatch(e.Name())
+		if e.IsDir() || m == nil || live[m[1]] {
+			continue
+		}
+		os.MkdirAll(dumps+"/.trash", 0o755)
+		if os.Rename(dumps+"/"+e.Name(), dumps+"/.trash/"+e.Name()) == nil && !moved[m[1]] {
+			moved[m[1]] = true
+			a.auditRaw("system", "-", "orphan-dumps-trashed", m[1])
+		}
+	}
 }
 
 func tail(s string, n int) string {

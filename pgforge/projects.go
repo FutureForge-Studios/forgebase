@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/lib/pq"
@@ -208,7 +209,28 @@ func (a *app) dropProjectFully(slug string) error {
 	}
 	os.RemoveAll(filepath.Join(storageRoot, slug))
 	os.RemoveAll(filepath.Join(funcRoot, slug))
+	trashProjectDumps(slug)
 	return nil
+}
+
+// trashProjectDumps moves a deleted project's dump files into dumps/.trash
+// (purged after 7 days by backup.sh) instead of leaving them to age out
+// invisibly, and drops its skip-unchanged signature. The date-anchored pattern
+// is what keeps "shop" from eating sibling "shop-eu"'s dumps.
+func trashProjectDumps(slug string) {
+	const dumps = "/opt/pgforge-backups/dumps"
+	re := regexp.MustCompile(`^` + regexp.QuoteMeta(slug) + `-\d{4}-\d{2}-\d{2}(-\d{6})?\.dump$`)
+	ents, err := os.ReadDir(dumps)
+	if err != nil {
+		return
+	}
+	os.MkdirAll(filepath.Join(dumps, ".trash"), 0o755)
+	for _, e := range ents {
+		if !e.IsDir() && re.MatchString(e.Name()) {
+			os.Rename(filepath.Join(dumps, e.Name()), filepath.Join(dumps, ".trash", e.Name()))
+		}
+	}
+	os.Remove(filepath.Join(dumps, ".state", slug+".sig"))
 }
 
 func (a *app) deleteProject(w http.ResponseWriter, r *http.Request) {
