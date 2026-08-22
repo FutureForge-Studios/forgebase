@@ -167,6 +167,75 @@ func qrel(schema, name string) string {
 	return pq.QuoteIdentifier(schema) + "." + pq.QuoteIdentifier(name)
 }
 
+// roleFor returns the project's database role name (defaults to the slug).
+func (a *app) roleFor(slug string) string {
+	role := ""
+	a.db.QueryRow(`SELECT coalesce(role_name,'') FROM projects WHERE slug=$1`, slug).Scan(&role)
+	if role == "" {
+		role = slug
+	}
+	return role
+}
+
+// chownRel hands a panel-created object to the project role. The panel
+// connects as the cluster superuser, so without this a table created here
+// would be owned by postgres - outside the reach of the owner's own
+// migrations, GRANTs and tooling. Best-effort: a failure only means the
+// object stays superuser-owned, which is what happened before this existed.
+func (a *app) chownRel(db *sql.DB, slug, kind, schema, name string) {
+	db.Exec(fmt.Sprintf(`ALTER %s %s OWNER TO %s`, kind, qrel(schema, name),
+		pq.QuoteIdentifier(a.roleFor(slug))))
+}
+
+// schemas the panel must never create over or drop
+var reservedSchemas = map[string]bool{
+	"public": true, "auth": true, "storage": true, "graphql": true,
+	"information_schema": true, "pgforge": true,
+}
+
+func (a *app) schemaCreate(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	name := sanitizeIdent(r.FormValue("name"))
+	db, err := a.dbFor(slug)
+	if err != nil {
+		redirectErr(w, r, "/p/"+slug+"/tables", err.Error())
+		return
+	}
+	if name == "" || strings.HasPrefix(name, "pg_") || reservedSchemas[name] {
+		redirectErr(w, r, "/p/"+slug+"/tables", "Pick a different schema name.")
+		return
+	}
+	if _, err := db.Exec(fmt.Sprintf(`CREATE SCHEMA %s AUTHORIZATION %s`,
+		pq.QuoteIdentifier(name), pq.QuoteIdentifier(a.roleFor(slug)))); err != nil {
+		redirectErr(w, r, "/p/"+slug+"/tables", "Create schema failed: "+err.Error())
+		return
+	}
+	a.audit(r, "schema-create", slug+"/"+name)
+	redirectMsg(w, r, "/p/"+slug+"/tables?sc="+name, "Schema "+name+" created.")
+}
+
+func (a *app) schemaDrop(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	name := r.FormValue("name")
+	db, err := a.dbFor(slug)
+	if err != nil {
+		redirectErr(w, r, "/p/"+slug+"/tables", err.Error())
+		return
+	}
+	if name == "public" || reservedSchemas[name] || a.edSchema(db, name) != name {
+		redirectErr(w, r, "/p/"+slug+"/tables", "That schema cannot be dropped here.")
+		return
+	}
+	// RESTRICT: only an EMPTY schema drops - anything inside makes this fail
+	// loudly instead of cascading data away.
+	if _, err := db.Exec(fmt.Sprintf(`DROP SCHEMA %s RESTRICT`, pq.QuoteIdentifier(name))); err != nil {
+		redirectErr(w, r, "/p/"+slug+"/tables?sc="+name, "Drop failed (schema must be empty): "+err.Error())
+		return
+	}
+	a.audit(r, "schema-drop", slug+"/"+name)
+	redirectMsg(w, r, "/p/"+slug+"/tables", "Schema "+name+" dropped.")
+}
+
 // listSchemas returns the database's user schemas, public first.
 func (a *app) listSchemas(db *sql.DB) []string {
 	rows, err := db.Query(`SELECT nspname FROM pg_namespace
@@ -527,6 +596,7 @@ func (a *app) duplicateTable(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/tables?t="+src+"&sc="+sc, "Duplicate failed: "+err.Error())
 		return
 	}
+	a.chownRel(db, slug, "TABLE", sc, dst)
 	if r.FormValue("with_data") == "on" {
 		if _, err := db.Exec(fmt.Sprintf(`INSERT INTO %s SELECT * FROM %s`,
 			qrel(sc, dst), qrel(sc, src))); err != nil {
@@ -642,6 +712,18 @@ func (a *app) tablesPage(w http.ResponseWriter, r *http.Request) {
 			data["ColMetaJS"] = template.JS(b)
 		}
 		data["FKs"] = fkm
+		// user enum types offered by the column pickers (current schema +
+		// public, shown schema-qualified when not local)
+		var enumTypes []string
+		for _, e := range a.listEnums(db, sc) {
+			enumTypes = append(enumTypes, e.Name)
+		}
+		if sc != "public" {
+			for _, e := range a.listEnums(db, "public") {
+				enumTypes = append(enumTypes, "public."+e.Name)
+			}
+		}
+		data["EnumTypes"] = enumTypes
 		colSet := map[string]bool{}
 		for _, c := range cols {
 			colSet[c.Name] = true
@@ -1084,11 +1166,21 @@ func (a *app) columnAlter(w http.ResponseWriter, r *http.Request) {
 	qt, qc := qrel(sc, table), pq.QuoteIdentifier(col)
 	var stmts, applied []string
 	if typ := strings.ToLower(strings.TrimSpace(r.FormValue("type"))); typ != "" {
-		if !alterTypeRe.MatchString(typ) {
-			redirectErr(w, r, back, "Unsupported target type.")
-			return
+		if alterTypeRe.MatchString(typ) {
+			stmts = append(stmts, fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN %s TYPE %s USING %s::%s`, qt, qc, typ, qc, typ))
+		} else {
+			es, en := sc, typ
+			if i := strings.IndexByte(typ, '.'); i > 0 {
+				es, en = typ[:i], typ[i+1:]
+			}
+			if !a.enumExists(db, es, en) {
+				redirectErr(w, r, back, "Unsupported target type.")
+				return
+			}
+			// enums cast reliably via text
+			et := qrel(es, en)
+			stmts = append(stmts, fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN %s TYPE %s USING %s::text::%s`, qt, qc, et, qc, et))
 		}
-		stmts = append(stmts, fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN %s TYPE %s USING %s::%s`, qt, qc, typ, qc, typ))
 		applied = append(applied, "type")
 	}
 	if d, od := strings.TrimSpace(r.FormValue("default")), strings.TrimSpace(r.FormValue("__old_default")); d != od {
@@ -1705,6 +1797,7 @@ func (a *app) importCSV(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/tables", "Import failed on commit: "+err.Error())
 		return
 	}
+	a.chownRel(db, slug, "TABLE", sc, table)
 	a.reloadPostgRESTSchema(slug) // the new table is queryable over REST immediately
 	a.audit(r, "import-csv", fmt.Sprintf("%s.%s (%d rows)", sc, table, len(records)))
 	redirectMsg(w, r, "/p/"+slug+"/tables?t="+table+"&sc="+sc, fmt.Sprintf("Imported %d rows into %s.", len(records), table))
@@ -1847,6 +1940,7 @@ func (a *app) createTable(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/tables?sc="+sc, "Create failed: "+err.Error())
 		return
 	}
+	a.chownRel(db, slug, "TABLE", sc, name)
 	a.reloadPostgRESTSchema(slug)
 	a.audit(r, "table-create", slug+"/"+sc+"."+name)
 	redirectMsg(w, r, "/p/"+slug+"/tables?t="+name+"&sc="+sc, "Table "+name+" created. Add columns below.")
@@ -1895,12 +1989,20 @@ func (a *app) addColumn(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, back, "Enter a column name.")
 		return
 	}
+	typSQL := typ
 	if !colTypes[typ] {
-		redirectErr(w, r, back, "Unsupported column type.")
-		return
+		es, en := sc, typ
+		if i := strings.IndexByte(typ, '.'); i > 0 {
+			es, en = typ[:i], typ[i+1:]
+		}
+		if !a.enumExists(db, es, en) {
+			redirectErr(w, r, back, "Unsupported column type.")
+			return
+		}
+		typSQL = qrel(es, en)
 	}
 	stmt := fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`,
-		qrel(sc, table), pq.QuoteIdentifier(name), typ)
+		qrel(sc, table), pq.QuoteIdentifier(name), typSQL)
 	if d := strings.TrimSpace(r.FormValue("default")); d != "" {
 		stmt += " DEFAULT " + pq.QuoteLiteral(d) // Postgres casts the literal to the column type
 	}

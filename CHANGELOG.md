@@ -13,6 +13,18 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.9] - 2026-08-22
+
+### Added
+- Auto-generated schema diagram (tables, primary keys, FK arrows; click
+  through to the editor); one per schema.
+- Create and drop (empty) schemas from the Table Editor.
+- Enum types offered in the add-column and change-type pickers.
+
+### Fixed
+- Panel-created tables, schemas and enum types are owned by the project role,
+  not the internal superuser.
+
 ## [1.3.8] - 2026-08-22
 
 ### Added
@@ -756,7 +768,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.8...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.9...HEAD
+[1.3.9]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.8...v1.3.9
 [1.3.8]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.7...v1.3.8
 [1.3.7]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.6...v1.3.7
 [1.3.6]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.5...v1.3.6

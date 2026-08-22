@@ -174,10 +174,26 @@ const tablesBody = `
     <select onchange="location.href='/p/{{.Slug}}/tables?sc='+encodeURIComponent(this.value)" style="width:auto;padding:.4rem .6rem">
       {{range .Schemas}}<option value="{{.}}" {{if eq . $.Schema}}selected{{end}}>{{.}}</option>{{end}}
     </select></label>
+  <button class="copy" type="button" title="New schema" onclick="document.getElementById('nsc').style.display='flex'">{{icon "plus"}}</button>
+  <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/erd?sc={{.Schema}}" title="Schema diagram">{{icon "branch"}} Diagram</a>
   <div class="spacer"></div>
   <button class="btn btn-ghost btn-sm" onclick="document.getElementById('nt').style.display='flex'">{{icon "plus"}} New table</button>
   <button class="btn btn-ghost btn-sm" onclick="document.getElementById('imp').style.display='flex'">{{icon "upload"}} Import CSV</button>
   <input type="text" id="tsearch" placeholder="Search tables…" onkeyup="filterTables()" style="width:200px">
+</div>
+<div id="nsc" class="card" style="display:none;gap:.6rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
+  <form method="post" action="/p/{{.Slug}}/schema-create" style="display:flex;gap:.6rem;align-items:center">
+    <span class="label">New schema</span>
+    <input type="text" name="name" placeholder="schema_name" required style="width:200px">
+    <span class="muted" style="font-size:11.5px">owned by your project role</span>
+    <button class="btn btn-primary btn-sm" type="submit">Create</button>
+  </form>
+  {{if ne .Schema "public"}}
+  <form method="post" action="/p/{{.Slug}}/schema-drop" onsubmit="return confirm('Drop schema {{.Schema}}? Only works if it is empty.')" style="display:flex;margin-left:auto">
+    <input type="hidden" name="name" value="{{.Schema}}">
+    <button class="btn btn-ghost btn-sm" style="color:hsl(var(--destructive))">Drop {{.Schema}} (if empty)</button>
+  </form>{{end}}
+  <button class="btn btn-ghost btn-sm" type="button" onclick="document.getElementById('nsc').style.display='none'">Cancel</button>
 </div>
 <form id="nt" class="card" method="post" action="/p/{{.Slug}}/table-create" style="display:none;gap:.6rem;align-items:center;margin-bottom:1rem">
   <input type="hidden" name="__schema" value="{{.Schema}}">
@@ -330,7 +346,7 @@ const tablesBody = `
             <input type="hidden" name="table" value="{{$.Sel}}"><input type="hidden" name="__schema" value="{{$.Schema}}"><input type="hidden" name="column" value="{{.Name}}">
             <input type="hidden" name="__old_default" value="{{.Default}}"><input type="hidden" name="__old_notnull" value="{{if eq .Nullable "NO"}}1{{else}}0{{end}}"><input type="hidden" name="__old_comment" value="{{.Comment}}">
             <label class="fld" style="margin:0"><span class="lt">Name</span><input type="text" name="name" value="{{.Name}}" style="width:140px"></label>
-            <label class="fld" style="margin:0"><span class="lt">Type</span><select name="type" style="width:auto"><option value="">keep: {{.Type}}</option><option>text</option><option>varchar(255)</option><option>integer</option><option>bigint</option><option>smallint</option><option>boolean</option><option>numeric</option><option>numeric(12,2)</option><option>real</option><option>double precision</option><option>timestamptz</option><option>timestamp</option><option>date</option><option>time</option><option>uuid</option><option>jsonb</option><option>json</option><option>inet</option><option>bytea</option></select></label>
+            <label class="fld" style="margin:0"><span class="lt">Type</span><select name="type" style="width:auto"><option value="">keep: {{.Type}}</option><option>text</option><option>varchar(255)</option><option>integer</option><option>bigint</option><option>smallint</option><option>boolean</option><option>numeric</option><option>numeric(12,2)</option><option>real</option><option>double precision</option><option>timestamptz</option><option>timestamp</option><option>date</option><option>time</option><option>uuid</option><option>jsonb</option><option>json</option><option>inet</option><option>bytea</option>{{if $.EnumTypes}}<optgroup label="enums">{{range $.EnumTypes}}<option>{{.}}</option>{{end}}</optgroup>{{end}}</select></label>
             <label class="fld" style="margin:0"><span class="lt">Default</span><input type="text" name="default" value="{{.Default}}" placeholder="empty = none" style="width:130px"></label>
             <label class="muted" style="font-size:12px;display:flex;align-items:center;gap:.3rem"><input type="checkbox" name="notnull" {{if eq .Nullable "NO"}}checked{{end}}> not null</label>
             <label class="fld" style="margin:0"><span class="lt">Comment</span><input type="text" name="comment" value="{{.Comment}}" style="width:170px"></label>
@@ -342,7 +358,7 @@ const tablesBody = `
       <form method="post" action="/p/{{.Slug}}/column-add" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.8rem;padding-top:.8rem;border-top:1px solid hsl(var(--border))">
         <input type="hidden" name="table" value="{{.Sel}}"><input type="hidden" name="__schema" value="{{.Schema}}">
         <label class="fld" style="margin:0"><span class="lt">New column</span><input type="text" name="name" placeholder="column_name" required style="width:150px"></label>
-        <label class="fld" style="margin:0"><span class="lt">Type</span><select name="type"><option>text</option><option>integer</option><option>bigint</option><option>boolean</option><option>numeric</option><option>timestamptz</option><option>date</option><option>uuid</option><option>jsonb</option><option>bytea</option></select></label>
+        <label class="fld" style="margin:0"><span class="lt">Type</span><select name="type"><option>text</option><option>integer</option><option>bigint</option><option>boolean</option><option>numeric</option><option>timestamptz</option><option>date</option><option>uuid</option><option>jsonb</option><option>bytea</option>{{if .EnumTypes}}<optgroup label="enums">{{range .EnumTypes}}<option>{{.}}</option>{{end}}</optgroup>{{end}}</select></label>
         <label class="fld" style="margin:0"><span class="lt">Default</span><input type="text" name="default" placeholder="optional" style="width:110px"></label>
         <label class="muted" style="font-size:12px;display:flex;align-items:center;gap:.3rem"><input type="checkbox" name="notnull"> not null</label>
         <button class="btn btn-primary btn-sm" type="submit">Add column</button>
@@ -1798,6 +1814,44 @@ const syncBody = `
 {{end}}`
 
 // ----- shared JS snippets -----
+
+const erdBody = `
+<div class="pagehead"><h1>Schema Diagram</h1><p>Tables and their foreign-key relationships in <b>{{.Schema}}</b>. Click a table to open it in the editor.</p></div>
+<div style="display:flex;gap:.7rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
+  <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/tables?sc={{.Schema}}">{{icon "back"}} Table Editor</a>
+  <div class="spacer"></div>
+  <label class="label" style="display:flex;align-items:center;gap:.4rem">Schema
+    <select onchange="location.href='/p/{{.Slug}}/erd?sc='+encodeURIComponent(this.value)" style="width:auto;padding:.4rem .6rem">
+      {{range .Schemas}}<option value="{{.}}" {{if eq . $.Schema}}selected{{end}}>{{.}}</option>{{end}}
+    </select></label>
+</div>
+{{if .Empty}}
+<div class="card" style="text-align:center;padding:2.5rem"><p class="muted" style="margin:0">No tables in <b>{{.Schema}}</b> yet.</p></div>
+{{else}}
+<div class="card" style="padding:.4rem;overflow:auto;max-height:78vh">
+<svg width="{{.Width}}" height="{{.Height}}" xmlns="http://www.w3.org/2000/svg" style="display:block;font-family:var(--mono)">
+  <defs><marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="hsl(var(--muted-fg))"/></marker></defs>
+  {{range .Edges}}<path d="{{.Path}}" fill="none" stroke="hsl(var(--muted-fg))" stroke-width="1.3" opacity=".55" marker-end="url(#arr)"><title>{{.Title}}</title></path>{{end}}
+  {{range .Boxes}}
+  <g>
+    <rect x="{{.X}}" y="{{.Y}}" width="{{.W}}" height="{{.H}}" rx="9" fill="hsl(var(--card))" stroke="hsl(var(--border))" stroke-width="1.2"/>
+    <a href="/p/{{$.Slug}}/tables?t={{.Name}}&sc={{$.Schema}}">
+      <rect x="{{.X}}" y="{{.Y}}" width="{{.W}}" height="{{.HeadH}}" rx="9" fill="hsl(var(--primary) / .09)"/>
+      <text x="{{add .X 12}}" y="{{add .Y 20}}" font-size="12.5" font-weight="700" fill="hsl(var(--fg))">{{.Name}}</text>
+    </a>
+    {{$b := .}}
+    {{range $i, $row := .Rows}}
+    <text x="{{add $b.X 12}}" y="{{rowy $b $i}}" font-size="11" fill="hsl(var(--fg))" {{if .PK}}font-weight="700"{{end}}>{{.Name}}{{if .PK}} *{{end}}</text>
+    <text x="{{add $b.X 218}}" y="{{rowy $b $i}}" font-size="10" text-anchor="end" fill="hsl(var(--muted-fg))">{{.Type}}</text>
+    {{end}}
+    {{if .More}}<text x="{{add .X 12}}" y="{{morey .}}" font-size="10" fill="hsl(var(--muted-fg))">+{{.More}} more columns</text>{{end}}
+  </g>
+  {{end}}
+</svg>
+</div>
+<p class="muted" style="font-size:11.5px;margin-top:.5rem">* = primary key column. Arrows point from the referencing column to the referenced table.</p>
+{{end}}
+`
 
 const objectsBody = `
 <div class="pagehead"><h1>Database Objects</h1><p>Functions, triggers, enum types and indexes - managed visually.</p></div>

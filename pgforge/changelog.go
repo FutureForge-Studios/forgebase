@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.8"
+const appVersion = "1.3.9"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,20 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.9", Date: "2026-08-22",
+		Summary: "See your schema as a diagram.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Schema diagram: an auto-generated map of your tables and their foreign-key relationships - primary keys marked, arrows showing what references what, click any table to jump into the editor. One per schema, from the Diagram button in the Table Editor.",
+				"Create (and drop empty) schemas right from the Table Editor's schema switcher.",
+				"Your enum types now appear in the column type pickers - both when adding a column and when changing an existing column's type (values are cast through text).",
+			}},
+			{"Fixed", []string{
+				"Tables, schemas and enum types created through the panel are now owned by your project role instead of the internal superuser, so your own migrations and tools can manage them.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.8", Date: "2026-08-22",
 		Summary: "A visual home for functions, triggers, enums and indexes.",

@@ -469,7 +469,13 @@ type shellData struct {
 	Content  template.HTML
 }
 
-var funcs = template.FuncMap{"icon": icon}
+var funcs = template.FuncMap{
+	"icon": icon,
+	"add":  func(a, b int) int { return a + b },
+	// ERD text baselines: row i sits erdRowH per row below the header
+	"rowy":  func(b *erdBox, i int) int { return b.Y + b.HeadH + i*erdRowH + 14 },
+	"morey": func(b *erdBox) int { return b.Y + b.HeadH + len(b.Rows)*erdRowH + 14 },
+}
 
 var shellTmpl = template.Must(template.New("shell").Funcs(funcs).Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">

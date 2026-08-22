@@ -436,6 +436,7 @@ func (a *app) enumCreate(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, back, "Create failed: "+err.Error())
 		return
 	}
+	a.chownRel(db, slug, "TYPE", sc, name)
 	a.audit(r, "enum-create", slug+"/"+sc+"."+name)
 	redirectMsg(w, r, back, "Enum "+name+" created.")
 }
