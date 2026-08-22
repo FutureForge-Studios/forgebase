@@ -302,6 +302,40 @@ func (a *app) setRetention(w http.ResponseWriter, r *http.Request) {
 	redirectMsg(w, r, "/p/"+slug+"/backups", fmt.Sprintf("Retention set to %d days (applies platform-wide).", n))
 }
 
+// setKeepAwake toggles the per-project auto-sleep exemption (for production
+// apps that must never be marked sleeping, e.g. ones on direct connections
+// only where even the <=5-min status lag matters).
+func (a *app) setKeepAwake(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	on := r.FormValue("keep_awake") == "on"
+	a.db.Exec(`UPDATE projects SET keep_awake=$2 WHERE slug=$1`, slug, on)
+	a.audit(r, "keep-awake", fmt.Sprintf("%s=%v", slug, on))
+	msg := slug + " will now auto-sleep when idle."
+	if on {
+		msg = slug + " is pinned awake - it will never auto-sleep."
+	}
+	redirectMsg(w, r, "/p/"+slug+"/settings", msg)
+}
+
+// setSuspendHours sets the platform-wide idle window before a project sleeps.
+func (a *app) setSuspendHours(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	n := -1
+	fmt.Sscanf(strings.TrimSpace(r.FormValue("hours")), "%d", &n)
+	if n < 0 || n > 8760 {
+		redirectErr(w, r, "/p/"+slug+"/settings", "Sleep window must be 0 (never) to 8760 hours.")
+		return
+	}
+	a.db.Exec(`INSERT INTO settings(key,value) VALUES ('suspend_hours',$1)
+		ON CONFLICT (key) DO UPDATE SET value=$1`, fmt.Sprint(n))
+	a.audit(r, "suspend-hours", fmt.Sprint(n))
+	msg := fmt.Sprintf("Projects now sleep after %d hours idle (applies platform-wide).", n)
+	if n == 0 {
+		msg = "Auto-sleep disabled platform-wide."
+	}
+	redirectMsg(w, r, "/p/"+slug+"/settings", msg)
+}
+
 func (a *app) backupNow(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	if !a.projectExists(slug) {
@@ -419,10 +453,15 @@ func (a *app) settingsPage(w http.ResponseWriter, r *http.Request) {
 		a.db.QueryRow(`SELECT enabled FROM `+table+` WHERE slug=$1`, slug).Scan(&on)
 		return on
 	}
+	var keepAwake bool
+	a.db.QueryRow(`SELECT keep_awake FROM projects WHERE slug=$1`, slug).Scan(&keepAwake)
+	suspendHours := "168"
+	a.db.QueryRow(`SELECT value FROM settings WHERE key='suspend_hours'`).Scan(&suspendHours)
 	content := renderContent(settingsBody, map[string]any{
 		"Slug": slug, "Status": status, "Created": created, "Size": size,
 		"Version": version, "LastActive": lastActive, "Domain": a.cfg.domain,
 		"API": feat("api_config"), "Auth": feat("auth_config"), "Realtime": feat("realtime_config"),
+		"KeepAwake": keepAwake, "SuspendHours": suspendHours,
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Settings", Nav: "settings", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Settings"}}}, content)

@@ -13,6 +13,26 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.10] - 2026-08-22
+
+### Changed
+- Idle projects now go to sleep instead of being suspended. Sleep releases
+  everything that costs resources - the API process, the realtime listener,
+  cached connections - but NEVER blocks logins and never touches data. A
+  sleeping project wakes automatically on the next API call, panel visit, or
+  direct database connection (direct connections are accepted instantly; the
+  project is marked awake within minutes). Manual Pause remains the explicit
+  hard lockout.
+- The idle window is now 7 days (down from 14) and configurable on the project
+  Settings page - sleep after N hours idle, or 0 to never sleep.
+
+### Added
+- "Keep always awake": pin any project (for example a production app) so it is
+  never auto-slept, from its Settings page.
+
+### Fixed
+- The per-request activity tracker costs one database round-trip instead of two.
+
 ## [1.2.9] - 2026-08-22
 
 ### Changed
@@ -399,7 +419,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.9...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.10...HEAD
+[1.2.10]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.9...v1.2.10
 [1.2.9]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.8...v1.2.9
 [1.2.8]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.7...v1.2.8
 [1.2.7]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.6...v1.2.7

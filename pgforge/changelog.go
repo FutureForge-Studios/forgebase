@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.2.9"
+const appVersion = "1.2.10"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,22 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.2.10", Date: "2026-08-22",
+		Summary: "Neon-style sleep: idle projects cost nothing and wake on any request.",
+		Sections: []changeSection{
+			{"Changed", []string{
+				"Idle projects now go to sleep instead of being suspended. Sleep releases everything that costs resources - the API process, the realtime listener, cached connections - but NEVER blocks logins and never touches data. A sleeping project wakes automatically on the next API call, panel visit, or direct database connection (direct connections are accepted instantly; the project is marked awake within minutes). Manual Pause remains the explicit hard lockout.",
+				"The idle window is now 7 days (down from 14) and configurable on the project Settings page - sleep after N hours idle, or 0 to never sleep.",
+			}},
+			{"Added", []string{
+				"\"Keep always awake\": pin any project (for example a production app) so it is never auto-slept, from its Settings page.",
+			}},
+			{"Fixed", []string{
+				"The per-request activity tracker costs one database round-trip instead of two.",
+			}},
+		},
+	},
 	{
 		Version: "1.2.9", Date: "2026-08-22",
 		Summary: "Idle projects now release their realtime resources.",

@@ -50,19 +50,29 @@ type pgrst struct {
 	lastReq atomic.Int64
 }
 
-// touchAndResume marks a project active on any request, and auto-resumes it if
-// it had been suspended for inactivity ("scale to zero" -> start on request).
+// touchAndResume marks a project active on any request, and wakes it if it was
+// sleeping ("scale to zero" -> start on request). One statement on the hot
+// path: the row updates only when waking or when the 2-minute last_active
+// throttle has elapsed, and RETURNING the pre-update status tells us whether
+// this request was the wake-up. Paused projects never auto-resume.
 func (a *app) touchAndResume(slug string) {
-	var status string
-	a.db.QueryRow(`SELECT status FROM projects WHERE slug=$1`, slug).Scan(&status)
-	if status == "suspended" {
-		a.db.Exec(fmt.Sprintf(`ALTER ROLE %s LOGIN`, pq.QuoteIdentifier(slug)))
-		a.db.Exec(`UPDATE projects SET status='active', last_active=now() WHERE slug=$1`, slug)
-		a.auditRaw("system", "-", "auto-resume", slug)
-		return
+	var old string
+	err := a.db.QueryRow(`UPDATE projects p SET
+			status = CASE WHEN o.st = 'suspended' THEN 'active' ELSE p.status END,
+			last_active = now()
+		FROM (SELECT status AS st FROM projects WHERE slug=$1 FOR UPDATE) o
+		WHERE p.slug = $1 AND (o.st = 'suspended' OR p.last_active < now()-interval '2 minutes')
+		RETURNING o.st`, slug).Scan(&old)
+	if err != nil || old != "suspended" {
+		return // fast path: nothing to do, or just a routine activity bump
 	}
-	// throttle writes: only bump last_active every couple of minutes
-	a.db.Exec(`UPDATE projects SET last_active=now() WHERE slug=$1 AND last_active < now()-interval '2 minutes'`, slug)
+	// Waking. Older versions hard-suspended with NOLOGIN - clear it so those
+	// rows come back too (soft-sleep never sets it).
+	a.db.Exec(fmt.Sprintf(`ALTER ROLE %s LOGIN`, pq.QuoteIdentifier(slug)))
+	a.auditRaw("system", "-", "auto-resume", slug)
+	if a.hasWebhooks(slug) {
+		a.rtGetHub(slug) // restart webhook delivery
+	}
 }
 
 // reapPostgREST stops Data API processes with no requests for `idle`, freeing

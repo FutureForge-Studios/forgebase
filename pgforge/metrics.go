@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/lib/pq"
 )
 
 // Background metrics sampler: every few minutes it records per-project and host
@@ -90,21 +88,60 @@ func (a *app) sampleOnce(full bool) {
 	a.reapRealtimeHubs(15 * time.Minute)
 }
 
-// autoSuspend marks projects with no activity for 14 days as suspended (role
-// NOLOGIN), freeing pooler/API resources. Any request auto-resumes them.
+// clientActivitySubquery matches projects that have real client connections
+// right now. The control plane's own connections (meta/editor pools, realtime
+// LISTEN backends, PostgREST) and background workers are excluded - otherwise
+// a project with a webhook hub or a live-sync subscription would count as
+// "active" forever and never sleep.
+const clientActivitySubquery = `SELECT DISTINCT datname FROM pg_stat_activity
+	WHERE datname IS NOT NULL
+	  AND backend_type = 'client backend'
+	  AND application_name NOT IN ('pgforged','pgforge-rest')`
+
+// autoSuspend puts projects with no client activity to sleep, Neon-style:
+// sleep NEVER blocks logins and never touches data - it only releases what
+// actually costs resources (API sidecar, realtime listener, cached pools).
+// Waking is automatic: an HTTP request wakes instantly via touchAndResume, and
+// a direct database connection (never refused) is noticed here within one
+// sampler tick. Manual Pause remains the explicit hard lockout (NOLOGIN).
 func (a *app) autoSuspend() {
-	// Projects with live CLIENT connections are active right now. Filter out the
-	// control plane's own connections (meta/editor pools, realtime LISTEN
-	// backends, PostgREST) plus background workers - otherwise a project with a
-	// webhook hub or a live-sync subscription counts as "active" forever and can
-	// never suspend.
+	// 1) bump activity for projects with live client connections
 	a.db.Exec(`UPDATE projects SET last_active=now()
-		WHERE slug IN (SELECT DISTINCT datname FROM pg_stat_activity
-			WHERE datname IS NOT NULL
-			  AND backend_type = 'client backend'
-			  AND application_name NOT IN ('pgforged','pgforge-rest'))`)
+		WHERE slug IN (` + clientActivitySubquery + `)`)
+
+	// 2) wake sleeping projects that received direct connections
+	if rows, err := a.db.Query(`UPDATE projects SET status='active', last_active=now()
+		WHERE status='suspended' AND slug IN (` + clientActivitySubquery + `)
+		RETURNING slug`); err == nil {
+		var woke []string
+		for rows.Next() {
+			var s string
+			rows.Scan(&s)
+			woke = append(woke, s)
+		}
+		rows.Close()
+		for _, s := range woke {
+			a.auditRaw("system", "-", "auto-resume", s)
+			if a.hasWebhooks(s) {
+				a.rtGetHub(s) // restart webhook delivery
+			}
+		}
+	}
+
+	// 3) put idle projects to sleep (window configurable; 0 = never)
+	hours := 168
+	var v string
+	if a.db.QueryRow(`SELECT value FROM settings WHERE key='suspend_hours'`).Scan(&v); v != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+			hours = n
+		}
+	}
+	if hours <= 0 {
+		return
+	}
 	rows, err := a.db.Query(`SELECT slug FROM projects
-		WHERE status='active' AND last_active < now()-interval '14 days'`)
+		WHERE status='active' AND NOT keep_awake
+		  AND last_active < now() - make_interval(hours => $1)`, hours)
 	if err != nil {
 		return
 	}
@@ -116,9 +153,9 @@ func (a *app) autoSuspend() {
 	}
 	rows.Close()
 	for _, s := range idle {
-		a.db.Exec(fmt.Sprintf(`ALTER ROLE %s NOLOGIN`, pq.QuoteIdentifier(s)))
-		a.db.Exec(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1`, s)
 		a.stopPostgREST(s)
+		a.stopRealtimeHub(s)
+		closeConn(s)
 		a.db.Exec(`UPDATE projects SET status='suspended' WHERE slug=$1`, s)
 		a.auditRaw("system", "-", "auto-suspend", s)
 	}

@@ -525,7 +525,24 @@ const settingsBody = `
 </div>
 <div class="card" style="margin-bottom:1rem">
   <h2>Compute &amp; sleep</h2>
-  <p class="muted" style="font-size:12.5px;margin:.4rem 0 0">To save resources, a project with no activity for <b style="color:hsl(var(--fg))">14 days</b> is automatically suspended (connections blocked, Data API stopped). It <b style="color:hsl(var(--fg))">wakes instantly on the next request</b> - opening it here, a database connection, or an API call. Idle Data API processes stop after 15 minutes and restart on demand.</p>
+  <p class="muted" style="font-size:12.5px;margin:.4rem 0 .8rem">To save resources, a project with no client activity goes to <b style="color:hsl(var(--fg))">sleep</b>: its API process, realtime listener, and cached connections are released. <b style="color:hsl(var(--fg))">Nothing is ever blocked or deleted</b> - a sleeping project wakes automatically on the next API call, panel visit, or direct database connection. Idle Data API processes stop after 15 minutes and restart on demand.</p>
+  <div style="display:flex;gap:2rem;flex-wrap:wrap;align-items:flex-end">
+    <form method="post" action="/p/{{.Slug}}/suspend-hours" style="display:flex;gap:.5rem;align-items:center">
+      <span class="muted" style="font-size:13px">Sleep after</span>
+      <input type="number" name="hours" min="0" max="8760" value="{{.SuspendHours}}" style="width:90px">
+      <span class="muted" style="font-size:13px">hours idle (0 = never, platform-wide)</span>
+      <button class="btn btn-ghost btn-sm" type="submit">Save</button>
+    </form>
+    <form method="post" action="/p/{{.Slug}}/keep-awake" style="display:flex;gap:.5rem;align-items:center">
+      {{if .KeepAwake}}
+      <span class="badge active">pinned awake</span>
+      <button class="btn btn-ghost btn-sm" type="submit">Let {{.Slug}} sleep when idle</button>
+      {{else}}
+      <input type="hidden" name="keep_awake" value="on">
+      <button class="btn btn-ghost btn-sm" type="submit">{{icon "bolt"}} Keep {{.Slug}} always awake</button>
+      {{end}}
+    </form>
+  </div>
 </div>
 <div class="card" style="border-color:hsl(var(--destructive)/.4)">
   <h2 style="color:hsl(var(--destructive))">Danger zone</h2>

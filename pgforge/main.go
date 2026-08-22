@@ -223,6 +223,8 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/restore", a.auth(admin(a.restoreBackup)))
 	mux.HandleFunc("POST /p/{slug}/pitr", a.auth(admin(a.pitrRestore)))
 	mux.HandleFunc("POST /p/{slug}/retention", a.auth(admin(a.setRetention)))
+	mux.HandleFunc("POST /p/{slug}/keep-awake", a.auth(admin(a.setKeepAwake)))
+	mux.HandleFunc("POST /p/{slug}/suspend-hours", a.auth(admin(a.setSuspendHours)))
 	mux.HandleFunc("GET /p/{slug}/monitoring", a.auth(proj(a.monitoringPage)))
 	mux.HandleFunc("GET /p/{slug}/logs", a.auth(proj(a.logsPage)))
 	mux.HandleFunc("GET /p/{slug}/branches", a.auth(proj(a.branchesPage)))
@@ -344,6 +346,11 @@ func (a *app) ensureSchema() error {
 		)`,
 		`INSERT INTO settings(key,value) VALUES ('retention_days','7')
 			ON CONFLICT (key) DO NOTHING`,
+		// hours of zero client activity before a project goes to sleep (0 = never)
+		`INSERT INTO settings(key,value) VALUES ('suspend_hours','168')
+			ON CONFLICT (key) DO NOTHING`,
+		// pinned projects are never auto-suspended (for production apps)
+		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS keep_awake boolean NOT NULL DEFAULT false`,
 		`CREATE TABLE IF NOT EXISTS api_config (
 			slug text PRIMARY KEY,
 			jwt_secret text NOT NULL,
