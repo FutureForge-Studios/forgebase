@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.19"
+const appVersion = "1.3.20"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,16 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.20", Date: "2026-08-22",
+		Summary: "Webhooks you can test and replay.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Webhook replay: every delivery now stores its payload (up to 64 KB), so any past event - success or failure - can be re-sent with one click through the same signing, headers and retry ladder.",
+				"Send-a-test-event button on every webhook, so you can verify an endpoint without touching real data.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.19", Date: "2026-08-22",
 		Summary: "Clients can finally list objects.",

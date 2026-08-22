@@ -1634,7 +1634,7 @@ const webhooksBody = `
       <td><b>{{.Name}}</b></td><td><code style="font-size:11px">{{.URL}}</code></td>
       <td class="muted">{{.Table}}</td><td class="mono" style="font-size:10.5px">{{.Events}}</td>
       <td><code style="font-size:10.5px">{{.Secret}}</code></td>
-      <td style="text-align:right"><form method="post" action="/p/{{$.Slug}}/webhook-delete" onsubmit="return confirm('Delete webhook?')"><input type="hidden" name="id" value="{{.ID}}"><button class="copy" style="color:hsl(var(--destructive))">{{icon "trash"}}</button></form></td>
+      <td style="text-align:right;white-space:nowrap"><form method="post" action="/p/{{$.Slug}}/webhook-test" style="display:inline"><input type="hidden" name="id" value="{{.ID}}"><button class="copy" title="Send a test event">{{icon "play"}}</button></form><form method="post" action="/p/{{$.Slug}}/webhook-delete" style="display:inline" onsubmit="return confirm('Delete webhook?')"><input type="hidden" name="id" value="{{.ID}}"><button class="copy" style="color:hsl(var(--destructive))">{{icon "trash"}}</button></form></td>
     </tr>{{end}}</tbody>
   </table></div>{{end}}
 </div>
@@ -1642,7 +1642,7 @@ const webhooksBody = `
   <h2 style="font-size:16px">Recent deliveries</h2>
   {{if not .Deliveries}}<p class="muted" style="font-size:12px;margin-top:.4rem">No deliveries yet.</p>{{else}}
   <div class="tblwrap" style="margin-top:.5rem"><table class="data"><thead><tr><th>When</th><th>Webhook</th><th>Result</th></tr></thead>
-    <tbody>{{range .Deliveries}}<tr><td class="muted" style="font-size:11px;white-space:nowrap">{{.At}}</td><td><code>{{.Name}}</code></td><td>{{if .OK}}<span class="badge active">{{.Status}}</span>{{else}}<span class="badge" style="color:hsl(var(--destructive))">{{.Status}}</span>{{end}}</td></tr>{{end}}</tbody>
+    <tbody>{{range .Deliveries}}<tr><td class="muted" style="font-size:11px;white-space:nowrap">{{.At}}</td><td><code>{{.Name}}</code></td><td>{{if .OK}}<span class="badge active">{{.Status}}</span>{{else}}<span class="badge" style="color:hsl(var(--destructive))">{{.Status}}</span>{{end}}</td><td style="text-align:right">{{if .CanReplay}}<form method="post" action="/p/{{$.Slug}}/webhook-replay" style="display:inline"><input type="hidden" name="id" value="{{.ID}}"><button class="copy" title="Replay this exact payload">{{icon "restore"}}</button></form>{{end}}</td></tr>{{end}}</tbody>
   </table></div>{{end}}
 </div>`
 

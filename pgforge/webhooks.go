@@ -70,7 +70,7 @@ func (a *app) deliverWebhook(id, slug, url, secret, method, headers string, payl
 		}
 		req, err := http.NewRequest(method, url, bytes.NewReader(payload))
 		if err != nil {
-			a.logDelivery(id, slug, 0, false, attempt, err.Error())
+			a.logDelivery(id, slug, 0, false, attempt, err.Error(), payload)
 			return
 		}
 		req.Header.Set("Content-Type", "application/json")
@@ -86,22 +86,27 @@ func (a *app) deliverWebhook(id, slug, url, secret, method, headers string, payl
 		}
 		resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
 		if err != nil {
-			a.logDelivery(id, slug, 0, false, attempt, err.Error())
+			a.logDelivery(id, slug, 0, false, attempt, err.Error(), payload)
 			continue
 		}
 		code := resp.StatusCode
 		resp.Body.Close()
 		okc := code >= 200 && code < 300
-		a.logDelivery(id, slug, code, okc, attempt, "")
+		a.logDelivery(id, slug, code, okc, attempt, "", payload)
 		if okc {
 			return
 		}
 	}
 }
 
-func (a *app) logDelivery(id, slug string, code int, ok bool, attempt int, errmsg string) {
-	a.db.Exec(`INSERT INTO webhook_deliveries(webhook_id, slug, status_code, ok, attempt, error)
-		VALUES ($1,$2,$3,$4,$5,$6)`, id, slug, code, ok, attempt, errmsg)
+func (a *app) logDelivery(id, slug string, code int, ok bool, attempt int, errmsg string, payload []byte) {
+	// store the payload once (first attempt) so any delivery can be replayed;
+	// capped so a giant row change cannot bloat the log
+	if attempt != 1 || len(payload) > 64*1024 {
+		payload = nil
+	}
+	a.db.Exec(`INSERT INTO webhook_deliveries(webhook_id, slug, status_code, ok, attempt, error, payload)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)`, id, slug, code, ok, attempt, errmsg, payload)
 	// keep only the most recent ~500 deliveries per project
 	a.db.Exec(`DELETE FROM webhook_deliveries WHERE slug=$1 AND id NOT IN (
 		SELECT id FROM webhook_deliveries WHERE slug=$1 ORDER BY at DESC LIMIT 500)`, slug)
@@ -150,17 +155,18 @@ func (a *app) webhooksPage(w http.ResponseWriter, r *http.Request) {
 		rows.Close()
 	}
 	type delivery struct {
-		Name, At, Status string
-		OK               bool
+		ID, Name, At, Status string
+		OK, CanReplay        bool
 	}
 	var deliveries []delivery
-	if drows, _ := a.db.Query(`SELECT coalesce(w.name,'(deleted)'), to_char(d.at,'Mon DD HH24:MI:SS'),
-		coalesce(d.status_code::text, coalesce(d.error,'-')), d.ok
+	if drows, _ := a.db.Query(`SELECT d.id, coalesce(w.name,'(deleted)'), to_char(d.at,'Mon DD HH24:MI:SS'),
+		coalesce(d.status_code::text, coalesce(d.error,'-')), d.ok,
+		d.payload IS NOT NULL AND w.id IS NOT NULL
 		FROM webhook_deliveries d LEFT JOIN webhooks w ON w.id=d.webhook_id
 		WHERE d.slug=$1 ORDER BY d.at DESC LIMIT 25`, slug); drows != nil {
 		for drows.Next() {
 			var d delivery
-			drows.Scan(&d.Name, &d.At, &d.Status, &d.OK)
+			drows.Scan(&d.ID, &d.Name, &d.At, &d.Status, &d.OK, &d.CanReplay)
 			deliveries = append(deliveries, d)
 		}
 		drows.Close()
@@ -172,6 +178,43 @@ func (a *app) webhooksPage(w http.ResponseWriter, r *http.Request) {
 	content := renderContent(webhooksBody, map[string]any{"Slug": slug, "Hooks": hooks, "Tables": tables, "Deliveries": deliveries})
 	a.renderShell(w, r, shellData{Title: slug + " · Webhooks", Nav: "webhooks", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Webhooks"}}}, content)
+}
+
+// replayDelivery re-sends a stored payload through the normal delivery path
+// (same signature, headers and retry ladder).
+func (a *app) replayDelivery(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	back := "/p/" + slug + "/webhooks"
+	var payload []byte
+	var hid, url, secret, method, headers string
+	err := a.db.QueryRow(`SELECT d.payload, w.id, w.url, coalesce(w.secret,''), w.method, w.headers
+		FROM webhook_deliveries d JOIN webhooks w ON w.id = d.webhook_id
+		WHERE d.id = $1::bigint AND d.slug = $2 AND d.payload IS NOT NULL`,
+		r.FormValue("id"), slug).Scan(&payload, &hid, &url, &secret, &method, &headers)
+	if err != nil {
+		redirectErr(w, r, back, "That delivery has no stored payload to replay.")
+		return
+	}
+	go a.deliverWebhook(hid, slug, url, secret, method, headers, payload)
+	a.audit(r, "webhook-replay", slug+"/"+hid)
+	redirectMsg(w, r, back, "Replay queued - watch the deliveries list.")
+}
+
+// testWebhook fires a synthetic event at one webhook.
+func (a *app) testWebhook(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	back := "/p/" + slug + "/webhooks"
+	var url, secret, method, headers string
+	err := a.db.QueryRow(`SELECT url, coalesce(secret,''), method, headers FROM webhooks
+		WHERE id = $1 AND slug = $2`, r.FormValue("id"), slug).Scan(&url, &secret, &method, &headers)
+	if err != nil {
+		redirectErr(w, r, back, "Unknown webhook.")
+		return
+	}
+	payload := []byte(`{"type":"TEST","table":"_forgebase_test","record":{"message":"This is a test event from the ForgeBase panel."},"old_record":null}`)
+	go a.deliverWebhook(r.FormValue("id"), slug, url, secret, method, headers, payload)
+	a.audit(r, "webhook-test", slug+"/"+r.FormValue("id"))
+	redirectMsg(w, r, back, "Test event queued - watch the deliveries list.")
 }
 
 func (a *app) createWebhook(w http.ResponseWriter, r *http.Request) {

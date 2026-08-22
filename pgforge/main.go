@@ -292,6 +292,8 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/storage/move", a.auth(proj(a.moveObject)))
 	mux.HandleFunc("POST /p/{slug}/storage/copy", a.auth(proj(a.copyObject)))
 	mux.HandleFunc("POST /p/{slug}/storage/bulk-delete", a.auth(proj(a.bulkDeleteObjects)))
+	mux.HandleFunc("POST /p/{slug}/webhook-replay", a.auth(proj(a.replayDelivery)))
+	mux.HandleFunc("POST /p/{slug}/webhook-test", a.auth(proj(a.testWebhook)))
 	mux.HandleFunc("GET /p/{slug}/auth", a.auth(proj(a.authPage)))
 	mux.HandleFunc("POST /p/{slug}/auth-enable", a.auth(proj(a.enableAuth)))
 	mux.HandleFunc("POST /p/{slug}/auth-disable", a.auth(proj(a.disableAuth)))
@@ -444,6 +446,7 @@ func (a *app) ensureSchema() error {
 		// container on copy-on-write storage: instant branches, scale-to-zero)
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'shared'`,
 		// per-project SQL run history (capped in sqlRun; newest first in the panel)
+		`ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS payload bytea`,
 		`CREATE TABLE IF NOT EXISTS rt_publications (
 			slug text NOT NULL,
 			tablename text NOT NULL,
