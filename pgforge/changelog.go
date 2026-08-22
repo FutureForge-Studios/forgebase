@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.22"
+const appVersion = "1.3.23"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.23", Date: "2026-08-22",
+		Summary: "Per-project timeouts.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Statement and idle-session timeouts per project (Database page): kill runaway queries automatically and reclaim parked connections. Applied to the project role, so every new connection - direct, pooled or API - picks them up instantly. 0 keeps a timeout off.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.22", Date: "2026-08-22",
 		Summary: "Logs you can slice, and the slowest queries surfaced.",

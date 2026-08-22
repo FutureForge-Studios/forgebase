@@ -613,6 +613,14 @@ const databaseBody = `
     <div><div class="label">Pooled (transaction)</div><div style="font-size:14px">{{.Domain}}<b>:6543</b></div><div class="muted" style="font-size:11px">serverless, high concurrency</div></div>
   </div>
   <div style="display:flex;gap:2.5rem;flex-wrap:wrap;margin-top:1.1rem;padding-top:1rem;border-top:1px solid hsl(var(--border))">
+    <form method="post" action="/p/{{.Slug}}/db-timeouts" style="display:flex;gap:.6rem;align-items:flex-end;flex-wrap:wrap">
+      <label class="fld" style="margin:0"><span class="lt">Statement timeout (ms)</span>
+        <input type="number" name="stmt_ms" value="{{if .StmtTimeout}}{{.StmtTimeout}}{{else}}0{{end}}" min="0" max="3600000" step="100" style="width:120px"></label>
+      <label class="fld" style="margin:0"><span class="lt">Idle session timeout (min)</span>
+        <input type="number" name="idle_min" value="0" min="0" max="10080" style="width:110px"></label>
+      <button class="btn btn-primary btn-sm" type="submit">Save timeouts</button>
+      <span class="muted" style="font-size:11.5px;max-width:260px">0 = off. Statement timeout kills runaway queries{{if .StmtTimeout}} (current: {{.StmtTimeout}}){{end}}{{if .IdleTimeout}}; idle timeout current: {{.IdleTimeout}}{{end}}. Idle timeout disconnects parked sessions - pools reconnect automatically.</span>
+    </form>
     <form method="post" action="/p/{{.Slug}}/conn-limit" style="display:flex;gap:.6rem;align-items:flex-end">
       <label class="fld" style="margin:0"><span class="lt">Project connection limit</span>
         <input type="number" name="limit" value="{{.ConnLimit}}" min="-1" max="10000" step="1" style="width:130px"></label>

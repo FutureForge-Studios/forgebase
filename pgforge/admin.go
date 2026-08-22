@@ -31,6 +31,32 @@ func projectDumpOK(slug, file string) bool {
 
 // ----------------------------------------------------------------- database
 
+// setDbTimeouts applies per-role statement/idle timeouts for a project. New
+// connections pick them up immediately; existing sessions keep their values.
+func (a *app) setDbTimeouts(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	back := "/p/" + slug + "/database"
+	stmtMs, err1 := strconv.Atoi(r.FormValue("stmt_ms"))
+	idleMin, err2 := strconv.Atoi(r.FormValue("idle_min"))
+	if err1 != nil || err2 != nil || stmtMs < 0 || stmtMs > 3600000 || idleMin < 0 || idleMin > 10080 {
+		redirectErr(w, r, back, "Statement timeout 0-3600000 ms, idle timeout 0-10080 min (0 = off).")
+		return
+	}
+	role := pq.QuoteIdentifier(a.roleFor(slug))
+	if stmtMs == 0 {
+		a.db.Exec(fmt.Sprintf(`ALTER ROLE %s RESET statement_timeout`, role))
+	} else {
+		a.db.Exec(fmt.Sprintf(`ALTER ROLE %s SET statement_timeout = '%dms'`, role, stmtMs))
+	}
+	if idleMin == 0 {
+		a.db.Exec(fmt.Sprintf(`ALTER ROLE %s RESET idle_session_timeout`, role))
+	} else {
+		a.db.Exec(fmt.Sprintf(`ALTER ROLE %s SET idle_session_timeout = '%dmin'`, role, idleMin))
+	}
+	a.audit(r, "db-timeouts", fmt.Sprintf("%s stmt=%dms idle=%dmin", slug, stmtMs, idleMin))
+	redirectMsg(w, r, back, "Timeouts saved - new connections use them immediately.")
+}
+
 func (a *app) databasePage(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	if !a.projectExists(slug) {
@@ -102,8 +128,23 @@ func (a *app) databasePage(w http.ResponseWriter, r *http.Request) {
 		rows.Close()
 	}
 
+	// per-role timeout settings currently applied (cluster-wide role config)
+	stmtT, idleT := "", ""
+	var cfg []string
+	a.db.QueryRow(`SELECT coalesce(setconfig,'{}') FROM pg_db_role_setting s
+		JOIN pg_roles ro ON ro.oid = s.setrole
+		WHERE ro.rolname = $1 AND s.setdatabase = 0`, a.roleFor(slug)).Scan(pq.Array(&cfg))
+	for _, c := range cfg {
+		if v, ok := strings.CutPrefix(c, "statement_timeout="); ok {
+			stmtT = v
+		}
+		if v, ok := strings.CutPrefix(c, "idle_session_timeout="); ok {
+			idleT = v
+		}
+	}
 	content := renderContent(databaseBody, map[string]any{
 		"Slug": slug, "Exts": exts, "Size": size, "Conns": conns,
+		"StmtTimeout": stmtT, "IdleTimeout": idleT,
 		"NInstalled": nInstalled, "NAvail": len(exts),
 		"MaxConns": maxConns, "ConnLimit": connLimit, "Version": version,
 		"Roles": dbRoles, "Domain": a.cfg.domain, "CanAdmin": a.atLeast(r, "admin"),
