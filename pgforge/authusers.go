@@ -42,19 +42,25 @@ func signUserJWT(secret []byte, sub, email, userMeta, appMeta string) string {
 	return signUserJWTTTL(secret, sub, email, userMeta, appMeta, accessTokenTTL)
 }
 
-func signUserJWTTTL(secret []byte, sub, email, userMeta, appMeta string, ttlSec int) string {
+func signUserJWTTTL(secret []byte, sub, email, userMeta, appMeta string, ttlSec int, aal ...string) string {
 	if !json.Valid([]byte(userMeta)) {
 		userMeta = "{}"
 	}
 	if !json.Valid([]byte(appMeta)) {
 		appMeta = "{}"
 	}
+	// assurance level: aal1 = one factor (password/OAuth/magic link),
+	// aal2 = the login also passed a second factor (TOTP/recovery code)
+	level := "aal1"
+	if len(aal) > 0 && aal[0] != "" {
+		level = aal[0]
+	}
 	b64 := func(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
 	header := b64([]byte(`{"alg":"HS256","typ":"JWT"}`))
 	now := time.Now().Unix()
 	claims, _ := json.Marshal(map[string]any{
 		"sub": sub, "email": email, "role": "authenticated", "aud": "authenticated",
-		"iss": "pgforge", "iat": now, "exp": now + int64(ttlSec),
+		"iss": "pgforge", "iat": now, "exp": now + int64(ttlSec), "aal": level,
 		"user_metadata": json.RawMessage(userMeta),
 		"app_metadata":  json.RawMessage(appMeta),
 	})
@@ -89,6 +95,10 @@ func (a *app) authPolicy(slug string) (int, int, []string) {
 }
 
 func (a *app) issueTokens(db *sql.DB, secret, slug, sub, email, familyID string) (string, string, error) {
+	return a.issueTokensAAL(db, secret, slug, sub, email, familyID, "aal1")
+}
+
+func (a *app) issueTokensAAL(db *sql.DB, secret, slug, sub, email, familyID, aal string) (string, string, error) {
 	// Single-session mode: minting a session kills every other one, so a
 	// user is signed in from exactly one place at a time.
 	var single bool
@@ -130,7 +140,7 @@ func (a *app) issueTokens(db *sql.DB, secret, slug, sub, email, familyID string)
 		}
 	}
 	ttlSec, _, _ := a.authPolicy(slug)
-	tok := signUserJWTTTL([]byte(secret), sub, email, userMeta, appMeta, ttlSec)
+	tok := signUserJWTTTL([]byte(secret), sub, email, userMeta, appMeta, ttlSec, aal)
 	if isAnon {
 		// re-sign with the is_anonymous claim folded into app_metadata so
 		// policies can gate on (auth.jwt()->'app_metadata'->>'is_anonymous')
@@ -140,9 +150,29 @@ func (a *app) issueTokens(db *sql.DB, secret, slug, sub, email, familyID string)
 		} else {
 			am += `,"is_anonymous":true}`
 		}
-		tok = signUserJWTTTL([]byte(secret), sub, email, userMeta, am, ttlSec)
+		tok = signUserJWTTTL([]byte(secret), sub, email, userMeta, am, ttlSec, aal)
 	}
 	return tok, refresh, nil
+}
+
+// beforeCreateHook consults the optional auth.before_create(text) SQL hook
+// before a new user row is created. Define it in the project to gate
+// signups: return NULL or ” to allow, or a message to reject with.
+//
+//	CREATE FUNCTION auth.before_create(email text) RETURNS text AS $$
+//	  SELECT CASE WHEN email LIKE '%@rival.com' THEN 'not here, thanks' END
+//	$$ LANGUAGE sql;
+func beforeCreateHook(db *sql.DB, email string) string {
+	var defined bool
+	db.QueryRow(`SELECT to_regprocedure('auth.before_create(text)') IS NOT NULL`).Scan(&defined)
+	if !defined {
+		return ""
+	}
+	var msg sql.NullString
+	if db.QueryRow(`SELECT auth.before_create($1)`, email).Scan(&msg) != nil {
+		return "" // hook failing: allow rather than lock signups out
+	}
+	return strings.TrimSpace(msg.String)
 }
 
 // handleRefresh validates a refresh token, ROTATES it (revoke the used one, mint
@@ -496,6 +526,10 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		if len(body.Data) > 0 && json.Valid(body.Data) {
 			meta = string(body.Data)
 		}
+		if msg := beforeCreateHook(db, body.Email); msg != "" {
+			writeJSON(w, 400, map[string]string{"message": msg})
+			return
+		}
 		var id string
 		err := db.QueryRow(`INSERT INTO auth.users(email, encrypted_password, raw_user_meta_data) VALUES ($1,$2,$3::jsonb) RETURNING id`,
 			body.Email, hash, meta).Scan(&id)
@@ -561,15 +595,17 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 			writeJSON(w, http.StatusForbidden, map[string]string{"message": "email not confirmed"})
 			return
 		}
+		aal := "aal1"
 		if sec, on := mfaState(db, id); on && sec != "" {
 			if !totpVerify(sec, body.TOTPCode, time.Now()) && !tryRecoveryCode(db, id, body.RecoveryCode) {
 				writeJSON(w, 401, map[string]any{"mfa_required": true,
 					"message": "two-factor code required - resend with totp_code (or recovery_code)"})
 				return
 			}
+			aal = "aal2" // password + second factor
 		}
 		db.Exec(`UPDATE auth.users SET last_sign_in_at=now() WHERE id=$1`, id)
-		acc, ref, terr := a.issueTokens(db, secret, slug, id, body.Email, "")
+		acc, ref, terr := a.issueTokensAAL(db, secret, slug, id, body.Email, "", aal)
 		if terr != nil {
 			writeJSON(w, 500, map[string]string{"message": terr.Error()})
 			return

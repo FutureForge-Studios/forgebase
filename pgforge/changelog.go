@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.3"
+const appVersion = "1.4.4"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,19 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.4", Date: "2026-08-23",
+		Summary: "Usage reports, foreign databases, and the last auth hooks.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Usage page per project: database size and 30-day growth chart, storage against quota, function invocations with error rate and average latency, webhook deliveries, auth signups/actives, and live realtime connections - all in one place.",
+				"Foreign databases (postgres_fdw) from the Database page: connect an external Postgres, import any of its schemas, and query its tables here as if they were local. Removal drops the imported tables with the server.",
+				"Before-create auth hook: define auth.before_create(email text) RETURNS text in SQL and every signup (password or OAuth) consults it - return a message to reject, NULL to allow. Domain blocklists and invite gates in three lines of SQL.",
+				"Assurance levels in tokens: every access token now carries an aal claim - aal2 when the login also passed a second factor, aal1 otherwise - so RLS can require step-up auth for sensitive tables.",
+				"Per-instance compute controls: dedicated-instance projects get memory and CPU limits on the Settings page, applied live and preserved across sleep/wake.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.3", Date: "2026-08-23",
 		Summary: "The finer auth cuts, and a smarter AI settings card.",

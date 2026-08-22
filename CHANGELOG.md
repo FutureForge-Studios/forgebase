@@ -13,6 +13,20 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.4] - 2026-08-23
+
+### Added
+- Usage page per project: 30-day database growth chart, storage vs quota,
+  function calls with error rate and latency, webhook deliveries, auth
+  signups/actives, live realtime connections.
+- Foreign databases (postgres_fdw): connect an external Postgres, import
+  schemas, query its tables locally; drop removes the imported tables.
+- Before-create auth hook: auth.before_create(email) RETURNS text gates
+  every signup from SQL.
+- aal claim in access tokens (aal2 after a second factor) for step-up RLS.
+- Per-instance compute controls: live memory/CPU limits for dedicated
+  instances, preserved across sleep/wake.
+
 ## [1.4.3] - 2026-08-23
 
 ### Added

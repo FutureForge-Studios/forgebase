@@ -237,6 +237,7 @@ func (a *app) databasePage(w http.ResponseWriter, r *http.Request) {
 		"Slug": slug, "Exts": exts, "Size": size, "Conns": conns,
 		"StmtTimeout": stmtT, "IdleTimeout": idleT,
 		"Pubs":       a.listPublications(slug),
+		"FDW":        a.listFDWServers(slug),
 		"NInstalled": nInstalled, "NAvail": len(exts),
 		"MaxConns": maxConns, "ConnLimit": connLimit, "Version": version,
 		"Roles": dbRoles, "Domain": a.cfg.domain, "CanAdmin": a.atLeast(r, "admin"),
@@ -663,6 +664,22 @@ func (a *app) settingsPage(w http.ResponseWriter, r *http.Request) {
 		"API": feat("api_config"), "Auth": feat("auth_config"), "Realtime": feat("realtime_config"),
 		"KeepAwake": keepAwake, "SuspendHours": suspendHours, "PublicStatus": publicStatus,
 		"Mode": a.projectMode(slug), "CanInstance": instanceModeAvailable(),
+		"InstMem": func() int {
+			var v int
+			a.db.QueryRow(`SELECT coalesce(instance_mem_mb,0) FROM projects WHERE slug=$1`, slug).Scan(&v)
+			if v == 0 {
+				v = 512
+			}
+			return v
+		}(),
+		"InstCpus": func() float64 {
+			var v float64
+			a.db.QueryRow(`SELECT coalesce(instance_cpus,0) FROM projects WHERE slug=$1`, slug).Scan(&v)
+			if v == 0 {
+				v = 1
+			}
+			return v
+		}(),
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Settings", Nav: "settings", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Settings"}}}, content)

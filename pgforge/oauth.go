@@ -240,6 +240,10 @@ func (a *app) handleOAuthCallback(w http.ResponseWriter, r *http.Request, slug, 
 	var uid string
 	err = db.QueryRow(`SELECT id FROM auth.users WHERE email=$1`, email).Scan(&uid)
 	if err != nil {
+		if msg := beforeCreateHook(db, email); msg != "" {
+			writeJSON(w, 400, map[string]string{"message": msg})
+			return
+		}
 		db.QueryRow(`INSERT INTO auth.users(email, encrypted_password) VALUES ($1,'oauth') RETURNING id`, email).Scan(&uid)
 	}
 	db.Exec(`UPDATE auth.users SET last_sign_in_at=now() WHERE id=$1`, uid)

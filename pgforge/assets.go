@@ -446,6 +446,7 @@ func projectNav(slug string) []navItem {
 		{"cron", "Cron Jobs", b + "/cron", "restore"},
 		{"queues", "Queues", b + "/queues", "list"},
 		{"monitoring", "Monitoring", b + "/monitoring", "chart"},
+		{"usage", "Usage", b + "/usage", "chart"},
 		{"advisors", "Advisors", b + "/advisors", "sparkle"},
 		{"branches", "Branches", b + "/branches", "branch"},
 		{"database", "Database", b + "/database", "database"},

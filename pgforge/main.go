@@ -341,6 +341,11 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/auth-impersonate", a.auth(admin(a.impersonateUser)))
 	mux.HandleFunc("POST /p/{slug}/ai-sql", a.auth(proj(a.aiSQL)))
 	mux.HandleFunc("GET /api/cli/projects", a.auth(a.cliProjects))
+	mux.HandleFunc("GET /p/{slug}/usage", a.auth(proj(a.usagePage)))
+	mux.HandleFunc("POST /p/{slug}/fdw-create", a.auth(admin(a.fdwCreate)))
+	mux.HandleFunc("POST /p/{slug}/fdw-drop", a.auth(admin(a.fdwDrop)))
+	mux.HandleFunc("POST /p/{slug}/fdw-import", a.auth(admin(a.fdwImport)))
+	mux.HandleFunc("POST /p/{slug}/instance-compute", a.auth(admin(a.setInstanceCompute)))
 	mux.HandleFunc("GET /p/{slug}/branch-diff", a.auth(proj(a.branchDiff)))
 	mux.HandleFunc("POST /p/{slug}/branch-reset", a.auth(admin(a.branchReset)))
 	mux.HandleFunc("GET /p/{slug}/realtime", a.auth(proj(a.realtimePage)))
@@ -510,6 +515,8 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS single_session boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS leaked_check boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE oauth_providers ADD COLUMN IF NOT EXISTS issuer text NOT NULL DEFAULT ''`,
+		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS instance_mem_mb integer NOT NULL DEFAULT 0`,
+		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS instance_cpus real NOT NULL DEFAULT 0`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS log_ship_url text NOT NULL DEFAULT ''`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS log_shipped_at timestamptz`,
 		`CREATE TABLE IF NOT EXISTS log_views (

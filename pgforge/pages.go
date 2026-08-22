@@ -641,6 +641,35 @@ const databaseBody = `
   </form>
 </div>
 <div class="card" style="margin-top:1rem">
+  <div style="display:flex;align-items:center;gap:.6rem"><h2>Foreign databases (FDW)</h2><span class="label">{{len .FDW}} server(s)</span></div>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .6rem">Connect an external Postgres and query its tables from here as if they were local (postgres_fdw). Import a schema and its tables appear under the local schema you pick.</p>
+  {{if .FDW}}
+  <div class="tblwrap"><table class="data">
+    <thead><tr><th>Server</th><th>Host</th><th>Remote DB</th><th>Foreign tables</th><th></th></tr></thead>
+    <tbody>{{range .FDW}}<tr>
+      <td><code>{{.Name}}</code></td><td class="muted">{{.Host}}</td><td class="muted">{{.DB}}</td>
+      <td class="muted">{{.Tables}}</td>
+      <td style="text-align:right"><form method="post" action="/p/{{$.Slug}}/fdw-drop" onsubmit="return confirm('Remove server {{.Name}} and every foreign table imported from it?')" style="display:inline"><input type="hidden" name="name" value="{{.Name}}"><button class="copy" style="color:hsl(var(--destructive))">{{icon "trash"}}</button></form></td>
+    </tr>{{end}}</tbody>
+  </table></div>
+  <form method="post" action="/p/{{.Slug}}/fdw-import" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin:.7rem 0 1rem">
+    <label class="fld" style="margin:0"><span class="lt">Server</span><select name="server" style="width:auto">{{range .FDW}}<option>{{.Name}}</option>{{end}}</select></label>
+    <label class="fld" style="margin:0"><span class="lt">Remote schema</span><input type="text" name="remote_schema" value="public" style="width:120px"></label>
+    <label class="fld" style="margin:0"><span class="lt">Import into local schema</span><input type="text" name="local_schema" placeholder="defaults to server name" style="width:170px"></label>
+    <button class="btn btn-ghost btn-sm" type="submit">Import schema</button>
+  </form>
+  {{end}}
+  <form method="post" action="/p/{{.Slug}}/fdw-create" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.4rem">
+    <label class="fld" style="margin:0"><span class="lt">Server name</span><input type="text" name="name" placeholder="warehouse" required style="width:120px"></label>
+    <label class="fld" style="margin:0;flex:1;min-width:160px"><span class="lt">Host</span><input type="text" name="host" placeholder="db.example.com" required></label>
+    <label class="fld" style="margin:0"><span class="lt">Port</span><input type="number" name="port" value="5432" min="1" max="65535" style="width:80px"></label>
+    <label class="fld" style="margin:0"><span class="lt">Database</span><input type="text" name="dbname" required style="width:120px"></label>
+    <label class="fld" style="margin:0"><span class="lt">Remote user</span><input type="text" name="remote_user" required style="width:110px"></label>
+    <label class="fld" style="margin:0"><span class="lt">Remote password</span><input type="password" name="remote_pass" style="width:130px"></label>
+    <button class="btn btn-primary btn-sm" type="submit">Connect server</button>
+  </form>
+</div>
+<div class="card" style="margin-top:1rem">
   <h2>Connection &amp; pooling</h2>
   <p class="muted" style="font-size:12.5px;margin:.3rem 0 .8rem">Two entry points to this database. Cluster max connections: <b style="color:hsl(var(--fg))">{{.MaxConns}}</b>.</p>
   <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.9rem">
@@ -826,7 +855,15 @@ const settingsBody = `
     {{if eq .Mode "instance"}}<span class="badge active">running dedicated</span>{{end}}<div class="spacer"></div>
     {{if and .CanInstance (eq .Mode "shared")}}<form method="post" action="/p/{{.Slug}}/migrate-instance" onsubmit="return confirm('Copy this project onto its own Postgres container? The shared copy is kept (parked) and the panel switches over when the copy finishes.')">
       <button class="btn btn-primary btn-sm">{{icon "database"}} Migrate to dedicated instance</button></form>{{end}}</div>
-  {{if eq .Mode "instance"}}<p class="muted" style="font-size:12.5px;margin:0">This project runs on its own Postgres container: instant branches, true scale-to-zero, its own crash domain.</p>
+  {{if eq .Mode "instance"}}<p class="muted" style="font-size:12.5px;margin:0 0 .7rem">This project runs on its own Postgres container: instant branches, true scale-to-zero, its own crash domain.</p>
+  <form method="post" action="/p/{{.Slug}}/instance-compute" style="display:flex;gap:.6rem;align-items:flex-end;flex-wrap:wrap">
+    <label class="fld" style="margin:0"><span class="lt">Memory limit (MB)</span>
+      <input type="number" name="mem_mb" value="{{.InstMem}}" min="256" max="16384" step="128" style="width:110px"></label>
+    <label class="fld" style="margin:0"><span class="lt">CPUs</span>
+      <input type="number" name="cpus" value="{{.InstCpus}}" min="0.25" max="16" step="0.25" style="width:90px"></label>
+    <button class="btn btn-primary btn-sm" type="submit">Apply compute limits</button>
+    <span class="muted" style="font-size:11px">applies live, survives sleep/wake</span>
+  </form>
   {{else if .CanInstance}}<p class="muted" style="font-size:12.5px;margin:0">Move this project out of the shared cluster onto its own Postgres container. Zero data loss: the shared copy stays parked until you delete it.</p>
   {{else}}<p class="muted" style="font-size:12.5px;margin:0">Not available on this server: the dedicated-instance store is not set up (setup-instances.sh).</p>{{end}}
 </div>

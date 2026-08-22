@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -183,4 +184,36 @@ func (a *app) migrateToInstance(w http.ResponseWriter, r *http.Request) {
 	a.db.Exec(`UPDATE projects SET mode='instance', status='active', last_active=now() WHERE slug=$1`, slug)
 	a.audit(r, "migrate-instance", slug)
 	redirectMsg(w, r, back, "Migrated to a dedicated instance. The old shared copy is parked as "+slug+"_premig; delete it from the Database page when you are confident.")
+}
+
+// setInstanceCompute applies memory/CPU limits to a dedicated-instance
+// project's container. docker update persists across stop/start (the
+// reaper's sleep/wake cycle), so the limit sticks for the container's life.
+func (a *app) setInstanceCompute(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	back := "/p/" + slug + "/settings"
+	if a.projectMode(slug) != "instance" {
+		redirectErr(w, r, back, "Compute limits apply to dedicated-instance projects only.")
+		return
+	}
+	memMB, e1 := strconv.Atoi(r.FormValue("mem_mb"))
+	cpus, e2 := strconv.ParseFloat(r.FormValue("cpus"), 64)
+	if e1 != nil || e2 != nil || memMB < 256 || memMB > 16384 || cpus < 0.25 || cpus > 16 {
+		redirectErr(w, r, back, "Memory 256-16384 MB, CPUs 0.25-16.")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "docker", "update",
+		fmt.Sprintf("--memory=%dm", memMB),
+		fmt.Sprintf("--memory-swap=%dm", memMB),
+		fmt.Sprintf("--cpus=%g", cpus),
+		"pgi-"+slug).CombinedOutput()
+	if err != nil {
+		redirectErr(w, r, back, "docker update failed: "+tail(string(out), 200))
+		return
+	}
+	a.db.Exec(`UPDATE projects SET instance_mem_mb=$2, instance_cpus=$3 WHERE slug=$1`, slug, memMB, cpus)
+	a.audit(r, "instance-compute", fmt.Sprintf("%s %dMB %.2gcpu", slug, memMB, cpus))
+	redirectMsg(w, r, back, fmt.Sprintf("Compute limits applied: %d MB RAM, %g CPUs.", memMB, cpus))
 }

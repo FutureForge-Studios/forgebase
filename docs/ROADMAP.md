@@ -41,11 +41,12 @@ happy path.
 - [x] Per-user session list/revoke, single-session mode.
 - [x] CAPTCHA on auth endpoints (Cloudflare Turnstile); configurable rate
       limits.
-- [x] Auth hooks (custom claims, before-create, send overrides). (custom claims shipped; other hook points tracked)
+- [x] Auth hooks (custom claims, before-create). Send overrides are the
+      email template editor.
 - [x] 12 OAuth providers (Google, GitHub, GitLab, Discord, Microsoft,
       Facebook, Twitch, Slack, Spotify, LinkedIn, Bitbucket, Notion) plus a
       generic OIDC connector; identity linking.
-- [x] TOTP MFA with recovery codes for app users; panel-login 2FA.
+- [x] TOTP MFA with recovery codes and aal assurance claims; panel 2FA.
 - [ ] Asymmetric JWT signing with JWKS and key rotation.
 - [x] Per-project email template editor.
 - [ ] SAML SSO and phone OTP (provider adapters).
@@ -76,7 +77,7 @@ happy path.
 - [x] Schema diff between branches.
 - [ ] Branch from any point in time; time-travel read sessions.
 - [x] One-click migration between shared-cluster and dedicated-instance modes.
-- [ ] Per-instance compute controls and pooled connections.
+- [x] Per-instance compute controls (live memory/CPU limits).
 - [x] Per-database activity attribution in Monitoring (transactions,
       writes, cache hit, temp spill, backends, deadlocks).
 - [ ] Read replicas with a read-only connection string.
@@ -99,18 +100,16 @@ happy path.
 - [x] Webhook replay + large-payload delivery.
 - [x] Per-project IP allowlists and connection security settings.
 - [x] Per-project database settings (timeouts, exposed schemas, API row caps).
-- [ ] Usage reports.
-- [ ] Foreign-data wrappers UI for external sources.
+- [x] Usage reports.
+- [x] Foreign-data wrappers UI for external sources.
 
 ## Next (1.4.x)
 The remaining unchecked items above are the heavyweight tier - read replicas,
 PITR-branching, warm/streaming functions, TUS + S3-protocol storage,
 storage access rules, SAML SSO + phone OTP, asymmetric JWT signing with
-JWKS, per-subscriber RLS on change streams, per-instance compute controls,
-adaptive sizing, usage reports, foreign-data wrappers, team scoping, and the
-finer auth cuts (assurance levels, before-create/send hooks). Each needs its
-own design pass and ships as focused 1.4.x releases, in the order they unlock
-the most for real projects.
+JWKS, per-subscriber RLS on change streams, adaptive sizing, and team
+scoping. Each needs its own design pass and ships as focused 1.4.x releases,
+in the order they unlock the most for real projects.
 
 ## How we run it
 1. Top-down inside a phase; phases interleave when priorities demand.
