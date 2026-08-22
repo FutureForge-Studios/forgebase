@@ -13,6 +13,23 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.7] - 2026-08-22
+
+### Security
+- Data API startup now cryptographically verifies it is talking to the right
+  project's API process before routing any request to it. Previously, in a rare
+  port-reuse scenario on a long-running server, requests could have been routed
+  to a different project's API.
+
+### Fixed
+- "Check for updates" now always sees a just-published release immediately
+  instead of waiting up to 5 minutes for GitHub's cache.
+- Fixed a data race in the Data API idle tracker.
+- Metrics collection is much lighter: one query instead of three per project,
+  sleeping projects are sampled hourly instead of every 5 minutes, and history
+  cleanup runs hourly on an index instead of scanning the whole table every
+  5 minutes.
+
 ## [1.2.6] - 2026-08-22
 
 ### Added
@@ -342,7 +359,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.6...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.7...HEAD
+[1.2.7]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.6...v1.2.7
 [1.2.6]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.5...v1.2.6
 [1.2.5]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.4...v1.2.5
 [1.2.4]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.3...v1.2.4

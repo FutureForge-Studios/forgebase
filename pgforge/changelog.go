@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.2.6"
+const appVersion = "1.2.7"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,20 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.2.7", Date: "2026-08-22",
+		Summary: "Data API isolation hardening and instant update checks.",
+		Sections: []changeSection{
+			{"Security", []string{
+				"Data API startup now cryptographically verifies it is talking to the right project's API process before routing any request to it. Previously, in a rare port-reuse scenario on a long-running server, requests could have been routed to a different project's API.",
+			}},
+			{"Fixed", []string{
+				"\"Check for updates\" now always sees a just-published release immediately instead of waiting up to 5 minutes for GitHub's cache.",
+				"Fixed a data race in the Data API idle tracker.",
+				"Metrics collection is much lighter: one query instead of three per project, sleeping projects are sampled hourly instead of every 5 minutes, and history cleanup runs hourly on an index instead of scanning the whole table every 5 minutes.",
+			}},
+		},
+	},
 	{
 		Version: "1.2.6", Date: "2026-08-22",
 		Summary: "Updates now maintain the whole server, and the database can no longer fill the disk.",

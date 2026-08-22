@@ -18,10 +18,14 @@ const hostSlug = "__host__"
 
 func (a *app) startSampler() {
 	go func() {
-		a.sampleOnce() // seed immediately so charts have a point
+		a.sampleOnce(true) // seed immediately so charts have a point
 		t := time.NewTicker(5 * time.Minute)
+		tick := 0
 		for range t.C {
-			a.sampleOnce()
+			tick++
+			// Suspended/paused projects change slowly, and the retention DELETE
+			// scans history - both run hourly (every 12th tick), not every 5 min.
+			a.sampleOnce(tick%12 == 0)
 		}
 	}()
 }
@@ -59,31 +63,27 @@ func cpuLoad() float64 {
 	return v
 }
 
-func (a *app) sampleOnce() {
+func (a *app) sampleOnce(full bool) {
 	defer func() { recover() }() // never let the sampler crash the process
 	// host row
 	a.db.Exec(`INSERT INTO metrics_samples(slug, ram_used, cpu_load) VALUES ($1,$2,$3)`,
 		hostSlug, ramUsedMB(), cpuLoad())
-	// per-project rows
-	rows, err := a.db.Query(`SELECT slug FROM projects`)
-	if err != nil {
-		return
+	// Per-project rows in ONE statement (was 2 queries + 1 insert per project,
+	// every 5 minutes, for every project ever created). Suspended/paused
+	// projects are included only on the hourly full pass.
+	filter := `WHERE p.status NOT IN ('suspended','paused')`
+	if full {
+		filter = ``
 	}
-	var slugs []string
-	for rows.Next() {
-		var s string
-		rows.Scan(&s)
-		slugs = append(slugs, s)
+	a.db.Exec(`INSERT INTO metrics_samples(slug, db_size, conns)
+		SELECT p.slug, pg_database_size(d.oid), coalesce(s.n,0)
+		FROM projects p
+		JOIN pg_database d ON d.datname = p.slug
+		LEFT JOIN (SELECT datname, count(*) n FROM pg_stat_activity GROUP BY 1) s
+		       ON s.datname = p.slug ` + filter)
+	if full {
+		a.db.Exec(`DELETE FROM metrics_samples WHERE at < now() - interval '30 days'`)
 	}
-	rows.Close()
-	for _, s := range slugs {
-		var size int64
-		var conns int
-		a.db.QueryRow(`SELECT pg_database_size($1)`, s).Scan(&size)
-		a.db.QueryRow(`SELECT count(*) FROM pg_stat_activity WHERE datname=$1`, s).Scan(&conns)
-		a.db.Exec(`INSERT INTO metrics_samples(slug, db_size, conns) VALUES ($1,$2,$3)`, s, size, conns)
-	}
-	a.db.Exec(`DELETE FROM metrics_samples WHERE at < now() - interval '30 days'`)
 
 	a.autoSuspend()
 	a.reapPostgREST(15 * time.Minute)

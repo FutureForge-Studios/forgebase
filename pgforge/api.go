@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/lib/pq"
@@ -41,10 +42,12 @@ func graphqlDepth(q string) int {
 // anon / service_role JWT keys. pgforged reverse-proxies to the local PostgREST.
 
 type pgrst struct {
-	port    int
-	cmd     *exec.Cmd
-	proxy   *httputil.ReverseProxy
-	lastReq time.Time
+	port  int
+	cmd   *exec.Cmd
+	proxy *httputil.ReverseProxy
+	// lastReq is the unix-nano time of the last proxied request. Atomic because
+	// the hot path writes it without the pgrstMu lock the reaper reads under.
+	lastReq atomic.Int64
 }
 
 // touchAndResume marks a project active on any request, and auto-resumes it if
@@ -68,9 +71,10 @@ func (a *app) reapPostgREST(idle time.Duration) {
 	pgrstMu.Lock()
 	defer pgrstMu.Unlock()
 	for slug, p := range pgrstProc {
-		if time.Since(p.lastReq) > idle {
+		if time.Since(time.Unix(0, p.lastReq.Load())) > idle {
 			killAndReap(p.cmd)
 			delete(pgrstProc, slug)
+			freePgrstPort(p.port)
 		}
 	}
 }
@@ -89,7 +93,41 @@ var (
 	pgrstMu   sync.Mutex
 	pgrstProc = map[string]*pgrst{}
 	pgrstNext = 3001
+	pgrstFree []int // ports released by dead PostgRESTs, reused before pgrstNext
 )
+
+// allocPgrstPort returns a port for a new PostgREST. Freed ports are recycled
+// first; the counter path skips any port still held by a live entry, so a wrap
+// after long uptime can never hand out a port another project is serving on
+// (which previously let a readiness probe succeed against the WRONG project's
+// PostgREST and cache a cross-tenant proxy). Caller must hold pgrstMu.
+func allocPgrstPort() int {
+	if n := len(pgrstFree); n > 0 {
+		p := pgrstFree[n-1]
+		pgrstFree = pgrstFree[:n-1]
+		return p
+	}
+	for {
+		if pgrstNext > 65000 {
+			pgrstNext = 3001
+		}
+		port := pgrstNext
+		pgrstNext++
+		inUse := false
+		for _, p := range pgrstProc {
+			if p.port == port {
+				inUse = true
+				break
+			}
+		}
+		if !inUse {
+			return port
+		}
+	}
+}
+
+// freePgrstPort returns a port to the reuse pool. Caller must hold pgrstMu.
+func freePgrstPort(port int) { pgrstFree = append(pgrstFree, port) }
 
 // apiConfig returns (secret, enabled) for a project's Data API.
 func (a *app) apiConfig(slug string) (string, bool) {
@@ -214,11 +252,7 @@ func (a *app) ensurePostgREST(slug string) (*pgrst, error) {
 		return nil, fmt.Errorf("data api not enabled")
 	}
 	_, pw := a.projectCred(slug)
-	if pgrstNext > 65000 { // wrap so a long-lived, restart-heavy box can't run off the end
-		pgrstNext = 3001
-	}
-	port := pgrstNext
-	pgrstNext++
+	port := allocPgrstPort()
 	dbURI := fmt.Sprintf("postgres://%s:%s@127.0.0.1:5432/%s?sslmode=require",
 		url.QueryEscape(slug), url.QueryEscape(pw), url.QueryEscape(slug))
 	cmd := exec.Command("/usr/local/bin/postgrest")
@@ -243,16 +277,27 @@ func (a *app) ensurePostgREST(slug string) (*pgrst, error) {
 		w.WriteHeader(http.StatusBadGateway)
 		fmt.Fprint(w, `{"message":"data api is starting or unavailable, retry shortly"}`)
 	}
-	p := &pgrst{port: port, cmd: cmd, proxy: proxy, lastReq: time.Now()}
+	p := &pgrst{port: port, cmd: cmd, proxy: proxy}
+	p.lastReq.Store(time.Now().UnixNano())
 	pgrstProc[slug] = p
 	pgrstMu.Unlock() // release BEFORE the readiness wait
 
+	// Readiness must prove IDENTITY, not just a listening socket: probe with
+	// this project's own anon JWT and require 200. A stale PostgREST from a
+	// different project on the same port rejects the token (401, different
+	// secret); one still connecting to its DB returns 503. Both keep retrying,
+	// so we can never cache a proxy pointing at another tenant's instance.
+	probe, _ := http.NewRequest("GET", target.String()+"/", nil)
+	probe.Header.Set("Authorization", "Bearer "+signJWT([]byte(secret), "anon"))
+	client := &http.Client{Timeout: time.Second}
 	ready := false
 	for i := 0; i < 40; i++ {
-		if c, err := (&http.Client{Timeout: time.Second}).Get(target.String() + "/"); err == nil {
-			c.Body.Close()
-			ready = true
-			break
+		if resp, err := client.Do(probe); err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				ready = true
+				break
+			}
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
@@ -264,6 +309,7 @@ func (a *app) ensurePostgREST(slug string) (*pgrst, error) {
 		if cur, ok := pgrstProc[slug]; ok && cur == p {
 			killAndReap(p.cmd)
 			delete(pgrstProc, slug)
+			freePgrstPort(p.port)
 		}
 		pgrstMu.Unlock()
 		return nil, fmt.Errorf("data api failed to start")
@@ -277,6 +323,7 @@ func (a *app) stopPostgREST(slug string) {
 	if p, ok := pgrstProc[slug]; ok {
 		killAndReap(p.cmd)
 		delete(pgrstProc, slug)
+		freePgrstPort(p.port)
 	}
 }
 
@@ -406,7 +453,7 @@ func (a *app) serveAPI(w http.ResponseWriter, r *http.Request, slug string) {
 		if r.URL.Path == "" {
 			r.URL.Path = "/"
 		}
-		p.lastReq = time.Now()
+		p.lastReq.Store(time.Now().UnixNano())
 		p.proxy.ServeHTTP(w, r)
 		return
 	}

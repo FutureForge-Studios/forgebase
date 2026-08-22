@@ -40,7 +40,9 @@ func (a *app) updateStatus() updateInfo {
 	info := updateInfo{Current: appVersion}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	url := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/CHANGELOG.md", updateOwner, updateRepo)
+	// The unique query param busts GitHub's raw-CDN cache (up to ~5 min per
+	// edge), so a check always sees a just-pushed release immediately.
+	url := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/CHANGELOG.md?cb=%d", updateOwner, updateRepo, time.Now().Unix())
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

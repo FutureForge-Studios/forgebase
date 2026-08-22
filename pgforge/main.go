@@ -411,6 +411,8 @@ func (a *app) ensureSchema() error {
 			cpu_load real
 		)`,
 		`CREATE INDEX IF NOT EXISTS metrics_samples_slug_at ON metrics_samples(slug, at)`,
+		// the retention DELETE filters on `at` alone; without this it seq-scans
+		`CREATE INDEX IF NOT EXISTS metrics_samples_at ON metrics_samples(at)`,
 		`CREATE TABLE IF NOT EXISTS db_imports (
 			slug text PRIMARY KEY,
 			source_enc bytea,
