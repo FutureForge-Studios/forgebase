@@ -225,8 +225,8 @@ func (a *app) globalAuditPage(w http.ResponseWriter, r *http.Request) {
 
 // ----------------------------------------------------------------- branches
 //
-// Neon-style instant branching: a branch is a full copy-on-... (here a plain
-// copy) database created with CREATE DATABASE <branch> TEMPLATE <source>. It
+// Shared-cluster branching: a branch is a plain full
+// copy - a database created with CREATE DATABASE <branch> TEMPLATE <source>. It
 // gets its own role + credentials + connection string, tracked in projects.
 
 func (a *app) branchesPage(w http.ResponseWriter, r *http.Request) {

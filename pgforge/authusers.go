@@ -27,7 +27,7 @@ const accessTokenTTL = 3600
 
 // signUserJWT mints a short-lived authenticated-user access token. user_metadata
 // and app_metadata are embedded as raw JSON objects so apps (and RLS via
-// auth.jwt()) can read them, matching the Supabase claim shape.
+// auth.jwt()) can read them, using the industry-standard claim shape.
 func signUserJWT(secret []byte, sub, email, userMeta, appMeta string) string {
 	if !json.Valid([]byte(userMeta)) {
 		userMeta = "{}"

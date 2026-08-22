@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -102,12 +103,20 @@ func displayValue(b []byte) string {
 }
 
 func scanRows(rows *sql.Rows) ([]string, [][]cell, error) {
+	return scanRowsN(rows, maxScanRows)
+}
+
+// scanRowsN caps at n rows (the SQL editor's row-limit selector).
+func scanRowsN(rows *sql.Rows, n int) ([]string, [][]cell, error) {
+	if n <= 0 || n > 10000 {
+		n = maxScanRows
+	}
 	cols, err := rows.Columns()
 	if err != nil {
 		return nil, nil, err
 	}
 	var out [][]cell
-	for rows.Next() && len(out) < maxScanRows {
+	for rows.Next() && len(out) < n {
 		raw := make([]any, len(cols))
 		ptr := make([]any, len(cols))
 		for i := range raw {
@@ -466,7 +475,8 @@ func (a *app) sqlPage(w http.ResponseWriter, r *http.Request) {
 		a.db.QueryRow(`SELECT sql FROM saved_queries WHERE id=$1 AND slug=$2`, id, slug).Scan(&q)
 	}
 	content := renderContent(sqlBody, map[string]any{"Slug": slug, "Query": q,
-		"Schema": a.schemaTree(slug), "Saved": a.savedQueries(slug)})
+		"Schema": a.schemaTree(slug), "Saved": a.savedQueries(slug),
+		"History": a.sqlHistory(slug), "Limit": 0})
 	a.renderShell(w, r, shellData{Title: slug + " · SQL", Nav: "sql", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "SQL Editor"}}}, content)
 }
@@ -494,14 +504,34 @@ func (a *app) deleteSavedQuery(w http.ResponseWriter, r *http.Request) {
 func (a *app) sqlRun(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	query := r.FormValue("query")
+	// "Explain" button: wrap the statement in a JSON-format plan request and
+	// render it as a tree instead of running it for real.
+	explainMode := r.FormValue("explain") == "1"
+	if explainMode {
+		q := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(query), ";"))
+		low := strings.ToLower(q)
+		if !strings.HasPrefix(low, "explain") {
+			analyze := "false"
+			if r.FormValue("analyze") == "1" && (strings.HasPrefix(low, "select") || strings.HasPrefix(low, "with")) {
+				analyze = "true" // ANALYZE only for reads - never execute writes to plan them
+			}
+			query = "EXPLAIN (ANALYZE " + analyze + ", COSTS true, BUFFERS false, FORMAT JSON) " + q
+		}
+	}
 	if qs := strings.TrimSpace(query); qs != "" {
 		if len(qs) > 60 {
 			qs = qs[:60] + "…"
 		}
 		a.audit(r, "sql-run", slug+": "+qs)
 	}
+	rowLimit := 0
+	fmt.Sscanf(r.FormValue("limit"), "%d", &rowLimit)
 	db, err := a.dbFor(slug)
-	data := map[string]any{"Slug": slug, "Query": query, "Schema": a.schemaTree(slug), "Saved": a.savedQueries(slug), "RunAs": ""}
+	echo := r.FormValue("buffer") // full editor buffer (run-selection posts only the selection as query)
+	if strings.TrimSpace(echo) == "" {
+		echo = r.FormValue("query")
+	}
+	data := map[string]any{"Slug": slug, "Query": echo, "Schema": a.schemaTree(slug), "Saved": a.savedQueries(slug), "RunAs": "", "Limit": rowLimit, "History": a.sqlHistory(slug)}
 	if err != nil {
 		data["Error"] = err.Error()
 	} else {
@@ -534,8 +564,11 @@ func (a *app) sqlRun(w http.ResponseWriter, r *http.Request) {
 				data["Error"] = qerr.Error()
 				hadErr = true
 			} else {
-				cols, recs, _ := scanRows(rows)
+				cols, recs, _ := scanRowsN(rows, rowLimit)
 				rows.Close()
+				if explainMode && len(recs) > 0 && len(recs[0]) > 0 {
+					data["Plan"] = renderPlanTree(recs[0][0].Val)
+				}
 				data["Cols"] = cols
 				data["Rows"] = recs
 				data["Took"] = time.Since(start).Round(time.Millisecond).String()
@@ -566,10 +599,102 @@ func (a *app) sqlRun(w http.ResponseWriter, r *http.Request) {
 				tx.Commit()
 			}
 		}
+		// persistent, team-visible run history (newest 200 per project)
+		if qs := strings.TrimSpace(r.FormValue("query")); qs != "" && !explainMode {
+			a.db.Exec(`INSERT INTO sql_history(slug, sql, ok, took_ms) VALUES ($1,$2,$3,$4)`,
+				slug, qs, !hadErr, int(time.Since(start).Milliseconds()))
+			a.db.Exec(`DELETE FROM sql_history h WHERE h.slug=$1 AND h.id NOT IN (
+				SELECT id FROM sql_history WHERE slug=$1 ORDER BY at DESC LIMIT 200)`, slug)
+			data["History"] = a.sqlHistory(slug)
+		}
 	}
 	content := renderContent(sqlBody, data)
 	a.renderShell(w, r, shellData{Title: slug + " · SQL", Nav: "sql", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "SQL Editor"}}}, content)
+}
+
+type sqlHistRow struct {
+	ID              int64
+	SQL, Took, When string
+	OK              bool
+}
+
+// sqlHistory returns the newest runs for the history panel.
+func (a *app) sqlHistory(slug string) []sqlHistRow {
+	rows, err := a.db.Query(`SELECT id, sql, ok, took_ms, to_char(at,'Mon DD HH24:MI')
+		FROM sql_history WHERE slug=$1 ORDER BY at DESC LIMIT 25`, slug)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []sqlHistRow
+	for rows.Next() {
+		var h sqlHistRow
+		var ms int
+		rows.Scan(&h.ID, &h.SQL, &h.OK, &ms, &h.When)
+		h.Took = fmt.Sprintf("%dms", ms)
+		out = append(out, h)
+	}
+	return out
+}
+
+type planNode struct {
+	Label, Detail string
+	Depth         int
+}
+
+// renderPlanTree flattens EXPLAIN (FORMAT JSON) output into an indented tree
+// the template can render - a visual query plan without any client-side JS.
+func renderPlanTree(planJSON string) []planNode {
+	var top []map[string]any
+	if json.Unmarshal([]byte(planJSON), &top) != nil || len(top) == 0 {
+		return nil
+	}
+	root, _ := top[0]["Plan"].(map[string]any)
+	if root == nil {
+		return nil
+	}
+	var out []planNode
+	var walk func(n map[string]any, depth int)
+	walk = func(n map[string]any, depth int) {
+		nt, _ := n["Node Type"].(string)
+		label := nt
+		if rel, ok := n["Relation Name"].(string); ok && rel != "" {
+			label += " on " + rel
+		}
+		if idx, ok := n["Index Name"].(string); ok && idx != "" {
+			label += " using " + idx
+		}
+		det := ""
+		if c, ok := n["Total Cost"].(float64); ok {
+			det = fmt.Sprintf("cost=%.1f", c)
+		}
+		if rws, ok := n["Plan Rows"].(float64); ok {
+			det += fmt.Sprintf(" rows=%.0f", rws)
+		}
+		if at, ok := n["Actual Total Time"].(float64); ok {
+			det += fmt.Sprintf(" time=%.2fms", at)
+		}
+		if ar, ok := n["Actual Rows"].(float64); ok {
+			det += fmt.Sprintf(" actual=%.0f", ar)
+		}
+		if f, ok := n["Filter"].(string); ok && f != "" {
+			det += " filter: " + f
+		}
+		if ic, ok := n["Index Cond"].(string); ok && ic != "" {
+			det += " cond: " + ic
+		}
+		out = append(out, planNode{Label: label, Detail: strings.TrimSpace(det), Depth: depth})
+		if subs, ok := n["Plans"].([]any); ok {
+			for _, sp := range subs {
+				if m, ok := sp.(map[string]any); ok {
+					walk(m, depth+1)
+				}
+			}
+		}
+	}
+	walk(root, 0)
+	return out
 }
 
 // detectDelimiter sniffs the header line for the most likely CSV delimiter, so a

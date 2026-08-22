@@ -402,6 +402,16 @@ func (a *app) ensureSchema() error {
 		// 'shared' (database in the shared cluster) or 'instance' (own Postgres
 		// container on copy-on-write storage: instant branches, scale-to-zero)
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'shared'`,
+		// per-project SQL run history (capped in sqlRun; newest first in the panel)
+		`CREATE TABLE IF NOT EXISTS sql_history (
+			id bigserial PRIMARY KEY,
+			slug text NOT NULL,
+			sql text NOT NULL,
+			ok boolean NOT NULL DEFAULT true,
+			took_ms integer NOT NULL DEFAULT 0,
+			at timestamptz NOT NULL DEFAULT now()
+		)`,
+		`CREATE INDEX IF NOT EXISTS sql_history_slug_at ON sql_history(slug, at DESC)`,
 		// manual incident notes shown on the public status page
 		`CREATE TABLE IF NOT EXISTS incidents (
 			id bigserial PRIMARY KEY,

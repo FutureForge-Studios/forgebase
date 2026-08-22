@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.0"
+const appVersion = "1.3.1"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,22 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.1", Date: "2026-08-22",
+		Summary: "A professional SQL editor.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Syntax highlighting and schema-aware autocomplete in the SQL editor (Tab to accept, arrows to choose) - tables, columns, and keywords, generated from your live schema.",
+				"Visual query plans: the new Explain button renders the plan as an indented tree with costs, row estimates, and filters - without executing writes.",
+				"Persistent, team-visible query history (last 200 runs with status and timing) with one-click reload, alongside the existing quick-recall list.",
+				"Run only the selected text, choose a result row limit (100/1000/5000), export results as CSV, JSON, or Markdown, Ctrl+click any cell to copy it, and a one-click SQL formatter.",
+				"A destructive-query guard: DROP/TRUNCATE, or DELETE/UPDATE without WHERE, now ask before running.",
+			}},
+			{"Changed", []string{
+				"Documentation and interface copy cleanup.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.0", Date: "2026-08-22",
 		Summary: "Dedicated instances: instant branching and true scale-to-zero.",
@@ -204,7 +220,7 @@ var releases = []release{
 	},
 	{
 		Version: "1.2.10", Date: "2026-08-22",
-		Summary: "Neon-style sleep: idle projects cost nothing and wake on any request.",
+		Summary: "Sleep mode: idle projects cost nothing and wake on any request.",
 		Sections: []changeSection{
 			{"Changed", []string{
 				"Idle projects now go to sleep instead of being suspended. Sleep releases everything that costs resources - the API process, the realtime listener, cached connections - but NEVER blocks logins and never touches data. A sleeping project wakes automatically on the next API call, panel visit, or direct database connection (direct connections are accepted instantly; the project is marked awake within minutes). Manual Pause remains the explicit hard lockout.",
@@ -474,7 +490,7 @@ var releases = []release{
 	},
 	{
 		Version: "1.0.0", Date: "2026-08-17",
-		Summary: "First public release. A lightweight, self-hosted Supabase and Neon alternative in a single Go binary.",
+		Summary: "First public release. A lightweight, self-hosted Postgres backend platform in a single Go binary.",
 		Sections: []changeSection{
 			{"Added", []string{
 				"In-app self-update: check GitHub for a newer build, read the changelog, and install it with one click, with an atomic binary swap, health check, and automatic rollback. Admin only, opt-in, audit-logged.",

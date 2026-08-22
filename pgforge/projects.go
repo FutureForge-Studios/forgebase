@@ -224,7 +224,7 @@ func (a *app) dropProjectFully(slug string) error {
 	a.stopPostgREST(slug)
 	a.stopRealtimeHub(slug) // stop the LISTEN hub before the database goes away
 	// drop any live-sync subscription first so its replication slot is released
-	// on the source (e.g. Neon) instead of being orphaned when the DB is dropped.
+	// on the source provider instead of being orphaned when the DB is dropped.
 	// dropSubscription detaches the slot first so this can't hang on a dead source.
 	if db, err := a.dbFor(slug); err == nil {
 		a.dropSubscription(db)

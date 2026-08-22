@@ -16,4 +16,4 @@ Describe the feature or change you would like.
 Any other approaches you thought about.
 
 **Prior art**
-If Supabase, Neon, or another tool does this, a link helps.
+If another tool does this well, a link helps.

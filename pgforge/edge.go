@@ -265,8 +265,8 @@ func (a *app) serveFunction(w http.ResponseWriter, r *http.Request, slug string)
 	defer cancel()
 	// Scoped env: NEVER inherit os.Environ() (it holds PANEL_PASS, SESSION_SECRET
 	// and the control-plane DSN). The function gets only its project context, the
-	// project's own API keys (so it can call its own REST/Auth like a Supabase
-	// function uses SUPABASE_URL/ANON_KEY), and its configured secrets - and
+	// project's own API keys (so it can call its own REST/Auth with the
+	// injected FORGEBASE_URL/ANON_KEY), and its configured secrets - and
 	// --allow-env is restricted to exactly those names.
 	anon, service, _, _ := a.apiKeys(slug)
 	env := []string{

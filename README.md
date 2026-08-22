@@ -5,7 +5,7 @@
 <img width="3181" height="1639" alt="image" src="https://github.com/user-attachments/assets/4c044286-9dca-4993-b69f-a5ec647f1f79" />
 
 
-**Your own Postgres backend platform - a self-hosted alternative to hosted services like Supabase and Neon, on one small server.**
+**Your own Postgres backend platform - projects, auth, APIs, storage, realtime and instant branching, self-hosted on one small server.**
 
 Create isolated Postgres databases in under a second and get, per project, a
 table editor, SQL editor, instant REST + GraphQL API, auth, storage, realtime,
@@ -44,16 +44,14 @@ footprint is ~800 MB; a dozen projects still fit on a 4 GB VPS.
 | **Storage** | Public and private file buckets with signed URLs. |
 | **Realtime & Webhooks** | Live row-change streams over WebSockets and outbound webhooks on insert/update/delete. |
 | **Edge Functions** | Per-project Deno functions on `/functions/v1/<name>`. |
-| **Branches** | Full database copies with their own credentials for staging/testing (copies the whole database via `CREATE DATABASE ... TEMPLATE`; briefly locks the source while copying - not Neon-style copy-on-write). |
+| **Branches** | Dedicated-instance projects branch instantly (~2s copy-on-write snapshots that share storage with the parent); shared-cluster projects get full copies with their own credentials. |
 | **Clone & Sync** | Import any external Postgres from a connection string and optionally keep it live-synced via logical replication. |
 | **Database admin** | Rotate credentials, enable extensions (~50-item catalog), tune connection limits. |
 | **Backups & recovery** | Nightly logical dumps + basebackups + continuous WAL archive; per-project "back up now" and one-click restore; real point-in-time recovery to any second into a new project; off-box S3 sync. |
 | **Monitoring, Logs & Audit** | Per-project size/connections/cache-hit and 7-day charts; live session view; a platform-wide audit trail with actor + source IP. |
 
-For an honest, feature-by-feature comparison with Supabase and Neon - what is at
-parity, what is partial, and what is a genuine gap - see
-[docs/COMPARISON.md](docs/COMPARISON.md). We would rather tell you exactly where
-each line falls than oversell it. The ordered plan to close every gap lives in
+We would rather tell you exactly what each feature does than oversell it - the
+docs describe real behavior, and the build plan lives in
 [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Install

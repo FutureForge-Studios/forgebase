@@ -30,7 +30,7 @@ const dashboardBody = `
 </form>
 <form id="impdb" class="card" method="post" action="/clone" style="display:none;margin-bottom:1.5rem">
   <h2 style="font-size:16px;margin-bottom:.2rem">Clone an existing database</h2>
-  <p class="muted" style="font-size:12.5px;margin:0 0 .8rem">Paste any Postgres connection string (Neon, Supabase, RDS, …). ForgeBase creates a new project and copies the whole database into it.</p>
+  <p class="muted" style="font-size:12.5px;margin:0 0 .8rem">Paste any Postgres connection string from any provider. ForgeBase creates a new project and copies the whole database into it.</p>
   <div style="display:flex;gap:.6rem;flex-wrap:wrap">
     <input type="text" name="slug" placeholder="new project name" pattern="[A-Za-z][A-Za-z0-9_-]{1,38}[A-Za-z0-9]" required style="width:220px">
     <input type="text" name="source" placeholder="postgresql://user:pass@host/db?sslmode=require" required style="flex:1;min-width:280px;font-family:var(--mono);font-size:12px">
@@ -317,9 +317,22 @@ const sqlBody = `
     </div>{{end}}
     <form id="saveform" method="post" action="/p/{{.Slug}}/sql/save" style="display:none"><input type="hidden" name="name" id="savename"><input type="hidden" name="query" id="savequery"></form>
     <form method="post" action="/p/{{.Slug}}/sql" id="sqlform">
-      <textarea name="query" id="q" rows="9" placeholder="select * from ..." autofocus>{{.Query}}</textarea>
+      <input type="hidden" name="buffer" id="buf"><input type="hidden" name="explain" id="explainfld" value="">
+      <div class="edwrap">
+        <pre id="hl" aria-hidden="true"></pre>
+        <textarea name="query" id="q" rows="9" spellcheck="false" placeholder="select * from ..." autofocus>{{.Query}}</textarea>
+        <div id="ac" class="ac" style="display:none"></div>
+      </div>
       <div style="display:flex;gap:.6rem;margin-top:.7rem;align-items:center;flex-wrap:wrap">
         <button class="btn btn-primary" type="submit">{{icon "play"}} Run</button>
+        <button class="btn btn-ghost btn-sm" type="button" onclick="runExplain()" title="Visual query plan (never executes writes)">Explain</button>
+        <button class="btn btn-ghost btn-sm" type="button" onclick="fmtSQL()" title="Format SQL">Format</button>
+        <label class="muted" style="font-size:12px;display:flex;align-items:center;gap:.3rem">rows
+          <select name="limit" style="padding:.25rem .4rem;font-size:12px">
+            <option value="100" {{if eq .Limit 100}}selected{{end}}>100</option>
+            <option value="1000" {{if or (eq .Limit 0) (eq .Limit 1000)}}selected{{end}}>1000</option>
+            <option value="5000" {{if eq .Limit 5000}}selected{{end}}>5000</option>
+          </select></label>
         <label class="muted" style="font-size:12px;display:flex;align-items:center;gap:.3rem">as
           <select name="role" style="padding:.25rem .4rem;font-size:12px">
             <option value="">owner</option>
@@ -332,10 +345,16 @@ const sqlBody = `
         {{if .Took}}<div class="spacer"></div><span class="muted" style="font-size:12px">{{if .RunAs}}as {{.RunAs}} · {{end}}{{if .Ok}}{{.Affected}} row(s) affected · {{else}}{{.Count}} row(s){{if .Capped}} (first {{.Count}} shown){{end}} · {{end}}{{.Took}}</span>{{end}}
       </div>
     </form>
+    {{if .Plan}}
+    <div class="label" style="margin-top:1rem">Query plan</div>
+    <div class="card" style="margin-top:.4rem;padding:.8rem;font-family:var(--mono);font-size:12px;line-height:1.7;overflow-x:auto">
+      {{range .Plan}}<div style="padding-left:{{.Depth}}rem"><b>{{.Label}}</b> <span class="muted">{{.Detail}}</span></div>{{end}}
+    </div>
+    {{end}}
     {{if .Error}}<div class="flash err" style="margin-top:1rem">{{.Error}}</div>{{end}}
     {{if .Ok}}<div class="flash" style="margin-top:1rem">Success - {{.Affected}} row(s) affected in {{.Took}}.</div>{{end}}
     {{if .Cols}}
-    <div style="display:flex;align-items:center;margin-top:1rem;gap:.6rem"><span class="label">Result{{if .RunAs}} (as {{.RunAs}}){{end}}</span><div class="spacer"></div><button class="btn btn-ghost btn-sm" type="button" onclick="exportResults()">{{icon "archive"}} Export CSV</button></div>
+    <div style="display:flex;align-items:center;margin-top:1rem;gap:.6rem"><span class="label">Result{{if .RunAs}} (as {{.RunAs}}){{end}}</span><div class="spacer"></div><button class="btn btn-ghost btn-sm" type="button" onclick="exportResults()">CSV</button><button class="btn btn-ghost btn-sm" type="button" onclick="exportJSON()">JSON</button><button class="btn btn-ghost btn-sm" type="button" onclick="exportMD()">Markdown</button></div>
     <div class="tblwrap" style="margin-top:.5rem">
       <table class="data" id="resulttable">
         <thead><tr>{{range .Cols}}<th>{{.}}</th>{{end}}</tr></thead>
@@ -343,6 +362,17 @@ const sqlBody = `
       </table>
     </div>
     {{if not .Rows}}<p class="muted" style="margin-top:.6rem">0 rows.</p>{{end}}
+    {{end}}
+    {{if .History}}
+    <details style="margin-top:1.2rem"><summary class="label" style="cursor:pointer">History ({{len .History}})</summary>
+    <div class="tblwrap" style="margin-top:.5rem"><table class="data">
+      <tbody>{{range .History}}<tr>
+        <td style="max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><code style="font-size:11.5px">{{.SQL}}</code></td>
+        <td>{{if .OK}}<span class="badge active">ok</span>{{else}}<span class="badge paused">err</span>{{end}}</td>
+        <td class="muted" style="font-size:11px;white-space:nowrap">{{.Took}} · {{.When}}</td>
+        <td><button class="btn btn-ghost btn-sm" type="button" onclick="setq(this.getAttribute('data-sql'))" data-sql="{{.SQL}}">Load</button></td>
+      </tr>{{end}}</tbody>
+    </table></div></details>
     {{end}}
   </div>
 </div>
@@ -357,7 +387,58 @@ function loadHist(){try{var h=JSON.parse(localStorage.getItem(HKEY)||'[]');var s
 function pushHist(x){if(!x||!x.trim())return;try{var h=JSON.parse(localStorage.getItem(HKEY)||'[]');h=h.filter(function(v){return v!==x});h.unshift(x);h=h.slice(0,25);localStorage.setItem(HKEY,JSON.stringify(h));}catch(e){}}
 document.getElementById('sqlform').addEventListener('submit',function(){pushHist(q.value);});
 loadHist();
-function exportResults(){var t=document.getElementById('resulttable');if(!t)return;var lines=[];for(var r=0;r<t.rows.length;r++){var row=[];for(var c=0;c<t.rows[r].cells.length;c++){row.push('"'+t.rows[r].cells[c].innerText.replace(/"/g,'""')+'"');}lines.push(row.join(','));}var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/csv'}));a.download='query_result.csv';a.click();}
+function tbl2rows(){var t=document.getElementById('resulttable');if(!t)return [];var out=[];for(var r=0;r<t.rows.length;r++){var row=[];for(var c=0;c<t.rows[r].cells.length;c++){row.push(t.rows[r].cells[c].innerText)}out.push(row)}return out;}
+function dl(data,name,type){var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type:type}));a.download=name;a.click();}
+function exportResults(){dl(tbl2rows().map(function(r){return r.map(function(c){return '"'+c.replace(/"/g,'""')+'"'}).join(',')}).join('\n'),'query_result.csv','text/csv');}
+function exportJSON(){var rs=tbl2rows();if(!rs.length)return;var h=rs[0];dl(JSON.stringify(rs.slice(1).map(function(r){var o={};h.forEach(function(k,i){o[k]=r[i]});return o}),null,2),'query_result.json','application/json');}
+function exportMD(){var rs=tbl2rows();if(!rs.length)return;var out=['| '+rs[0].join(' | ')+' |','| '+rs[0].map(function(){return '---'}).join(' | ')+' |'];rs.slice(1).forEach(function(r){out.push('| '+r.join(' | ')+' |')});dl(out.join('\n'),'query_result.md','text/markdown');}
+document.addEventListener('click',function(e){var td=e.target.closest('#resulttable td');if(td&&(e.ctrlKey||e.metaKey)){navigator.clipboard.writeText(td.innerText)}});
+var KWS='select|from|where|insert|into|values|update|set|delete|create|table|drop|alter|add|column|index|view|join|left|right|inner|outer|full|on|as|and|or|not|null|is|in|like|ilike|between|order|by|group|having|limit|offset|distinct|union|all|case|when|then|else|end|with|returning|primary|key|foreign|references|unique|default|constraint|check|cascade|begin|commit|rollback|grant|revoke|explain|analyze|exists|using|policy|enable|row|level|security|function|trigger|replace';
+var KW=new RegExp('\b('+KWS+')\b','gi');
+var TOK=new RegExp("('(?:[^']|'')*')|(--[^\n]*)|\b(?:"+KWS+')\b','gi');
+var hl=document.getElementById('hl');
+function esc(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;')}
+function paint(){var v=q.value,out='',last=0,m;TOK.lastIndex=0;
+ while((m=TOK.exec(v))){out+=esc(v.slice(last,m.index));
+  if(m[1])out+='<i class="hs">'+esc(m[1])+'</i>';
+  else if(m[2])out+='<i class="hc">'+esc(m[2])+'</i>';
+  else out+='<i class="hk">'+esc(m[0])+'</i>';
+  last=TOK.lastIndex;}
+ out+=esc(v.slice(last));hl.innerHTML=out+'
+';}
+q.addEventListener('input',paint);
+q.addEventListener('scroll',function(){hl.scrollTop=q.scrollTop;hl.scrollLeft=q.scrollLeft;});
+paint();
+var SCHEMA=[{{range .Schema}}{t:'{{.Name}}',c:[{{range .Cols}}'{{.Name}}',{{end}}]},{{end}}];
+var WORDS=[];SCHEMA.forEach(function(s){WORDS.push(s.t);s.c.forEach(function(c){if(WORDS.indexOf(c)<0)WORDS.push(c)})});
+['select','from','where','insert into','update','delete from','order by','group by','limit','left join','create table','alter table'].forEach(function(k){WORDS.push(k)});
+var ac=document.getElementById('ac'),acIdx=0,acList=[];
+function curWord(){var v=q.value.slice(0,q.selectionStart);var m=v.match(/[A-Za-z_][A-Za-z0-9_]*$/);return m?m[0]:'';}
+function showAC(){var w=curWord();if(w.length<2){ac.style.display='none';return}
+ acList=WORDS.filter(function(x){return x.toLowerCase().indexOf(w.toLowerCase())===0&&x.toLowerCase()!==w.toLowerCase()}).slice(0,8);
+ if(!acList.length){ac.style.display='none';return}
+ acIdx=0;ac.innerHTML=acList.map(function(x,i){return '<div class="aci'+(i===0?' on':'')+'" data-i="'+i+'">'+esc(x)+'</div>'}).join('');
+ ac.style.display='block';}
+function acPick(i){var w=curWord();var pick=acList[i];var s=q.selectionStart;q.value=q.value.slice(0,s-w.length)+pick+q.value.slice(s);q.selectionStart=q.selectionEnd=s-w.length+pick.length;ac.style.display='none';paint();q.focus();}
+q.addEventListener('input',showAC);
+q.addEventListener('keydown',function(e){if(ac.style.display==='none')return;
+ if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();acIdx=(acIdx+(e.key==='ArrowDown'?1:acList.length-1))%acList.length;var ns=ac.querySelectorAll('.aci');for(var i=0;i<ns.length;i++){ns[i].className='aci'+(i===acIdx?' on':'')}}
+ else if(e.key==='Tab'){e.preventDefault();acPick(acIdx)}
+ else if(e.key==='Escape'){ac.style.display='none'}});
+ac.addEventListener('mousedown',function(e){var d=e.target.closest('.aci');if(d){e.preventDefault();acPick(+d.getAttribute('data-i'))}});
+document.getElementById('sqlform').addEventListener('submit',function(e){
+ document.getElementById('buf').value=q.value;
+ var sel=q.value.substring(q.selectionStart,q.selectionEnd);
+ if(sel.trim()){q.value=sel;}
+ var low=q.value.toLowerCase();
+ if(/\b(drop|truncate)\b/.test(low)||(/\bdelete\b/.test(low)&&!/\bwhere\b/.test(low))||(/\bupdate\b/.test(low)&&!/\bwhere\b/.test(low))){
+  if(!confirm('This looks destructive (DROP/TRUNCATE, or DELETE/UPDATE without WHERE). Run it?')){e.preventDefault();q.value=document.getElementById('buf').value;paint();return false;}}
+});
+function runExplain(){document.getElementById('explainfld').value='1';document.getElementById('sqlform').submit();document.getElementById('explainfld').value='';}
+function fmtSQL(){var v=q.value;
+ v=v.replace(KW,function(m){return m.toUpperCase()});
+ v=v.replace(/[ \t]+(FROM|WHERE|ORDER BY|GROUP BY|HAVING|LIMIT|LEFT JOIN|RIGHT JOIN|INNER JOIN|JOIN|UNION|VALUES|SET|RETURNING)\b/g,'\n$1');
+ q.value=v.replace(/\n{3,}/g,'\n\n');paint();}
 </script>`
 
 const databaseBody = `

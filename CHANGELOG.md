@@ -13,6 +13,25 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.1] - 2026-08-22
+
+### Added
+- Syntax highlighting and schema-aware autocomplete in the SQL editor (Tab to
+  accept, arrows to choose) - tables, columns, and keywords, generated from
+  your live schema.
+- Visual query plans: the new Explain button renders the plan as an indented
+  tree with costs, row estimates, and filters - without executing writes.
+- Persistent, team-visible query history (last 200 runs with status and
+  timing) with one-click reload.
+- Run only the selected text, choose a result row limit, export results as
+  CSV, JSON, or Markdown, Ctrl+click any cell to copy it, and a one-click SQL
+  formatter.
+- A destructive-query guard: DROP/TRUNCATE, or DELETE/UPDATE without WHERE,
+  now ask before running.
+
+### Changed
+- Documentation and interface copy cleanup.
+
 ## [1.3.0] - 2026-08-22
 
 ### Added
@@ -521,7 +540,7 @@ the work landed. 1.0.0 is the first public release.
 - Corrected over-claims in the README and UI: branching is a full copy that
   briefly locks the source (not instant copy-on-write), pause is auto-suspend
   (not scale-to-zero of compute). Added `docs/COMPARISON.md`, an honest
-  feature-by-feature comparison with Supabase and Neon.
+  feature-by-feature capability review.
 
 ## [1.0.2] - 2026-08-17
 
@@ -545,8 +564,8 @@ the work landed. 1.0.0 is the first public release.
 
 ## [1.0.0] - 2026-08-17
 
-First public release. ForgeBase is a lightweight, self-hosted Supabase and Neon
-alternative that runs as a single Go binary against a shared Postgres cluster.
+First public release. ForgeBase is a lightweight, self-hosted Postgres backend
+platform that runs as a single Go binary against a shared Postgres cluster.
 
 ### Added
 - In-app self-update: check GitHub for a newer build, read the changelog, and
@@ -663,7 +682,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.21...v1.3.0
 [1.2.21]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.20...v1.2.21
 [1.2.20]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.19...v1.2.20

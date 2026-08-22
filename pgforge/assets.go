@@ -142,6 +142,23 @@ input[type=file]::file-selector-button:hover{background:hsl(var(--accent))}
 .badge.active{background:hsl(var(--primary) / .12); color:hsl(var(--primary)); border-color:hsl(var(--primary) / .25)}
 .badge.paused,.badge.suspended,.badge.cloning{background:hsl(var(--warn) / .14); color:hsl(var(--warn)); border-color:hsl(var(--warn) / .3)}
 .badge svg{width:11px; height:11px}
+/* SQL editor: highlighted overlay behind a transparent-text textarea */
+.edwrap{position:relative}
+.edwrap textarea#q{position:relative; z-index:2; background:transparent; color:transparent;
+  caret-color:hsl(var(--fg)); font-family:var(--mono); font-size:13px; line-height:1.6;
+  white-space:pre; overflow-wrap:normal; overflow-x:auto; resize:vertical; width:100%}
+#hl{position:absolute; inset:0; z-index:1; margin:0; pointer-events:none; overflow:hidden;
+  border:1px solid transparent; border-radius:.6rem; padding:.6rem .8rem;
+  font-family:var(--mono); font-size:13px; line-height:1.6; white-space:pre; color:hsl(var(--fg))}
+#hl i{font-style:normal}
+#hl .hk{color:hsl(var(--primary)); font-weight:600}
+#hl .hs{color:hsl(25 70% 40%)}
+#hl .hc{color:hsl(var(--muted-fg)); font-style:italic}
+.ac{position:absolute; z-index:30; top:100%; left:.8rem; min-width:180px;
+  background:hsl(var(--card)); border:1px solid hsl(var(--border)); border-radius:.5rem;
+  box-shadow:var(--shadow-soft); overflow:hidden}
+.ac .aci{padding:.35rem .7rem; font-family:var(--mono); font-size:12.5px; cursor:pointer}
+.ac .aci.on,.ac .aci:hover{background:hsl(var(--primary)/.12); color:hsl(var(--primary))}
 .upddot{display:inline-block; width:8px; height:8px; border-radius:50%; background:hsl(var(--warn));
   margin-left:auto; animation:pulse 2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}

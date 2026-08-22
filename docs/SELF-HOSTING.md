@@ -1,6 +1,6 @@
 # Self-hosting ForgeBase
 
-ForgeBase is a lightweight, self-hosted Supabase/Neon alternative: one login, and
+ForgeBase is a lightweight, self-hosted Postgres backend platform: one login, and
 per project you get a table editor, SQL editor, instant REST + GraphQL API, auth,
 storage, realtime, branches, backups and monitoring - all on one small VPS. Every
 service runs once and is multi-tenant; a project is just a Postgres database +

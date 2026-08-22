@@ -120,7 +120,7 @@ const clientActivitySubquery = `SELECT DISTINCT datname FROM pg_stat_activity
 	  AND backend_type = 'client backend'
 	  AND application_name NOT IN ('pgforged','pgforge-rest')`
 
-// autoSuspend puts projects with no client activity to sleep, Neon-style:
+// autoSuspend puts projects with no client activity to sleep:
 // sleep NEVER blocks logins and never touches data - it only releases what
 // actually costs resources (API sidecar, realtime listener, cached pools).
 // Waking is automatic: an HTTP request wakes instantly via touchAndResume, and
