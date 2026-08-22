@@ -141,6 +141,7 @@ func main() {
 	a.startWebhookPumps()
 	a.startRateLimitPruner()
 	go a.migrateAuthProjects() // apply new auth columns to already-enabled projects
+	go a.reconcileInfra()      // bring on-box scripts/units current after a self-update
 
 	mux := http.NewServeMux()
 	// public

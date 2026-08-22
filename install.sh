@@ -219,23 +219,17 @@ chmod 600 "$ENVF"
 
 # ----------------------------------------------------------------- services
 # The SQL editor is built into pgforged now; the old interim pgweb is retired.
-echo "==> systemd services + timers"
-install -m 0755 "$REPO_DIR/scripts/backup.sh"       /opt/pgforge/bin/backup.sh
-install -m 0755 "$REPO_DIR/scripts/restore-test.sh" /opt/pgforge/bin/restore-test.sh
-install -m 0755 "$REPO_DIR/scripts/pitr-restore.sh" /opt/pgforge/bin/pitr-restore.sh
-install -m 0755 "$REPO_DIR/scripts/set-db-allowlist.sh" /opt/pgforge/bin/set-db-allowlist.sh
-install -m 0755 "$REPO_DIR/scripts/wal-prune.sh"    /opt/pgforge/bin/wal-prune.sh
+echo "==> systemd services + timers (via apply-infra.sh)"
 # Retire a pgweb unit left by an older install, if present.
 if [ -f /etc/systemd/system/pgweb.service ]; then
   systemctl disable --now pgweb 2>/dev/null || true
   rm -f /etc/systemd/system/pgweb.service /opt/pgforge/pgweb.env
 fi
-for u in pgforged.service pgforge-backup.service pgforge-backup.timer \
-         pgforge-restore-test.service pgforge-restore-test.timer; do
-  install -m 0644 "$REPO_DIR/systemd/$u" "/etc/systemd/system/$u"
-done
-systemctl daemon-reload
-systemctl enable --now pgforged pgforge-backup.timer pgforge-restore-test.timer pgforge-walprune.timer >/dev/null 2>&1
+# apply-infra.sh installs EVERY operational script and EVERY systemd unit from
+# the repo, so this list can never drift from what the repo ships (a
+# hand-maintained list here once silently skipped new units).
+sh "$REPO_DIR/scripts/apply-infra.sh" --safe
+systemctl enable --now pgforged >/dev/null 2>&1
 systemctl restart pgforged
 
 # ----------------------------------------------------------------- per-instance mode (opt-in)

@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.2.5"
+const appVersion = "1.2.6"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,20 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.2.6", Date: "2026-08-22",
+		Summary: "Updates now maintain the whole server, and the database can no longer fill the disk.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Self-updates now also refresh the server-side components (backup scripts and scheduled maintenance jobs), not just the app binary. Fixes to those land automatically with every update instead of requiring shell access.",
+			}},
+			{"Fixed", []string{
+				"Database write-ahead-log safety settings are applied automatically on every start: the live WAL is bounded to 1GB and compressed. This prevents the class of incident where heavy activity (a large clone or import) could fill the disk and take the database down.",
+				"The hourly backup-archive cleanup job is now installed correctly on fresh installs; previously it was shipped but never activated.",
+				"The updater now cleans up its build caches and temporary files, which previously grew without limit with every update.",
+			}},
+		},
+	},
 	{
 		Version: "1.2.5", Date: "2026-08-21",
 		Summary: "Self-update never gets stuck, and no more 502 during restart.",

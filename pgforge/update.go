@@ -209,6 +209,8 @@ echo ">> restarting pgforged"
 systemctl restart pgforged
 sleep 4
 if curl -fsS -o /dev/null "http://$LISTEN/healthz"; then
+  echo ">> applying infra (scripts + systemd units)"
+  sh "` + repoDir + `/scripts/apply-infra.sh" --safe || echo "!! infra apply failed (binary is fine)"
   echo ">> OK: updated to $VER"
 else
   echo "!! health check failed - rolling back"
@@ -216,6 +218,13 @@ else
   systemctl restart pgforged
   echo ">> rolled back to previous build"
 fi
+# hygiene: the build cache regrows on every update and nothing else prunes it;
+# the module cache is kept unless it has grown past 1GB.
+rm -f /tmp/pgforged.upd
+go clean -cache >/dev/null 2>&1 || true
+MOD=$(du -sm "$GOMODCACHE" 2>/dev/null | cut -f1)
+[ "${MOD:-0}" -gt 1024 ] && go clean -modcache >/dev/null 2>&1
+exit 0
 `
 	if err := os.WriteFile("/opt/pgforge/update.sh", []byte(script), 0o755); err != nil {
 		redirectErr(w, r, "/system", "Could not stage updater: "+err.Error())

@@ -13,6 +13,23 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.6] - 2026-08-22
+
+### Added
+- Self-updates now also refresh the server-side components (backup scripts and
+  scheduled maintenance jobs), not just the app binary. Fixes to those land
+  automatically with every update instead of requiring shell access.
+
+### Fixed
+- Database write-ahead-log safety settings are applied automatically on every
+  start: the live WAL is bounded to 1GB and compressed. This prevents the class
+  of incident where heavy activity (a large clone or import) could fill the
+  disk and take the database down.
+- The hourly backup-archive cleanup job is now installed correctly on fresh
+  installs; previously it was shipped but never activated.
+- The updater now cleans up its build caches and temporary files, which
+  previously grew without limit with every update.
+
 ## [1.2.5] - 2026-08-21
 
 ### Fixed
@@ -325,7 +342,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.5...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.6...HEAD
+[1.2.6]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.5...v1.2.6
 [1.2.5]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.4...v1.2.5
 [1.2.4]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.3...v1.2.4
 [1.2.3]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.2...v1.2.3
