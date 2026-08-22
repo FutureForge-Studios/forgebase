@@ -5,7 +5,7 @@
 <img width="3181" height="1639" alt="image" src="https://github.com/user-attachments/assets/4c044286-9dca-4993-b69f-a5ec647f1f79" />
 
 
-**Your own Postgres backend platform - the Supabase/Neon experience, self-hosted, on one small server.**
+**Your own Postgres backend platform - a self-hosted alternative to hosted services like Supabase and Neon, on one small server.**
 
 Create isolated Postgres databases in under a second and get, per project, a
 table editor, SQL editor, instant REST + GraphQL API, auth, storage, realtime,
@@ -18,7 +18,7 @@ login, with automatic HTTPS.
 
 ## Why ForgeBase
 
-Most self-hosted Supabase stacks spin up a full set of containers **per project**,
+Typical self-hosted backend stacks spin up a full set of containers **per project**,
 so a handful of projects eats a whole server. ForgeBase inverts that: **every
 service runs once and is multi-tenant.** A project is just a database + role +
 a metadata row, so it costs ~0 MB idle and is created in under a second. Base
