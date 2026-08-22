@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.6"
+const appVersion = "1.3.7"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,21 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.7", Date: "2026-08-22",
+		Summary: "Browse every schema, views included.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Schema switcher: the Table Editor now browses any schema in your database, not just public - every action (editing, filters, imports, exports, column changes) works in the schema you picked.",
+				"Views, materialized views and foreign tables appear in the sidebar with badges. They open read-only with full filtering, sorting and export; a view's SQL definition is shown in a collapsible card.",
+				"Materialized views get a one-click Refresh button.",
+				"Creating tables and importing CSVs lands in the currently selected schema.",
+			}},
+			{"Fixed", []string{
+				"Dropping from the editor now uses the right statement for the object kind (table, view, materialized view, foreign table).",
+			}},
+		},
+	},
 	{
 		Version: "1.3.6", Date: "2026-08-22",
 		Summary: "Table Editor, part two: smarter editing everywhere.",

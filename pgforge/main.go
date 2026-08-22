@@ -221,6 +221,7 @@ func main() {
 	mux.HandleFunc("GET /p/{slug}/fk-options", a.auth(proj(a.fkOptions)))
 	mux.HandleFunc("POST /p/{slug}/column-alter", a.auth(proj(a.columnAlter)))
 	mux.HandleFunc("POST /p/{slug}/table-rename", a.auth(proj(a.tableRename)))
+	mux.HandleFunc("POST /p/{slug}/matview-refresh", a.auth(proj(a.matviewRefresh)))
 	mux.HandleFunc("POST /p/{slug}/table-comment", a.auth(proj(a.tableComment)))
 	mux.HandleFunc("POST /p/{slug}/table-duplicate", a.auth(proj(a.duplicateTable)))
 	mux.HandleFunc("POST /p/{slug}/import", a.auth(proj(a.importCSV)))

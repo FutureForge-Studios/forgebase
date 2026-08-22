@@ -162,11 +162,94 @@ func (a *app) listTables(db *sql.DB) []string {
 	return out
 }
 
-func (a *app) tablePK(db *sql.DB, table string) []string {
+// qrel qualifies a relation name with its schema, both safely quoted.
+func qrel(schema, name string) string {
+	return pq.QuoteIdentifier(schema) + "." + pq.QuoteIdentifier(name)
+}
+
+// listSchemas returns the database's user schemas, public first.
+func (a *app) listSchemas(db *sql.DB) []string {
+	rows, err := db.Query(`SELECT nspname FROM pg_namespace
+		WHERE nspname NOT LIKE 'pg\_%' AND nspname NOT IN ('information_schema')
+		ORDER BY (nspname <> 'public'), nspname`)
+	if err != nil {
+		return []string{"public"}
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		rows.Scan(&s)
+		out = append(out, s)
+	}
+	if len(out) == 0 {
+		out = []string{"public"}
+	}
+	return out
+}
+
+// edSchema validates a requested schema name against the live database,
+// falling back to public - every editor handler resolves schemas through this
+// so a crafted value can never reach SQL.
+func (a *app) edSchema(db *sql.DB, req string) string {
+	if req == "" || req == "public" {
+		return "public"
+	}
+	for _, s := range a.listSchemas(db) {
+		if s == req {
+			return req
+		}
+	}
+	return "public"
+}
+
+// relation is anything browsable in the table editor.
+type relation struct {
+	Name, Kind string // kind: table | view | matview | foreign
+}
+
+var relKinds = map[string]string{"r": "table", "p": "table", "v": "view", "m": "matview", "f": "foreign"}
+
+// listRelations lists tables, views, materialized views and foreign tables in
+// one schema (tables first, then by name).
+func (a *app) listRelations(db *sql.DB, schema string) []relation {
+	rows, err := db.Query(`SELECT c.relname, c.relkind::text FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = $1 AND c.relkind IN ('r','p','v','m','f')
+		ORDER BY (c.relkind NOT IN ('r','p')), c.relname`, schema)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []relation
+	for rows.Next() {
+		var name, rk string
+		rows.Scan(&name, &rk)
+		out = append(out, relation{Name: name, Kind: relKinds[rk]})
+	}
+	return out
+}
+
+// relKind reports what a name is in a schema ("" when absent).
+func relKind(db *sql.DB, schema, rel string) string {
+	var rk string
+	db.QueryRow(`SELECT c.relkind::text FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('r','p','v','m','f')`,
+		schema, rel).Scan(&rk)
+	return relKinds[rk]
+}
+
+// tableIn reports whether name is a real (writable) table in the schema.
+func tableIn(db *sql.DB, schema, rel string) bool {
+	return relKind(db, schema, rel) == "table"
+}
+
+func (a *app) tablePK(db *sql.DB, schema, table string) []string {
 	rows, err := db.Query(`SELECT a.attname FROM pg_index i
 		JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=ANY(i.indkey)
 		WHERE i.indrelid=$1::regclass AND i.indisprimary
-		ORDER BY array_position(i.indkey,a.attnum)`, "public."+pq.QuoteIdentifier(table))
+		ORDER BY array_position(i.indkey,a.attnum)`, qrel(schema, table))
 	if err != nil {
 		return nil
 	}
@@ -182,49 +265,66 @@ func (a *app) tablePK(db *sql.DB, table string) []string {
 
 type tableCol struct {
 	Name, Type, Nullable, Default string
-	UDT, Comment                  string
-	FKTable, FKCol                string
+	UDT, UDTSchema, Comment       string
+	FKSchema, FKTable, FKCol      string
 	EnumVals                      []string
 }
 
-func (a *app) tableCols(db *sql.DB, table string) []tableCol {
-	reg := "public." + pq.QuoteIdentifier(table)
+func (a *app) tableCols(db *sql.DB, schema, table string) []tableCol {
+	reg := qrel(schema, table)
 	// comments come via pg_attribute.attnum, NOT ordinal_position - the two
 	// drift apart once a column has ever been dropped from the table
 	rows, err := db.Query(`SELECT c.column_name, c.data_type, c.is_nullable, coalesce(c.column_default,''),
-			c.udt_name, coalesce((SELECT col_description($2::regclass, a.attnum)
-				FROM pg_attribute a WHERE a.attrelid=$2::regclass AND a.attname=c.column_name),'')
-		FROM information_schema.columns c WHERE c.table_schema='public' AND c.table_name=$1
-		ORDER BY c.ordinal_position`, table, reg)
+			c.udt_name, coalesce(c.udt_schema,''), coalesce((SELECT col_description($3::regclass, a.attnum)
+				FROM pg_attribute a WHERE a.attrelid=$3::regclass AND a.attname=c.column_name),'')
+		FROM information_schema.columns c WHERE c.table_schema=$2 AND c.table_name=$1
+		ORDER BY c.ordinal_position`, table, schema, reg)
 	if err != nil {
 		return nil
 	}
 	var out []tableCol
 	for rows.Next() {
 		var c tableCol
-		rows.Scan(&c.Name, &c.Type, &c.Nullable, &c.Default, &c.UDT, &c.Comment)
+		rows.Scan(&c.Name, &c.Type, &c.Nullable, &c.Default, &c.UDT, &c.UDTSchema, &c.Comment)
 		out = append(out, c)
 	}
 	rows.Close()
-	// foreign keys: map each referencing column to its target table.column
-	if fks, err := db.Query(`SELECT a.attname, cl.relname, af.attname
+	// information_schema.columns skips materialized views and some foreign
+	// tables - fall back to the catalog so their grids still get metadata
+	if len(out) == 0 {
+		if ars, err := db.Query(`SELECT a.attname, format_type(a.atttypid, a.atttypmod),
+				CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END,
+				coalesce(col_description($1::regclass, a.attnum),'')
+			FROM pg_attribute a WHERE a.attrelid=$1::regclass AND a.attnum>0 AND NOT a.attisdropped
+			ORDER BY a.attnum`, reg); err == nil {
+			for ars.Next() {
+				var c tableCol
+				ars.Scan(&c.Name, &c.Type, &c.Nullable, &c.Comment)
+				out = append(out, c)
+			}
+			ars.Close()
+		}
+	}
+	// foreign keys: map each referencing column to its target schema.table.column
+	if fks, err := db.Query(`SELECT a.attname, tn.nspname, cl.relname, af.attname
 			FROM pg_constraint co
 			JOIN pg_class cl ON cl.oid = co.confrelid
+			JOIN pg_namespace tn ON tn.oid = cl.relnamespace
 			JOIN unnest(co.conkey) WITH ORDINALITY AS k(attnum, ord) ON true
 			JOIN unnest(co.confkey) WITH ORDINALITY AS f(attnum, ord) ON f.ord = k.ord
 			JOIN pg_attribute a ON a.attrelid = co.conrelid AND a.attnum = k.attnum
 			JOIN pg_attribute af ON af.attrelid = co.confrelid AND af.attnum = f.attnum
 			WHERE co.conrelid = $1::regclass AND co.contype = 'f'`, reg); err == nil {
-		ref := map[string][2]string{}
+		ref := map[string][3]string{}
 		for fks.Next() {
-			var col, rt, rc string
-			fks.Scan(&col, &rt, &rc)
-			ref[col] = [2]string{rt, rc}
+			var col, rs, rt, rc string
+			fks.Scan(&col, &rs, &rt, &rc)
+			ref[col] = [3]string{rs, rt, rc}
 		}
 		fks.Close()
 		for i := range out {
 			if r, ok := ref[out[i].Name]; ok {
-				out[i].FKTable, out[i].FKCol = r[0], r[1]
+				out[i].FKSchema, out[i].FKTable, out[i].FKCol = r[0], r[1], r[2]
 			}
 		}
 	}
@@ -234,12 +334,13 @@ func (a *app) tableCols(db *sql.DB, table string) []tableCol {
 		if out[i].Type != "USER-DEFINED" {
 			continue
 		}
-		vals, seen := enums[out[i].UDT]
+		ekey := out[i].UDTSchema + "." + out[i].UDT
+		vals, seen := enums[ekey]
 		if !seen {
 			if ers, err := db.Query(`SELECT e.enumlabel FROM pg_type t
 					JOIN pg_enum e ON e.enumtypid=t.oid
-					JOIN pg_namespace n ON n.oid=t.typnamespace AND n.nspname='public'
-					WHERE t.typname=$1 ORDER BY e.enumsortorder`, out[i].UDT); err == nil {
+					JOIN pg_namespace n ON n.oid=t.typnamespace AND n.nspname=$2
+					WHERE t.typname=$1 ORDER BY e.enumsortorder`, out[i].UDT, out[i].UDTSchema); err == nil {
 				for ers.Next() {
 					var l string
 					ers.Scan(&l)
@@ -247,7 +348,7 @@ func (a *app) tableCols(db *sql.DB, table string) []tableCol {
 				}
 				ers.Close()
 			}
-			enums[out[i].UDT] = vals
+			enums[ekey] = vals
 		}
 		out[i].EnumVals = vals
 		if len(vals) > 0 {
@@ -345,23 +446,29 @@ func (a *app) bulkDeleteRows(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	table := r.FormValue("table")
 	db, err := a.dbFor(slug)
-	if err != nil || !contains(a.listTables(db), table) {
-		redirectErr(w, r, "/p/"+slug+"/tables", "Unknown table.")
+	if err != nil {
+		redirectErr(w, r, "/p/"+slug+"/tables", "Database unavailable.")
 		return
 	}
-	pk := a.tablePK(db, table)
+	sc := a.edSchema(db, r.FormValue("__schema"))
+	back := "/p/" + slug + "/tables?t=" + table + "&sc=" + sc
+	if !tableIn(db, sc, table) {
+		redirectErr(w, r, "/p/"+slug+"/tables?sc="+sc, "Unknown table.")
+		return
+	}
+	pk := a.tablePK(db, sc, table)
 	if len(pk) == 0 {
-		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Bulk delete needs a primary key.")
+		redirectErr(w, r, back, "Bulk delete needs a primary key.")
 		return
 	}
 	var keys []map[string]string
 	if json.Unmarshal([]byte(r.FormValue("keys")), &keys) != nil || len(keys) == 0 || len(keys) > 1000 {
-		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Nothing selected.")
+		redirectErr(w, r, back, "Nothing selected.")
 		return
 	}
 	tx, err := db.Begin()
 	if err != nil {
-		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, err.Error())
+		redirectErr(w, r, back, err.Error())
 		return
 	}
 	n := 0
@@ -372,17 +479,17 @@ func (a *app) bulkDeleteRows(w http.ResponseWriter, r *http.Request) {
 			v, ok := k[col]
 			if !ok {
 				tx.Rollback()
-				redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Selection missing key column "+col+".")
+				redirectErr(w, r, back, "Selection missing key column "+col+".")
 				return
 			}
 			args = append(args, v)
 			conds = append(conds, fmt.Sprintf("%s::text = $%d", pq.QuoteIdentifier(col), len(args)))
 		}
-		res, derr := tx.Exec(fmt.Sprintf(`DELETE FROM public.%s WHERE %s`,
-			pq.QuoteIdentifier(table), strings.Join(conds, " AND ")), args...)
+		res, derr := tx.Exec(fmt.Sprintf(`DELETE FROM %s WHERE %s`,
+			qrel(sc, table), strings.Join(conds, " AND ")), args...)
 		if derr != nil {
 			tx.Rollback()
-			redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Delete failed: "+derr.Error())
+			redirectErr(w, r, back, "Delete failed: "+derr.Error())
 			return
 		}
 		if aff, _ := res.RowsAffected(); aff > 0 {
@@ -390,8 +497,8 @@ func (a *app) bulkDeleteRows(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	tx.Commit()
-	a.audit(r, "rows-bulk-delete", fmt.Sprintf("%s/%s x%d", slug, table, n))
-	redirectMsg(w, r, "/p/"+slug+"/tables?t="+table, fmt.Sprintf("Deleted %d row(s).", n))
+	a.audit(r, "rows-bulk-delete", fmt.Sprintf("%s/%s.%s x%d", slug, sc, table, n))
+	redirectMsg(w, r, back, fmt.Sprintf("Deleted %d row(s).", n))
 }
 
 // duplicateTable copies a table's structure (LIKE ... INCLUDING ALL), and
@@ -401,30 +508,35 @@ func (a *app) duplicateTable(w http.ResponseWriter, r *http.Request) {
 	src := r.FormValue("table")
 	dst := strings.TrimSpace(strings.ToLower(r.FormValue("name")))
 	db, err := a.dbFor(slug)
-	if err != nil || !contains(a.listTables(db), src) {
-		redirectErr(w, r, "/p/"+slug+"/tables", "Unknown table.")
+	if err != nil {
+		redirectErr(w, r, "/p/"+slug+"/tables", "Database unavailable.")
+		return
+	}
+	sc := a.edSchema(db, r.FormValue("__schema"))
+	if !tableIn(db, sc, src) {
+		redirectErr(w, r, "/p/"+slug+"/tables?sc="+sc, "Unknown table.")
 		return
 	}
 	dst = sanitizeIdent(dst)
 	if dst == "" {
-		redirectErr(w, r, "/p/"+slug+"/tables?t="+src, "Enter a valid new table name.")
+		redirectErr(w, r, "/p/"+slug+"/tables?t="+src+"&sc="+sc, "Enter a valid new table name.")
 		return
 	}
-	if _, err := db.Exec(fmt.Sprintf(`CREATE TABLE public.%s (LIKE public.%s INCLUDING ALL)`,
-		pq.QuoteIdentifier(dst), pq.QuoteIdentifier(src))); err != nil {
-		redirectErr(w, r, "/p/"+slug+"/tables?t="+src, "Duplicate failed: "+err.Error())
+	if _, err := db.Exec(fmt.Sprintf(`CREATE TABLE %s (LIKE %s INCLUDING ALL)`,
+		qrel(sc, dst), qrel(sc, src))); err != nil {
+		redirectErr(w, r, "/p/"+slug+"/tables?t="+src+"&sc="+sc, "Duplicate failed: "+err.Error())
 		return
 	}
 	if r.FormValue("with_data") == "on" {
-		if _, err := db.Exec(fmt.Sprintf(`INSERT INTO public.%s SELECT * FROM public.%s`,
-			pq.QuoteIdentifier(dst), pq.QuoteIdentifier(src))); err != nil {
-			redirectErr(w, r, "/p/"+slug+"/tables?t="+dst, "Structure copied, data copy failed: "+err.Error())
+		if _, err := db.Exec(fmt.Sprintf(`INSERT INTO %s SELECT * FROM %s`,
+			qrel(sc, dst), qrel(sc, src))); err != nil {
+			redirectErr(w, r, "/p/"+slug+"/tables?t="+dst+"&sc="+sc, "Structure copied, data copy failed: "+err.Error())
 			return
 		}
 	}
 	a.reloadPostgRESTSchema(slug)
-	a.audit(r, "table-duplicate", slug+"/"+src+" -> "+dst)
-	redirectMsg(w, r, "/p/"+slug+"/tables?t="+dst, "Table "+dst+" created from "+src+".")
+	a.audit(r, "table-duplicate", slug+"/"+sc+"."+src+" -> "+dst)
+	redirectMsg(w, r, "/p/"+slug+"/tables?t="+dst+"&sc="+sc, "Table "+dst+" created from "+src+".")
 }
 
 func (a *app) tablesPage(w http.ResponseWriter, r *http.Request) {
@@ -438,10 +550,20 @@ func (a *app) tablesPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	tables := a.listTables(db)
+	sc := a.edSchema(db, r.URL.Query().Get("sc"))
+	rels := a.listRelations(db, sc)
 	sel := r.URL.Query().Get("t")
-	if sel == "" && len(tables) > 0 {
-		sel = tables[0]
+	kind := ""
+	for _, rel := range rels {
+		if rel.Name == sel {
+			kind = rel.Kind
+		}
+	}
+	if kind == "" {
+		sel = ""
+	}
+	if sel == "" && len(rels) > 0 {
+		sel, kind = rels[0].Name, rels[0].Kind
 	}
 	// sibling databases (this project + its branches) for the DB selector
 	var dbs []string
@@ -454,10 +576,11 @@ func (a *app) tablesPage(w http.ResponseWriter, r *http.Request) {
 		rows.Close()
 	}
 
-	data := map[string]any{"Slug": slug, "Tables": tables, "Sel": sel, "DBs": dbs}
-	if sel != "" && contains(tables, sel) {
-		cols := a.tableCols(db, sel)
-		pk := a.tablePK(db, sel)
+	data := map[string]any{"Slug": slug, "Rels": rels, "Sel": sel, "DBs": dbs,
+		"Schema": sc, "Schemas": a.listSchemas(db), "Kind": kind, "Editable": kind == "table"}
+	if sel != "" {
+		cols := a.tableCols(db, sc, sel)
+		pk := a.tablePK(db, sc, sel)
 		// Defensive projection: bytea never leaves the database (a size marker
 		// is computed in SQL) and non-key text is cut at 2 KB, so a table full
 		// of images or huge documents still renders instantly. PK columns are
@@ -492,11 +615,17 @@ func (a *app) tablesPage(w http.ResponseWriter, r *http.Request) {
 		// table comment + per-column metadata for the client-side editors
 		var tComment string
 		db.QueryRow(`SELECT coalesce(obj_description($1::regclass),'')`,
-			"public."+pq.QuoteIdentifier(sel)).Scan(&tComment)
+			qrel(sc, sel)).Scan(&tComment)
 		data["TableComment"] = tComment
+		if kind == "view" || kind == "matview" {
+			var def string
+			db.QueryRow(`SELECT pg_get_viewdef($1::regclass, true)`, qrel(sc, sel)).Scan(&def)
+			data["ViewDef"] = def
+		}
 		type colMetaJS struct {
 			T    string   `json:"t"`
 			Null bool     `json:"null"`
+			FKS  string   `json:"fks,omitempty"`
 			FKT  string   `json:"fkt,omitempty"`
 			FKC  string   `json:"fkc,omitempty"`
 			Enum []string `json:"enum,omitempty"`
@@ -504,7 +633,7 @@ func (a *app) tablesPage(w http.ResponseWriter, r *http.Request) {
 		cmeta := map[string]colMetaJS{}
 		fkm := map[string]string{}
 		for _, c := range cols {
-			cmeta[c.Name] = colMetaJS{T: c.Type, Null: c.Nullable == "YES", FKT: c.FKTable, FKC: c.FKCol, Enum: c.EnumVals}
+			cmeta[c.Name] = colMetaJS{T: c.Type, Null: c.Nullable == "YES", FKS: c.FKSchema, FKT: c.FKTable, FKC: c.FKCol, Enum: c.EnumVals}
 			if c.FKTable != "" {
 				fkm[c.Name] = c.FKTable + "." + c.FKCol
 			}
@@ -544,8 +673,8 @@ func (a *app) tablesPage(w http.ResponseWriter, r *http.Request) {
 		}
 		gctx, gcancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer gcancel()
-		q := fmt.Sprintf(`SELECT %s FROM public.%s%s%s LIMIT %d OFFSET %d`,
-			selExpr, pq.QuoteIdentifier(sel), where, orderBy, pageSize, (page-1)*pageSize)
+		q := fmt.Sprintf(`SELECT %s FROM %s%s%s LIMIT %d OFFSET %d`,
+			selExpr, qrel(sc, sel), where, orderBy, pageSize, (page-1)*pageSize)
 		rows, qerr := db.QueryContext(gctx, q, args...)
 		if qerr != nil {
 			data["Error"] = qerr.Error()
@@ -568,7 +697,7 @@ func (a *app) tablesPage(w http.ResponseWriter, r *http.Request) {
 			// table would itself be a full scan. -1 (never analyzed) shows as "?".
 			var est int64 = -1
 			db.QueryRowContext(gctx, `SELECT reltuples::bigint FROM pg_class WHERE oid=$1::regclass`,
-				"public."+pq.QuoteIdentifier(sel)).Scan(&est)
+				qrel(sc, sel)).Scan(&est)
 			data["Est"] = est
 			data["EstUnknown"] = est < 0
 		}
@@ -586,12 +715,18 @@ func (a *app) rowInsert(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, err.Error())
 		return
 	}
+	sc := a.edSchema(db, r.FormValue("__schema"))
+	back := "/p/" + slug + "/tables?t=" + table + "&sc=" + sc
+	if !tableIn(db, sc, table) {
+		redirectErr(w, r, "/p/"+slug+"/tables?sc="+sc, "Unknown table.")
+		return
+	}
 	r.ParseForm()
 	var cols []string
 	var vals []any
 	var ph []string
 	i := 1
-	for _, c := range a.tableCols(db, table) {
+	for _, c := range a.tableCols(db, sc, table) {
 		v := r.FormValue("c_" + c.Name)
 		if v == "" {
 			continue // let defaults/NULL apply
@@ -602,17 +737,17 @@ func (a *app) rowInsert(w http.ResponseWriter, r *http.Request) {
 		i++
 	}
 	if len(cols) == 0 {
-		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Nothing to insert.")
+		redirectErr(w, r, back, "Nothing to insert.")
 		return
 	}
-	q := fmt.Sprintf(`INSERT INTO public.%s (%s) VALUES (%s)`,
-		pq.QuoteIdentifier(table), strings.Join(cols, ","), strings.Join(ph, ","))
+	q := fmt.Sprintf(`INSERT INTO %s (%s) VALUES (%s)`,
+		qrel(sc, table), strings.Join(cols, ","), strings.Join(ph, ","))
 	if _, err := db.Exec(q, vals...); err != nil {
-		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Insert failed: "+err.Error())
+		redirectErr(w, r, back, "Insert failed: "+err.Error())
 		return
 	}
-	a.audit(r, "row-insert", slug+"/"+table)
-	redirectMsg(w, r, "/p/"+slug+"/tables?t="+table, "Row inserted.")
+	a.audit(r, "row-insert", slug+"/"+sc+"."+table)
+	redirectMsg(w, r, back, "Row inserted.")
 }
 
 func (a *app) rowUpdate(w http.ResponseWriter, r *http.Request) {
@@ -625,7 +760,12 @@ func (a *app) rowUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	pk := a.tablePK(db, table)
+	sc := a.edSchema(db, r.FormValue("__schema"))
+	if !tableIn(db, sc, table) {
+		http.Error(w, "unknown table", 400)
+		return
+	}
+	pk := a.tablePK(db, sc, table)
 	if len(pk) == 0 {
 		http.Error(w, "table has no primary key", 400)
 		return
@@ -644,8 +784,8 @@ func (a *app) rowUpdate(w http.ResponseWriter, r *http.Request) {
 		args = append(args, r.FormValue("pk_"+k))
 		i++
 	}
-	q := fmt.Sprintf(`UPDATE public.%s SET %s=$1 WHERE %s`,
-		pq.QuoteIdentifier(table), pq.QuoteIdentifier(col), strings.Join(where, " AND "))
+	q := fmt.Sprintf(`UPDATE %s SET %s=$1 WHERE %s`,
+		qrel(sc, table), pq.QuoteIdentifier(col), strings.Join(where, " AND "))
 	res, err := db.Exec(q, args...)
 	if err != nil {
 		http.Error(w, err.Error(), 400)
@@ -669,9 +809,15 @@ func (a *app) rowDelete(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, err.Error())
 		return
 	}
-	pk := a.tablePK(db, table)
+	sc := a.edSchema(db, r.FormValue("__schema"))
+	back := "/p/" + slug + "/tables?t=" + table + "&sc=" + sc
+	if !tableIn(db, sc, table) {
+		redirectErr(w, r, "/p/"+slug+"/tables?sc="+sc, "Unknown table.")
+		return
+	}
+	pk := a.tablePK(db, sc, table)
 	if len(pk) == 0 {
-		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Table has no primary key; delete via SQL editor.")
+		redirectErr(w, r, back, "Table has no primary key; delete via SQL editor.")
 		return
 	}
 	var where []string
@@ -682,18 +828,18 @@ func (a *app) rowDelete(w http.ResponseWriter, r *http.Request) {
 		args = append(args, r.FormValue("pk_"+k))
 		i++
 	}
-	q := fmt.Sprintf(`DELETE FROM public.%s WHERE %s`, pq.QuoteIdentifier(table), strings.Join(where, " AND "))
+	q := fmt.Sprintf(`DELETE FROM %s WHERE %s`, qrel(sc, table), strings.Join(where, " AND "))
 	res, err := db.Exec(q, args...)
 	if err != nil {
-		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Delete failed: "+err.Error())
+		redirectErr(w, r, back, "Delete failed: "+err.Error())
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "No row matched; nothing deleted.")
+		redirectErr(w, r, back, "No row matched; nothing deleted.")
 		return
 	}
-	a.audit(r, "row-delete", slug+"/"+table)
-	redirectMsg(w, r, "/p/"+slug+"/tables?t="+table, "Row deleted.")
+	a.audit(r, "row-delete", slug+"/"+sc+"."+table)
+	redirectMsg(w, r, back, "Row deleted.")
 }
 
 // rowUpdateFull updates several columns of one row in a single UPDATE. The
@@ -708,17 +854,18 @@ func (a *app) rowUpdateFull(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	if !a.publicTableExists(db, table) {
+	sc := a.edSchema(db, r.FormValue("__schema"))
+	if !tableIn(db, sc, table) {
 		http.Error(w, "unknown table", 400)
 		return
 	}
-	pk := a.tablePK(db, table)
+	pk := a.tablePK(db, sc, table)
 	if len(pk) == 0 {
 		http.Error(w, "table has no primary key", 400)
 		return
 	}
 	colSet := map[string]bool{}
-	for _, c := range a.tableCols(db, table) {
+	for _, c := range a.tableCols(db, sc, table) {
 		colSet[c.Name] = true
 	}
 	var sets []string
@@ -743,8 +890,8 @@ func (a *app) rowUpdateFull(w http.ResponseWriter, r *http.Request) {
 		args = append(args, r.FormValue("pk_"+k))
 		where = append(where, fmt.Sprintf("%s=$%d", pq.QuoteIdentifier(k), len(args)))
 	}
-	q := fmt.Sprintf(`UPDATE public.%s SET %s WHERE %s`,
-		pq.QuoteIdentifier(table), strings.Join(sets, ", "), strings.Join(where, " AND "))
+	q := fmt.Sprintf(`UPDATE %s SET %s WHERE %s`,
+		qrel(sc, table), strings.Join(sets, ", "), strings.Join(where, " AND "))
 	res, err := db.Exec(q, args...)
 	if err != nil {
 		http.Error(w, err.Error(), 400)
@@ -769,16 +916,17 @@ func (a *app) rowJSON(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	if !a.publicTableExists(db, table) {
+	sc := a.edSchema(db, r.URL.Query().Get("sc"))
+	if relKind(db, sc, table) == "" {
 		http.Error(w, "unknown table", 400)
 		return
 	}
-	pk := a.tablePK(db, table)
+	pk := a.tablePK(db, sc, table)
 	if len(pk) == 0 {
 		http.Error(w, "table has no primary key", 400)
 		return
 	}
-	cols := a.tableCols(db, table)
+	cols := a.tableCols(db, sc, table)
 	var proj []string
 	for _, c := range cols {
 		qi := pq.QuoteIdentifier(c.Name)
@@ -797,8 +945,8 @@ func (a *app) rowJSON(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	row := db.QueryRowContext(ctx, fmt.Sprintf(`SELECT %s FROM public.%s WHERE %s LIMIT 1`,
-		strings.Join(proj, ", "), pq.QuoteIdentifier(table), strings.Join(where, " AND ")), args...)
+	row := db.QueryRowContext(ctx, fmt.Sprintf(`SELECT %s FROM %s WHERE %s LIMIT 1`,
+		strings.Join(proj, ", "), qrel(sc, table), strings.Join(where, " AND ")), args...)
 	vals := make([]any, len(cols))
 	ptrs := make([]any, len(cols))
 	for i := range vals {
@@ -847,12 +995,13 @@ func (a *app) fkOptions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	if !a.publicTableExists(db, refT) {
+	sc := a.edSchema(db, r.URL.Query().Get("s"))
+	if relKind(db, sc, refT) == "" {
 		http.Error(w, "unknown table", 400)
 		return
 	}
 	label, okCol := "", false
-	for _, c := range a.tableCols(db, refT) {
+	for _, c := range a.tableCols(db, sc, refT) {
 		if c.Name == refC {
 			okCol = true
 		}
@@ -868,8 +1017,8 @@ func (a *app) fkOptions(w http.ResponseWriter, r *http.Request) {
 	if label != "" {
 		lsel = "left(" + pq.QuoteIdentifier(label) + "::text, 60)"
 	}
-	q := fmt.Sprintf(`SELECT %s::text, coalesce(%s,'') FROM public.%s`,
-		pq.QuoteIdentifier(refC), lsel, pq.QuoteIdentifier(refT))
+	q := fmt.Sprintf(`SELECT %s::text, coalesce(%s,'') FROM %s`,
+		pq.QuoteIdentifier(refC), lsel, qrel(sc, refT))
 	var args []any
 	if search != "" {
 		args = append(args, "%"+search+"%")
@@ -920,36 +1069,44 @@ func (a *app) columnAlter(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, back, err.Error())
 		return
 	}
-	if !a.publicTableExists(db, table) || !columnExists(db, table, col) {
+	sc := a.edSchema(db, r.FormValue("__schema"))
+	back = "/p/" + slug + "/tables?t=" + table + "&sc=" + sc
+	okc := false
+	for _, c := range a.tableCols(db, sc, table) {
+		if c.Name == col {
+			okc = true
+		}
+	}
+	if !tableIn(db, sc, table) || !okc {
 		redirectErr(w, r, back, "Unknown table or column.")
 		return
 	}
-	qt, qc := pq.QuoteIdentifier(table), pq.QuoteIdentifier(col)
+	qt, qc := qrel(sc, table), pq.QuoteIdentifier(col)
 	var stmts, applied []string
 	if typ := strings.ToLower(strings.TrimSpace(r.FormValue("type"))); typ != "" {
 		if !alterTypeRe.MatchString(typ) {
 			redirectErr(w, r, back, "Unsupported target type.")
 			return
 		}
-		stmts = append(stmts, fmt.Sprintf(`ALTER TABLE public.%s ALTER COLUMN %s TYPE %s USING %s::%s`, qt, qc, typ, qc, typ))
+		stmts = append(stmts, fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN %s TYPE %s USING %s::%s`, qt, qc, typ, qc, typ))
 		applied = append(applied, "type")
 	}
 	if d, od := strings.TrimSpace(r.FormValue("default")), strings.TrimSpace(r.FormValue("__old_default")); d != od {
 		switch {
 		case d == "":
-			stmts = append(stmts, fmt.Sprintf(`ALTER TABLE public.%s ALTER COLUMN %s DROP DEFAULT`, qt, qc))
+			stmts = append(stmts, fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT`, qt, qc))
 		case rawDefaultRe.MatchString(strings.ToLower(d)):
-			stmts = append(stmts, fmt.Sprintf(`ALTER TABLE public.%s ALTER COLUMN %s SET DEFAULT %s`, qt, qc, d))
+			stmts = append(stmts, fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s`, qt, qc, d))
 		default:
-			stmts = append(stmts, fmt.Sprintf(`ALTER TABLE public.%s ALTER COLUMN %s SET DEFAULT %s`, qt, qc, pq.QuoteLiteral(d)))
+			stmts = append(stmts, fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s`, qt, qc, pq.QuoteLiteral(d)))
 		}
 		applied = append(applied, "default")
 	}
 	if nn, was := r.FormValue("notnull") == "on", r.FormValue("__old_notnull") == "1"; nn != was {
 		if nn {
-			stmts = append(stmts, fmt.Sprintf(`ALTER TABLE public.%s ALTER COLUMN %s SET NOT NULL`, qt, qc))
+			stmts = append(stmts, fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN %s SET NOT NULL`, qt, qc))
 		} else {
-			stmts = append(stmts, fmt.Sprintf(`ALTER TABLE public.%s ALTER COLUMN %s DROP NOT NULL`, qt, qc))
+			stmts = append(stmts, fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN %s DROP NOT NULL`, qt, qc))
 		}
 		applied = append(applied, "nullability")
 	}
@@ -958,11 +1115,11 @@ func (a *app) columnAlter(w http.ResponseWriter, r *http.Request) {
 		if cm != "" {
 			lit = pq.QuoteLiteral(cm)
 		}
-		stmts = append(stmts, fmt.Sprintf(`COMMENT ON COLUMN public.%s.%s IS %s`, qt, qc, lit))
+		stmts = append(stmts, fmt.Sprintf(`COMMENT ON COLUMN %s.%s IS %s`, qt, qc, lit))
 		applied = append(applied, "comment")
 	}
 	if newName := sanitizeIdent(r.FormValue("name")); newName != "" && newName != col {
-		stmts = append(stmts, fmt.Sprintf(`ALTER TABLE public.%s RENAME COLUMN %s TO %s`, qt, qc, pq.QuoteIdentifier(newName)))
+		stmts = append(stmts, fmt.Sprintf(`ALTER TABLE %s RENAME COLUMN %s TO %s`, qt, qc, pq.QuoteIdentifier(newName)))
 		applied = append(applied, "name")
 	}
 	if len(stmts) == 0 {
@@ -986,7 +1143,7 @@ func (a *app) columnAlter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.reloadPostgRESTSchema(slug)
-	a.audit(r, "column-alter", slug+"/"+table+"."+col+" ("+strings.Join(applied, ",")+")")
+	a.audit(r, "column-alter", slug+"/"+sc+"."+table+"."+col+" ("+strings.Join(applied, ",")+")")
 	redirectMsg(w, r, back, "Column "+col+" updated ("+strings.Join(applied, ", ")+").")
 }
 
@@ -999,22 +1156,49 @@ func (a *app) tableRename(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, err.Error())
 		return
 	}
-	if !a.publicTableExists(db, table) {
-		redirectErr(w, r, "/p/"+slug+"/tables", "Unknown table.")
+	sc := a.edSchema(db, r.FormValue("__schema"))
+	if !tableIn(db, sc, table) {
+		redirectErr(w, r, "/p/"+slug+"/tables?sc="+sc, "Unknown table.")
 		return
 	}
 	if newName == "" || newName == table {
-		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Enter a new table name.")
+		redirectErr(w, r, "/p/"+slug+"/tables?t="+table+"&sc="+sc, "Enter a new table name.")
 		return
 	}
-	if _, err := db.Exec(fmt.Sprintf(`ALTER TABLE public.%s RENAME TO %s`,
-		pq.QuoteIdentifier(table), pq.QuoteIdentifier(newName))); err != nil {
-		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Rename failed: "+err.Error())
+	if _, err := db.Exec(fmt.Sprintf(`ALTER TABLE %s RENAME TO %s`,
+		qrel(sc, table), pq.QuoteIdentifier(newName))); err != nil {
+		redirectErr(w, r, "/p/"+slug+"/tables?t="+table+"&sc="+sc, "Rename failed: "+err.Error())
 		return
 	}
 	a.reloadPostgRESTSchema(slug)
-	a.audit(r, "table-rename", slug+"/"+table+" -> "+newName)
-	redirectMsg(w, r, "/p/"+slug+"/tables?t="+newName, "Table renamed to "+newName+".")
+	a.audit(r, "table-rename", slug+"/"+sc+"."+table+" -> "+newName)
+	redirectMsg(w, r, "/p/"+slug+"/tables?t="+newName+"&sc="+sc, "Table renamed to "+newName+".")
+}
+
+// matviewRefresh re-runs a materialized view's query (plain refresh - the
+// concurrent variant needs a unique index and is a later refinement).
+func (a *app) matviewRefresh(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	table := r.FormValue("table")
+	db, err := a.dbFor(slug)
+	if err != nil {
+		redirectErr(w, r, "/p/"+slug+"/tables", err.Error())
+		return
+	}
+	sc := a.edSchema(db, r.FormValue("__schema"))
+	back := "/p/" + slug + "/tables?t=" + table + "&sc=" + sc
+	if relKind(db, sc, table) != "matview" {
+		redirectErr(w, r, "/p/"+slug+"/tables?sc="+sc, "Not a materialized view.")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+	defer cancel()
+	if _, err := db.ExecContext(ctx, fmt.Sprintf(`REFRESH MATERIALIZED VIEW %s`, qrel(sc, table))); err != nil {
+		redirectErr(w, r, back, "Refresh failed: "+err.Error())
+		return
+	}
+	a.audit(r, "matview-refresh", slug+"/"+sc+"."+table)
+	redirectMsg(w, r, back, "Materialized view refreshed.")
 }
 
 func (a *app) tableComment(w http.ResponseWriter, r *http.Request) {
@@ -1026,20 +1210,23 @@ func (a *app) tableComment(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, err.Error())
 		return
 	}
-	if !a.publicTableExists(db, table) {
-		redirectErr(w, r, "/p/"+slug+"/tables", "Unknown table.")
+	sc := a.edSchema(db, r.FormValue("__schema"))
+	back := "/p/" + slug + "/tables?t=" + table + "&sc=" + sc
+	kw := map[string]string{"table": "TABLE", "view": "VIEW", "matview": "MATERIALIZED VIEW", "foreign": "FOREIGN TABLE"}[relKind(db, sc, table)]
+	if kw == "" {
+		redirectErr(w, r, "/p/"+slug+"/tables?sc="+sc, "Unknown table.")
 		return
 	}
 	lit := "NULL"
 	if cm != "" {
 		lit = pq.QuoteLiteral(cm)
 	}
-	if _, err := db.Exec(fmt.Sprintf(`COMMENT ON TABLE public.%s IS %s`, pq.QuoteIdentifier(table), lit)); err != nil {
-		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Comment failed: "+err.Error())
+	if _, err := db.Exec(fmt.Sprintf(`COMMENT ON %s %s IS %s`, kw, qrel(sc, table), lit)); err != nil {
+		redirectErr(w, r, back, "Comment failed: "+err.Error())
 		return
 	}
-	a.audit(r, "table-comment", slug+"/"+table)
-	redirectMsg(w, r, "/p/"+slug+"/tables?t="+table, "Comment saved.")
+	a.audit(r, "table-comment", slug+"/"+sc+"."+table)
+	redirectMsg(w, r, back, "Comment saved.")
 }
 
 // ----------------------------------------------------------------- sql editor
@@ -1057,7 +1244,7 @@ func (a *app) schemaTree(slug string) []schemaTable {
 	}
 	var out []schemaTable
 	for _, t := range a.listTables(db) {
-		out = append(out, schemaTable{Name: t, Cols: a.tableCols(db, t)})
+		out = append(out, schemaTable{Name: t, Cols: a.tableCols(db, "public", t)})
 	}
 	return out
 }
@@ -1346,7 +1533,7 @@ func detectDelimiter(br *bufio.Reader) rune {
 
 // exportSQLInserts streams a result set as INSERT statements - a portable dump
 // of the visible table that restores anywhere with plain psql.
-func exportSQLInserts(w http.ResponseWriter, rows *sql.Rows, table string) {
+func exportSQLInserts(w http.ResponseWriter, rows *sql.Rows, table, qtable string) {
 	cols, _ := rows.Columns()
 	qcols := make([]string, len(cols))
 	for i, c := range cols {
@@ -1383,8 +1570,8 @@ func exportSQLInserts(w http.ResponseWriter, rows *sql.Rows, table string) {
 				vals[i] = pq.QuoteLiteral(fmt.Sprintf("%v", x))
 			}
 		}
-		fmt.Fprintf(w, "INSERT INTO public.%s (%s) VALUES (%s);\n",
-			pq.QuoteIdentifier(table), strings.Join(qcols, ", "), strings.Join(vals, ", "))
+		fmt.Fprintf(w, "INSERT INTO %s (%s) VALUES (%s);\n",
+			qtable, strings.Join(qcols, ", "), strings.Join(vals, ", "))
 	}
 }
 
@@ -1466,6 +1653,7 @@ func (a *app) importCSV(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/tables", err.Error())
 		return
 	}
+	sc := a.edSchema(db, r.FormValue("__schema"))
 	var defs []string
 	for i, c := range cols {
 		defs = append(defs, pq.QuoteIdentifier(c)+" "+inferColType(records, i))
@@ -1488,13 +1676,13 @@ func (a *app) importCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS public.%s (%s)`,
-		pq.QuoteIdentifier(table), strings.Join(defs, ", "))); err != nil {
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (%s)`,
+		qrel(sc, table), strings.Join(defs, ", "))); err != nil {
 		redirectErr(w, r, "/p/"+slug+"/tables", "Create table failed: "+err.Error())
 		return
 	}
-	ins := fmt.Sprintf(`INSERT INTO public.%s (%s) VALUES (%s)`,
-		pq.QuoteIdentifier(table), strings.Join(qcols, ","), strings.Join(ph, ","))
+	ins := fmt.Sprintf(`INSERT INTO %s (%s) VALUES (%s)`,
+		qrel(sc, table), strings.Join(qcols, ","), strings.Join(ph, ","))
 	stmt, err := tx.PrepareContext(ctx, ins)
 	if err != nil {
 		redirectErr(w, r, "/p/"+slug+"/tables", "Import failed: "+err.Error())
@@ -1518,8 +1706,8 @@ func (a *app) importCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.reloadPostgRESTSchema(slug) // the new table is queryable over REST immediately
-	a.audit(r, "import-csv", fmt.Sprintf("%s (%d rows)", table, len(records)))
-	redirectMsg(w, r, "/p/"+slug+"/tables?t="+table, fmt.Sprintf("Imported %d rows into %s.", len(records), table))
+	a.audit(r, "import-csv", fmt.Sprintf("%s.%s (%d rows)", sc, table, len(records)))
+	redirectMsg(w, r, "/p/"+slug+"/tables?t="+table+"&sc="+sc, fmt.Sprintf("Imported %d rows into %s.", len(records), table))
 }
 
 var (
@@ -1654,13 +1842,14 @@ func (a *app) createTable(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/tables", err.Error())
 		return
 	}
-	if _, err := db.Exec(fmt.Sprintf(`CREATE TABLE public.%s (id bigserial PRIMARY KEY)`, pq.QuoteIdentifier(name))); err != nil {
-		redirectErr(w, r, "/p/"+slug+"/tables", "Create failed: "+err.Error())
+	sc := a.edSchema(db, r.FormValue("__schema"))
+	if _, err := db.Exec(fmt.Sprintf(`CREATE TABLE %s (id bigserial PRIMARY KEY)`, qrel(sc, name))); err != nil {
+		redirectErr(w, r, "/p/"+slug+"/tables?sc="+sc, "Create failed: "+err.Error())
 		return
 	}
 	a.reloadPostgRESTSchema(slug)
-	a.audit(r, "table-create", slug+"/"+name)
-	redirectMsg(w, r, "/p/"+slug+"/tables?t="+name, "Table "+name+" created. Add columns below.")
+	a.audit(r, "table-create", slug+"/"+sc+"."+name)
+	redirectMsg(w, r, "/p/"+slug+"/tables?t="+name+"&sc="+sc, "Table "+name+" created. Add columns below.")
 }
 
 func (a *app) dropTable(w http.ResponseWriter, r *http.Request) {
@@ -1671,17 +1860,19 @@ func (a *app) dropTable(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/tables", err.Error())
 		return
 	}
-	if !a.publicTableExists(db, table) {
-		redirectErr(w, r, "/p/"+slug+"/tables", "Unknown table.")
+	sc := a.edSchema(db, r.FormValue("__schema"))
+	kw := map[string]string{"table": "TABLE", "view": "VIEW", "matview": "MATERIALIZED VIEW", "foreign": "FOREIGN TABLE"}[relKind(db, sc, table)]
+	if kw == "" {
+		redirectErr(w, r, "/p/"+slug+"/tables?sc="+sc, "Unknown table.")
 		return
 	}
-	if _, err := db.Exec(fmt.Sprintf(`DROP TABLE public.%s`, pq.QuoteIdentifier(table))); err != nil {
-		redirectErr(w, r, "/p/"+slug+"/tables", "Drop failed: "+err.Error())
+	if _, err := db.Exec(fmt.Sprintf(`DROP %s %s`, kw, qrel(sc, table))); err != nil {
+		redirectErr(w, r, "/p/"+slug+"/tables?sc="+sc, "Drop failed: "+err.Error())
 		return
 	}
 	a.reloadPostgRESTSchema(slug)
-	a.audit(r, "table-drop", slug+"/"+table)
-	redirectMsg(w, r, "/p/"+slug+"/tables", "Table "+table+" dropped.")
+	a.audit(r, "table-drop", slug+"/"+sc+"."+table)
+	redirectMsg(w, r, "/p/"+slug+"/tables?sc="+sc, "Table "+table+" dropped.")
 }
 
 func (a *app) addColumn(w http.ResponseWriter, r *http.Request) {
@@ -1694,20 +1885,22 @@ func (a *app) addColumn(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, err.Error())
 		return
 	}
-	if !a.publicTableExists(db, table) {
-		redirectErr(w, r, "/p/"+slug+"/tables", "Unknown table.")
+	sc := a.edSchema(db, r.FormValue("__schema"))
+	back := "/p/" + slug + "/tables?t=" + table + "&sc=" + sc
+	if !tableIn(db, sc, table) {
+		redirectErr(w, r, "/p/"+slug+"/tables?sc="+sc, "Unknown table.")
 		return
 	}
 	if name == "" {
-		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Enter a column name.")
+		redirectErr(w, r, back, "Enter a column name.")
 		return
 	}
 	if !colTypes[typ] {
-		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Unsupported column type.")
+		redirectErr(w, r, back, "Unsupported column type.")
 		return
 	}
-	stmt := fmt.Sprintf(`ALTER TABLE public.%s ADD COLUMN %s %s`,
-		pq.QuoteIdentifier(table), pq.QuoteIdentifier(name), typ)
+	stmt := fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`,
+		qrel(sc, table), pq.QuoteIdentifier(name), typ)
 	if d := strings.TrimSpace(r.FormValue("default")); d != "" {
 		stmt += " DEFAULT " + pq.QuoteLiteral(d) // Postgres casts the literal to the column type
 	}
@@ -1715,12 +1908,12 @@ func (a *app) addColumn(w http.ResponseWriter, r *http.Request) {
 		stmt += " NOT NULL"
 	}
 	if _, err := db.Exec(stmt); err != nil {
-		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Add column failed: "+err.Error())
+		redirectErr(w, r, back, "Add column failed: "+err.Error())
 		return
 	}
 	a.reloadPostgRESTSchema(slug)
-	a.audit(r, "column-add", slug+"/"+table+"."+name)
-	redirectMsg(w, r, "/p/"+slug+"/tables?t="+table, "Column "+name+" added.")
+	a.audit(r, "column-add", slug+"/"+sc+"."+table+"."+name)
+	redirectMsg(w, r, back, "Column "+name+" added.")
 }
 
 func (a *app) dropColumn(w http.ResponseWriter, r *http.Request) {
@@ -1732,18 +1925,26 @@ func (a *app) dropColumn(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, err.Error())
 		return
 	}
-	if !a.publicTableExists(db, table) || !columnExists(db, table, col) {
-		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Unknown table or column.")
+	sc := a.edSchema(db, r.FormValue("__schema"))
+	back := "/p/" + slug + "/tables?t=" + table + "&sc=" + sc
+	okc := false
+	for _, c := range a.tableCols(db, sc, table) {
+		if c.Name == col {
+			okc = true
+		}
+	}
+	if !tableIn(db, sc, table) || !okc {
+		redirectErr(w, r, back, "Unknown table or column.")
 		return
 	}
-	if _, err := db.Exec(fmt.Sprintf(`ALTER TABLE public.%s DROP COLUMN %s`,
-		pq.QuoteIdentifier(table), pq.QuoteIdentifier(col))); err != nil {
-		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Drop column failed: "+err.Error())
+	if _, err := db.Exec(fmt.Sprintf(`ALTER TABLE %s DROP COLUMN %s`,
+		qrel(sc, table), pq.QuoteIdentifier(col))); err != nil {
+		redirectErr(w, r, back, "Drop column failed: "+err.Error())
 		return
 	}
 	a.reloadPostgRESTSchema(slug)
-	a.audit(r, "column-drop", slug+"/"+table+"."+col)
-	redirectMsg(w, r, "/p/"+slug+"/tables?t="+table, "Column "+col+" dropped.")
+	a.audit(r, "column-drop", slug+"/"+sc+"."+table+"."+col)
+	redirectMsg(w, r, back, "Column "+col+" dropped.")
 }
 
 // exportCSV streams a whole table as a CSV download (bounded + timed so a huge
@@ -1756,20 +1957,21 @@ func (a *app) exportCSV(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	if !a.publicTableExists(db, table) {
+	sc := a.edSchema(db, r.URL.Query().Get("sc"))
+	if relKind(db, sc, table) == "" {
 		http.Error(w, "unknown table", 404)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
-	rows, err := db.QueryContext(ctx, fmt.Sprintf(`SELECT * FROM public.%s LIMIT 500000`, pq.QuoteIdentifier(table)))
+	rows, err := db.QueryContext(ctx, fmt.Sprintf(`SELECT * FROM %s LIMIT 500000`, qrel(sc, table)))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	defer rows.Close()
 	if r.URL.Query().Get("fmt") == "sql" {
-		exportSQLInserts(w, rows, table)
+		exportSQLInserts(w, rows, table, qrel(sc, table))
 		return
 	}
 	cols, _ := rows.Columns()

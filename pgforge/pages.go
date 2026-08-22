@@ -155,7 +155,7 @@ const projectHomeBody = `
 
 const tablesBody = `
 <div class="pagehead"><h1>Table Editor</h1><p>Browse, insert, edit and delete rows.</p></div>
-{{if not .Tables}}
+{{if not .Rels}}
 <div class="card" style="text-align:center;padding:2.5rem">
   <p style="color:hsl(var(--muted-fg));margin:0 0 1rem">No tables yet in <b>public</b>. Create one in the <a href="/p/{{.Slug}}/sql" style="color:hsl(var(--primary))">SQL Editor</a>, or import a CSV:</p>
   <form method="post" action="/p/{{.Slug}}/import" enctype="multipart/form-data" style="display:flex;gap:.6rem;align-items:center;justify-content:center;flex-wrap:wrap">
@@ -170,14 +170,17 @@ const tablesBody = `
     <select onchange="location.href='/p/'+this.value+'/tables'" style="width:auto;padding:.4rem .6rem">
       {{range .DBs}}<option value="{{.}}" {{if eq . $.Slug}}selected{{end}}>{{.}}</option>{{end}}
     </select></label>
-  <span class="label" style="display:flex;align-items:center;gap:.4rem">Schema
-    <span class="badge active" style="text-transform:none">public</span></span>
+  <label class="label" style="display:flex;align-items:center;gap:.4rem">Schema
+    <select onchange="location.href='/p/{{.Slug}}/tables?sc='+encodeURIComponent(this.value)" style="width:auto;padding:.4rem .6rem">
+      {{range .Schemas}}<option value="{{.}}" {{if eq . $.Schema}}selected{{end}}>{{.}}</option>{{end}}
+    </select></label>
   <div class="spacer"></div>
   <button class="btn btn-ghost btn-sm" onclick="document.getElementById('nt').style.display='flex'">{{icon "plus"}} New table</button>
   <button class="btn btn-ghost btn-sm" onclick="document.getElementById('imp').style.display='flex'">{{icon "upload"}} Import CSV</button>
   <input type="text" id="tsearch" placeholder="Search tables…" onkeyup="filterTables()" style="width:200px">
 </div>
 <form id="nt" class="card" method="post" action="/p/{{.Slug}}/table-create" style="display:none;gap:.6rem;align-items:center;margin-bottom:1rem">
+  <input type="hidden" name="__schema" value="{{.Schema}}">
   <span class="label">New empty table</span>
   <input type="text" name="name" placeholder="table name" required style="width:200px">
   <span class="muted" style="font-size:11.5px">gets an <code>id bigserial primary key</code>; add columns after</span>
@@ -185,6 +188,7 @@ const tablesBody = `
   <button class="btn btn-ghost btn-sm" type="button" onclick="document.getElementById('nt').style.display='none'">Cancel</button>
 </form>
 <form id="imp" class="card" method="post" action="/p/{{.Slug}}/import" enctype="multipart/form-data" style="display:none;gap:.6rem;align-items:center;margin-bottom:1rem">
+  <input type="hidden" name="__schema" value="{{.Schema}}">
   <span class="label">New table from CSV</span>
   <input type="text" name="table" placeholder="table name" required style="width:180px">
   <input type="file" name="file" accept=".csv" required style="flex:1;padding:.4rem">
@@ -193,30 +197,33 @@ const tablesBody = `
 </form>
 <div class="split" style="display:flex;gap:1rem;align-items:flex-start">
   <div class="card" style="width:200px;flex-shrink:0;padding:.6rem">
-    <div class="label" style="padding:.3rem .5rem">Tables ({{len .Tables}})</div>
-    <div id="tablist">{{range .Tables}}<a class="navi tbl-item {{if eq . $.Sel}}active{{end}}" href="/p/{{$.Slug}}/tables?t={{.}}" style="font-size:12.5px" data-name="{{.}}">{{icon "table"}} {{.}}</a>{{end}}</div>
+    <div class="label" style="padding:.3rem .5rem">{{.Schema}} ({{len .Rels}})</div>
+    <div id="tablist">{{range .Rels}}<a class="navi tbl-item {{if eq .Name $.Sel}}active{{end}}" href="/p/{{$.Slug}}/tables?t={{.Name}}&sc={{$.Schema}}" style="font-size:12.5px" data-name="{{.Name}}">{{icon "table"}} {{.Name}}{{if eq .Kind "view"}} <span class="muted" style="font-size:9px">view</span>{{else if eq .Kind "matview"}} <span class="muted" style="font-size:9px">mat</span>{{else if eq .Kind "foreign"}} <span class="muted" style="font-size:9px">fdw</span>{{end}}</a>{{end}}</div>
   </div>
   <div style="flex:1;min-width:0">
     <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem">
       <h2 style="font-size:18px">{{.Sel}}</h2>
-      <button class="copy" type="button" title="Rename table" onclick="document.getElementById('ren').style.display='flex'">{{icon "settings"}}</button>
+      {{if ne .Kind "table"}}<span class="badge active" style="text-transform:none">{{.Kind}}</span>{{end}}
+      {{if .Editable}}<button class="copy" type="button" title="Rename table" onclick="document.getElementById('ren').style.display='flex'">{{icon "settings"}}</button>{{end}}
       <span class="muted" style="font-size:12px">{{if .EstUnknown}}~ rows{{else}}≈{{.Est}} rows{{end}}{{if not .HasPK}} · no primary key (read-only rows){{end}}</span>
       <div class="spacer"></div>
-      <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/export?t={{.Sel}}">{{icon "archive"}} CSV</a>
-      <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/export?t={{.Sel}}&fmt=sql" title="Download as INSERT statements">SQL</a>
-      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('dup').style.display='flex'" title="Copy this table's structure (and optionally data) to a new table">{{icon "copy"}} Duplicate</button>
-      {{if .Meta}}<button class="btn btn-ghost btn-sm" onclick="document.getElementById('ins').style.display='block'">{{icon "plus"}} Insert row</button>{{end}}
+      {{if eq .Kind "matview"}}<form method="post" action="/p/{{.Slug}}/matview-refresh" style="display:inline"><input type="hidden" name="table" value="{{.Sel}}"><input type="hidden" name="__schema" value="{{.Schema}}"><button class="btn btn-ghost btn-sm" title="Re-run the view query now">{{icon "restore"}} Refresh</button></form>{{end}}
+      <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/export?t={{.Sel}}&sc={{.Schema}}">{{icon "archive"}} CSV</a>
+      <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/export?t={{.Sel}}&sc={{.Schema}}&fmt=sql" title="Download as INSERT statements">SQL</a>
+      {{if .Editable}}<button class="btn btn-ghost btn-sm" onclick="document.getElementById('dup').style.display='flex'" title="Copy this table's structure (and optionally data) to a new table">{{icon "copy"}} Duplicate</button>{{end}}
+      {{if and .Meta .Editable}}<button class="btn btn-ghost btn-sm" onclick="document.getElementById('ins').style.display='block'">{{icon "plus"}} Insert row</button>{{end}}
     </div>
     {{if .Error}}<div class="flash err">{{.Error}}</div>{{end}}
 
     <form method="post" action="/p/{{.Slug}}/table-comment" style="display:flex;gap:.4rem;align-items:center;margin:-.2rem 0 .8rem">
-      <input type="hidden" name="table" value="{{.Sel}}">
+      <input type="hidden" name="table" value="{{.Sel}}"><input type="hidden" name="__schema" value="{{.Schema}}">
       <input type="text" name="comment" value="{{.TableComment}}" placeholder="table comment - describe what this table holds" style="flex:1;font-size:12px;padding:.3rem .55rem;color:hsl(var(--muted-fg))" oninput="document.getElementById('tcsave').style.display='inline-flex'">
       <button class="btn btn-ghost btn-sm" type="submit" id="tcsave" style="display:none">Save comment</button>
     </form>
 
+    {{if .ViewDef}}<details class="card" style="padding:.6rem .8rem;margin-bottom:.8rem"><summary class="label" style="cursor:pointer">View definition</summary><pre style="font-family:var(--mono);font-size:12px;overflow-x:auto;margin-top:.5rem;white-space:pre-wrap">{{.ViewDef}}</pre></details>{{end}}
     <form id="ren" class="card" method="post" action="/p/{{.Slug}}/table-rename" style="display:none;gap:.6rem;align-items:center;margin-bottom:.9rem">
-      <input type="hidden" name="table" value="{{.Sel}}">
+      <input type="hidden" name="table" value="{{.Sel}}"><input type="hidden" name="__schema" value="{{.Schema}}">
       <span class="label">Rename {{.Sel}} to</span>
       <input type="text" name="name" placeholder="new_name" required style="width:200px">
       <span class="muted" style="font-size:11.5px">references, indexes and constraints follow automatically; update code that queries the old name</span>
@@ -225,7 +232,7 @@ const tablesBody = `
     </form>
 
     <form id="dup" class="card" method="post" action="/p/{{.Slug}}/table-duplicate" style="display:none;gap:.6rem;align-items:center;margin-bottom:.9rem">
-      <input type="hidden" name="table" value="{{.Sel}}">
+      <input type="hidden" name="table" value="{{.Sel}}"><input type="hidden" name="__schema" value="{{.Schema}}">
       <span class="label">Duplicate {{.Sel}} as</span>
       <input type="text" name="name" placeholder="new table name" required style="width:200px">
       <label style="display:flex;align-items:center;gap:.3rem;font-size:12.5px;cursor:pointer"><input type="checkbox" name="with_data" style="width:auto;margin:0"> copy data too</label>
@@ -257,7 +264,7 @@ const tablesBody = `
 
     <div id="ins" class="card" style="display:none;margin-bottom:.9rem">
       <form method="post" action="/p/{{.Slug}}/row-insert">
-        <input type="hidden" name="__table" value="{{.Sel}}">
+        <input type="hidden" name="__table" value="{{.Sel}}"><input type="hidden" name="__schema" value="{{.Schema}}">
         <div class="grid g2">
         {{range .Meta}}<label class="fld" style="margin-bottom:.4rem"><span class="lt" style="font-size:11px">{{.Name}} <span class="muted">{{.Type}}</span>{{if .FKTable}} <span class="muted" title="references {{.FKTable}}.{{.FKCol}}">&rarr; {{.FKTable}}</span>{{end}}</span>
         {{if .EnumVals}}<select name="c_{{.Name}}"><option value="">{{if .Default}}(default){{else if eq .Nullable "YES"}}(null){{end}}</option>{{range .EnumVals}}<option>{{.}}</option>{{end}}</select>
@@ -286,7 +293,7 @@ const tablesBody = `
             {{if $haspk}}<td style="text-align:right;white-space:nowrap">
               <button class="copy" type="button" title="Open row panel" onclick="openRow(this)">{{icon "list"}}</button>
               <form method="post" action="/p/{{$s}}/row-delete" onsubmit="return confirm('Delete this row?')" style="display:inline">
-                <input type="hidden" name="__table" value="{{$sel}}">
+                <input type="hidden" name="__table" value="{{$sel}}"><input type="hidden" name="__schema" value="{{$.Schema}}">
                 {{range $k := $pk}}<input type="hidden" name="pk_{{$k}}" value="{{range $ci,$cn := $cols}}{{if eq $cn $k}}{{$cell := index $row $ci}}{{$cell.Val}}{{end}}{{end}}">{{end}}
                 <button class="copy" title="Delete row" style="color:hsl(var(--destructive))">{{icon "trash"}}</button>
               </form>
@@ -299,7 +306,7 @@ const tablesBody = `
     <div style="display:flex;align-items:center;gap:.6rem;margin-top:.7rem">
       {{if .HasPK}}<span class="muted" style="font-size:11.5px">Double-click a cell to edit.</span>
       <form id="bulkdel" method="post" action="/p/{{.Slug}}/rows-bulk-delete" style="display:inline">
-        <input type="hidden" name="table" value="{{.Sel}}"><input type="hidden" name="keys" id="bulkkeys">
+        <input type="hidden" name="table" value="{{.Sel}}"><input type="hidden" name="__schema" value="{{.Schema}}"><input type="hidden" name="keys" id="bulkkeys">
         <button class="btn btn-danger btn-sm" type="button" id="bulkbtn" style="display:none" onclick="bulkDelete()">{{icon "trash"}} Delete selected (<span id="bulkn">0</span>)</button>
       </form>{{end}}
       <div class="spacer"></div>
@@ -308,19 +315,19 @@ const tablesBody = `
       <span class="muted" style="font-size:12px">page {{.Page}}</span>
       {{if .HasNext}}<a class="btn btn-ghost btn-sm" href="#" onclick="return goPage({{.NextPage}})">Next {{icon "chevron"}}</a>{{else}}<button class="btn btn-ghost btn-sm" disabled style="opacity:.4">Next</button>{{end}}
     </div>
-    {{if .Meta}}
+    {{if and .Meta .Editable}}
     <div class="card" style="margin-top:1rem">
       <div style="display:flex;align-items:center;gap:.6rem"><h2 style="font-size:16px">Columns</h2><div class="spacer"></div>
-        <form method="post" action="/p/{{.Slug}}/table-drop" onsubmit="return confirm('Drop table {{.Sel}} and ALL its data?')" style="display:inline"><input type="hidden" name="table" value="{{.Sel}}"><button class="btn btn-ghost btn-sm" style="color:hsl(var(--destructive))">{{icon "trash"}} Drop table</button></form>
+        <form method="post" action="/p/{{.Slug}}/table-drop" onsubmit="return confirm('Drop table {{.Sel}} and ALL its data?')" style="display:inline"><input type="hidden" name="table" value="{{.Sel}}"><input type="hidden" name="__schema" value="{{.Schema}}"><button class="btn btn-ghost btn-sm" style="color:hsl(var(--destructive))">{{icon "trash"}} Drop table</button></form>
       </div>
       <div class="tblwrap" style="margin-top:.6rem"><table class="data">
         <thead><tr><th>Column</th><th>Type</th><th>Nullable</th><th>Default</th><th>Comment</th><th></th></tr></thead>
         <tbody>{{range .Meta}}<tr><td><code>{{.Name}}</code>{{if .FKTable}} <span class="muted" style="font-size:10px" title="references {{.FKTable}}.{{.FKCol}}">&rarr; {{.FKTable}}</span>{{end}}</td><td class="muted">{{.Type}}</td><td class="muted">{{.Nullable}}</td><td class="muted" style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.Default}}</td><td class="muted" style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.Comment}}</td>
-          <td style="text-align:right;white-space:nowrap"><button class="copy" type="button" title="Edit column" onclick="var e=document.getElementById('ce_{{.Name}}');e.style.display=e.style.display==='none'?'':'none'">{{icon "settings"}}</button><form method="post" action="/p/{{$.Slug}}/column-drop" onsubmit="return confirm('Drop column {{.Name}}? Its data is lost.')" style="display:inline"><input type="hidden" name="table" value="{{$.Sel}}"><input type="hidden" name="column" value="{{.Name}}"><button class="copy" style="color:hsl(var(--destructive))" title="Drop column">×</button></form></td>
+          <td style="text-align:right;white-space:nowrap"><button class="copy" type="button" title="Edit column" onclick="var e=document.getElementById('ce_{{.Name}}');e.style.display=e.style.display==='none'?'':'none'">{{icon "settings"}}</button><form method="post" action="/p/{{$.Slug}}/column-drop" onsubmit="return confirm('Drop column {{.Name}}? Its data is lost.')" style="display:inline"><input type="hidden" name="table" value="{{$.Sel}}"><input type="hidden" name="__schema" value="{{$.Schema}}"><input type="hidden" name="column" value="{{.Name}}"><button class="copy" style="color:hsl(var(--destructive))" title="Drop column">×</button></form></td>
         </tr>
         <tr id="ce_{{.Name}}" style="display:none"><td colspan="6" style="background:hsl(var(--bg))">
           <form method="post" action="/p/{{$.Slug}}/column-alter" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;padding:.35rem 0">
-            <input type="hidden" name="table" value="{{$.Sel}}"><input type="hidden" name="column" value="{{.Name}}">
+            <input type="hidden" name="table" value="{{$.Sel}}"><input type="hidden" name="__schema" value="{{$.Schema}}"><input type="hidden" name="column" value="{{.Name}}">
             <input type="hidden" name="__old_default" value="{{.Default}}"><input type="hidden" name="__old_notnull" value="{{if eq .Nullable "NO"}}1{{else}}0{{end}}"><input type="hidden" name="__old_comment" value="{{.Comment}}">
             <label class="fld" style="margin:0"><span class="lt">Name</span><input type="text" name="name" value="{{.Name}}" style="width:140px"></label>
             <label class="fld" style="margin:0"><span class="lt">Type</span><select name="type" style="width:auto"><option value="">keep: {{.Type}}</option><option>text</option><option>varchar(255)</option><option>integer</option><option>bigint</option><option>smallint</option><option>boolean</option><option>numeric</option><option>numeric(12,2)</option><option>real</option><option>double precision</option><option>timestamptz</option><option>timestamp</option><option>date</option><option>time</option><option>uuid</option><option>jsonb</option><option>json</option><option>inet</option><option>bytea</option></select></label>
@@ -333,7 +340,7 @@ const tablesBody = `
         </td></tr>{{end}}</tbody>
       </table></div>
       <form method="post" action="/p/{{.Slug}}/column-add" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.8rem;padding-top:.8rem;border-top:1px solid hsl(var(--border))">
-        <input type="hidden" name="table" value="{{.Sel}}">
+        <input type="hidden" name="table" value="{{.Sel}}"><input type="hidden" name="__schema" value="{{.Schema}}">
         <label class="fld" style="margin:0"><span class="lt">New column</span><input type="text" name="name" placeholder="column_name" required style="width:150px"></label>
         <label class="fld" style="margin:0"><span class="lt">Type</span><select name="type"><option>text</option><option>integer</option><option>bigint</option><option>boolean</option><option>numeric</option><option>timestamptz</option><option>date</option><option>uuid</option><option>jsonb</option><option>bytea</option></select></label>
         <label class="fld" style="margin:0"><span class="lt">Default</span><input type="text" name="default" placeholder="optional" style="width:110px"></label>
@@ -1847,6 +1854,7 @@ function cellMeta(n){return COLMETA[n]||{t:'text',null:true};}
 function numType(t){return ['integer','bigint','smallint','numeric','real','double precision'].indexOf(t)>=0;}
 function esc2(t){return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
 function rowPK(tr){var pk={};tr.querySelectorAll('form input[name^=pk_]').forEach(function(i){pk[i.name]=i.value;});return pk;}
+function rowSchema(form){var i=form.querySelector('input[name=__schema]');return i?i.value:'public';}
 function editCell(td){
   if(td.querySelector('input,select'))return;
   var old=td.textContent==='null'?'':td.textContent;
@@ -1885,6 +1893,7 @@ function editCell(td){
     if(!toNull&&nv===old){restore();return;}
     var body=new URLSearchParams();
     body.set('__table', form.querySelector('input[name=__table]').value);
+    body.set('__schema', rowSchema(form));
     body.set('__col', name); body.set('__val', nv);
     if(toNull)body.set('__null','1');
     for(var k in pk){body.set(k, pk[k]);}
@@ -1899,6 +1908,7 @@ function openJSONCell(td,name){
   var tr=td.parentElement, form=tr.querySelector('form');
   var pk=rowPK(tr), base=location.pathname.replace(/\/tables.*/,'');
   var qp=new URLSearchParams(); qp.set('t', form.querySelector('input[name=__table]').value);
+  qp.set('sc', rowSchema(form));
   for(var k in pk)qp.set(k,pk[k]);
   fetch(base+'/row-json?'+qp).then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(row){
     var f=null;row.forEach(function(x){if(x.c===name)f=x});
@@ -1912,6 +1922,7 @@ function openJSONCell(td,name){
       if(nv!==''){try{JSON.parse(nv)}catch(e){alert('Not valid JSON: '+e.message);return;}}
       var body=new URLSearchParams();
       body.set('__table', form.querySelector('input[name=__table]').value);
+      body.set('__schema', rowSchema(form));
       body.set('__col', name); body.set('__val', nv);
       if(nv==='')body.set('__null','1');
       for(var k in pk){body.set(k, pk[k]);}
@@ -1924,8 +1935,9 @@ function closeDrawer(){document.getElementById('drawer').classList.remove('open'
 function openRow(btn){
   var tr=btn.closest('tr'), form=tr.querySelector('form');
   var pk=rowPK(tr), table=form.querySelector('input[name=__table]').value;
+  var sch=rowSchema(form);
   var base=location.pathname.replace(/\/tables.*/,'');
-  var qp=new URLSearchParams(); qp.set('t',table);
+  var qp=new URLSearchParams(); qp.set('t',table); qp.set('sc',sch);
   for(var k in pk)qp.set(k,pk[k]);
   fetch(base+'/row-json?'+qp).then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(row){
     var d=document.getElementById('drawer'); d.innerHTML='';
@@ -1957,7 +1969,7 @@ function openRow(btn){
         var dl=document.createElement('datalist');dl.id='fk_'+f.c;inp.setAttribute('list',dl.id);wrap.appendChild(dl);
         var loaded=false;
         inp.addEventListener('focus',function(){if(loaded)return;loaded=true;
-          fetch(base+'/fk-options?t='+encodeURIComponent(meta.fkt)+'&c='+encodeURIComponent(meta.fkc))
+          fetch(base+'/fk-options?t='+encodeURIComponent(meta.fkt)+'&c='+encodeURIComponent(meta.fkc)+'&s='+encodeURIComponent(meta.fks||'public'))
             .then(function(r){return r.json()}).then(function(os){
               (os||[]).forEach(function(o){var op=document.createElement('option');op.value=o.v;if(o.l)op.label=o.l;dl.appendChild(op);});});});
       }
@@ -1979,6 +1991,7 @@ function openRow(btn){
       if(!cols.length){closeDrawer();return;}
       var body=new URLSearchParams();
       body.set('__table',table);
+      body.set('__schema',sch);
       for(var k in pk)body.set(k,pk[k]);
       var bad=null;
       cols.forEach(function(c){
