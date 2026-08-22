@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.12"
+const appVersion = "1.3.13"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,18 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.13", Date: "2026-08-22",
+		Summary: "Scheduled database jobs, and a grid fix.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Cron Jobs: schedule SQL against your database on a cron cadence (presets or custom) - cleanups, rollups, materialized view refreshes. Jobs can be paused, resumed, removed, or run once on demand, with a run history showing status, message and duration (kept 14 days).",
+			}},
+			{"Fixed", []string{
+				"The Table Editor grid went blank in normal owner view on 1.3.12 (rows and columns only rendered while impersonating a role - inverted logic). Sorry about that one; it is fixed and covered by a regression test.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.12", Date: "2026-08-22",
 		Summary: "See your data exactly as your users do.",

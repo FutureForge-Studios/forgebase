@@ -841,10 +841,10 @@ func (a *app) tablesPage(w http.ResponseWriter, r *http.Request) {
 			if va != "" {
 				// impersonated views are read-only in the grid
 				data["Editable"] = false
-				data["Cols"] = cnames
-				data["Rows"] = recs
-				data["Meta"] = cols
 			}
+			data["Cols"] = cnames
+			data["Rows"] = recs
+			data["Meta"] = cols
 			data["PK"] = pk
 			data["HasPK"] = len(pk) > 0 && va == ""
 			data["Page"] = page

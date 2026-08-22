@@ -1849,6 +1849,62 @@ const syncBody = `
 
 // ----- shared JS snippets -----
 
+const cronBody = `
+<div class="pagehead"><h1>Cron Jobs</h1><p>Scheduled SQL against this project's database - cleanups, rollups, refreshes. Powered by pg_cron.</p></div>
+{{if .Unavailable}}
+<div class="card" style="text-align:center;padding:2.5rem"><p class="muted" style="margin:0">{{.Unavailable}}</p></div>
+{{else}}
+<div class="card" style="margin-bottom:1rem">
+  <h2>New job</h2>
+  <form method="post" action="/p/{{.Slug}}/cron-create" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.6rem">
+    <label class="fld" style="margin:0"><span class="lt">Name</span><input type="text" name="name" placeholder="nightly cleanup" required style="width:170px"></label>
+    <label class="fld" style="margin:0"><span class="lt">Schedule</span><select name="schedule" style="width:auto" onchange="document.getElementById('cust').style.display=this.value==='custom'?'':'none'">
+      <option value="* * * * *">every minute</option>
+      <option value="*/5 * * * *">every 5 minutes</option>
+      <option value="0 * * * *">hourly</option>
+      <option value="0 0 * * *" selected>daily at 00:00</option>
+      <option value="0 0 * * 0">weekly (Sun 00:00)</option>
+      <option value="0 0 1 * *">monthly (1st 00:00)</option>
+      <option value="custom">custom...</option>
+    </select></label>
+    <label class="fld" style="margin:0;display:none" id="cust"><span class="lt">Custom (min hour day month weekday)</span><input type="text" name="custom" placeholder="30 3 * * 1-5" style="width:160px"></label>
+    <label class="fld" style="margin:0;flex:1;min-width:260px"><span class="lt">SQL command</span><input type="text" name="command" placeholder="DELETE FROM logs WHERE at < now() - interval '30 days'" required style="font-family:var(--mono);font-size:12.5px"></label>
+    <button class="btn btn-primary btn-sm" type="submit">Schedule</button>
+  </form>
+  <p class="muted" style="font-size:11.5px;margin:.5rem 0 0">Times are UTC. The command runs inside your project database as its owner.</p>
+</div>
+{{if .Jobs}}
+<div class="tblwrap"><table class="data">
+  <thead><tr><th>Job</th><th>Schedule</th><th>Command</th><th>Status</th><th></th></tr></thead>
+  <tbody>{{range .Jobs}}<tr>
+    <td style="white-space:nowrap">{{.Name}}</td>
+    <td><code style="font-size:11.5px">{{.Schedule}}</code></td>
+    <td class="muted" style="font-size:11px;max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Command}}">{{.Command}}</td>
+    <td>{{if .Active}}<span class="badge active">active</span>{{else}}<span class="badge paused">paused</span>{{end}}</td>
+    <td style="text-align:right;white-space:nowrap">
+      <form method="post" action="/p/{{$.Slug}}/cron-run" style="display:inline"><input type="hidden" name="id" value="{{.ID}}"><button class="copy" title="Run once now">{{icon "play"}}</button></form>
+      <form method="post" action="/p/{{$.Slug}}/cron-toggle" style="display:inline"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="action" value="{{if .Active}}pause{{else}}enable{{end}}"><button class="copy" title="{{if .Active}}Pause{{else}}Resume{{end}}">{{if .Active}}{{icon "pause"}}{{else}}{{icon "restore"}}{{end}}</button></form>
+      <form method="post" action="/p/{{$.Slug}}/cron-delete" onsubmit="return confirm('Remove this job?')" style="display:inline"><input type="hidden" name="id" value="{{.ID}}"><button class="copy" style="color:hsl(var(--destructive))" title="Delete job">{{icon "trash"}}</button></form>
+    </td>
+  </tr>{{end}}</tbody>
+</table></div>
+{{else}}<p class="muted">No jobs yet.</p>{{end}}
+{{if .Runs}}
+<details style="margin-top:1.2rem" open><summary class="label" style="cursor:pointer">Run history (last 50, kept 14 days)</summary>
+<div class="tblwrap" style="margin-top:.5rem"><table class="data">
+  <thead><tr><th>Job</th><th>Status</th><th>Message</th><th>Started (UTC)</th><th>Took</th></tr></thead>
+  <tbody>{{range .Runs}}<tr>
+    <td style="white-space:nowrap">{{.Job}}</td>
+    <td>{{if eq .Status "succeeded"}}<span class="badge active">ok</span>{{else}}<span class="badge paused">{{.Status}}</span>{{end}}</td>
+    <td class="muted" style="font-size:11px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Message}}">{{.Message}}</td>
+    <td class="muted" style="font-size:11.5px;white-space:nowrap">{{.Started}}</td>
+    <td class="muted" style="font-size:11.5px">{{.Took}}</td>
+  </tr>{{end}}</tbody>
+</table></div></details>
+{{end}}
+{{end}}
+`
+
 const policiesBody = `
 <div class="pagehead"><h1>Policies</h1><p>Row Level Security and column privileges, table by table. Policies decide which rows a role can see or change; column grants decide which fields.</p></div>
 {{if not .Tables}}<div class="card" style="text-align:center;padding:2.5rem"><p class="muted" style="margin:0">No tables yet.</p></div>{{end}}

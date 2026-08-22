@@ -438,6 +438,7 @@ func projectNav(slug string) []navItem {
 		{"realtime", "Realtime", b + "/realtime", "bolt"},
 		{"webhooks", "Webhooks", b + "/webhooks", "webhook"},
 		{"edge", "Edge Functions", b + "/functions", "terminal"},
+		{"cron", "Cron Jobs", b + "/cron", "restore"},
 		{"monitoring", "Monitoring", b + "/monitoring", "chart"},
 		{"branches", "Branches", b + "/branches", "branch"},
 		{"database", "Database", b + "/database", "database"},

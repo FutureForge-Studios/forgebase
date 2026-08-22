@@ -13,6 +13,16 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.13] - 2026-08-22
+
+### Added
+- Cron Jobs page: schedule SQL per project (pg_cron), pause/resume/delete,
+  run-once-now, and a 14-day run history.
+
+### Fixed
+- Table Editor grid rendered blank in owner view on 1.3.12 (inverted
+  impersonation branch).
+
 ## [1.3.12] - 2026-08-22
 
 ### Added
@@ -797,7 +807,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.12...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.13...HEAD
+[1.3.13]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.12...v1.3.13
 [1.3.12]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.11...v1.3.12
 [1.3.11]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.10...v1.3.11
 [1.3.10]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.9...v1.3.10
