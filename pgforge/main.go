@@ -186,6 +186,7 @@ func main() {
 	mux.HandleFunc("POST /system/discord", a.auth(a.requireRole("owner", a.setDiscordWebhook)))
 	mux.HandleFunc("POST /system/auto-update", a.auth(a.requireRole("owner", a.setAutoUpdate)))
 	mux.HandleFunc("POST /system/status-domain", a.auth(a.requireRole("owner", a.setStatusDomain)))
+	mux.HandleFunc("POST /system/secondary-domain", a.auth(a.requireRole("owner", a.setSecondaryDomain)))
 	// team (owner-only management)
 	mux.HandleFunc("GET /people", a.auth(a.peoplePage))
 	mux.HandleFunc("POST /people/add", a.auth(a.requireRole("owner", a.addMember)))
@@ -301,16 +302,35 @@ func (a *app) rootHandler(panel http.Handler) http.Handler {
 		if i := strings.IndexByte(host, ':'); i >= 0 {
 			host = host[:i]
 		}
-		if host == "status."+a.cfg.domain || (host != "" && host == a.statusCustomDomain()) {
+		if host != "" && host == a.statusCustomDomain() {
 			a.statusPage(w, r)
 			return
 		}
-		if host != a.cfg.domain && strings.HasSuffix(host, "."+a.cfg.domain) {
-			slug := strings.TrimSuffix(host, "."+a.cfg.domain)
-			if slug != "db" && a.projectExists(slug) {
-				a.serveAPI(w, r, slug)
-				return
+		sec := a.secondaryDomain()
+		for _, dom := range []string{a.cfg.domain, sec} {
+			sub, ok := hostMatchesDomain(host, dom)
+			if !ok {
+				continue
 			}
+			switch {
+			case sub == "status":
+				a.statusPage(w, r)
+				return
+			case sub != "" && sub != "db":
+				if a.projectExists(sub) {
+					a.serveAPI(w, r, sub)
+					return
+				}
+			case sub == "":
+				// apex = the panel. Optionally move browsers from the old
+				// domain to the new one (GET only; APIs and forms untouched).
+				if dom == a.cfg.domain && sec != "" && r.Method == http.MethodGet &&
+					a.panelRedirectOn() && r.URL.Path != "/healthz" && !strings.HasPrefix(r.URL.Path, "/internal/") {
+					http.Redirect(w, r, "https://"+sec+r.URL.RequestURI(), http.StatusFound)
+					return
+				}
+			}
+			break
 		}
 		panel.ServeHTTP(w, r)
 	})
@@ -644,17 +664,16 @@ func (a *app) authRateLimited(ip string) bool {
 // tlsCheck lets Caddy issue certs on demand only for hostnames we know.
 func (a *app) tlsCheck(w http.ResponseWriter, r *http.Request) {
 	d := r.URL.Query().Get("domain")
-	if d == a.cfg.domain || d == "db."+a.cfg.domain || d == "status."+a.cfg.domain {
-		w.WriteHeader(200)
-		return
-	}
 	if cd := a.statusCustomDomain(); cd != "" && d == cd {
 		w.WriteHeader(200)
 		return
 	}
-	if strings.HasSuffix(d, "."+a.cfg.domain) {
-		slug := strings.TrimSuffix(d, "."+a.cfg.domain)
-		if a.projectExists(slug) {
+	for _, dom := range []string{a.cfg.domain, a.secondaryDomain()} {
+		sub, ok := hostMatchesDomain(d, dom)
+		if !ok {
+			continue
+		}
+		if sub == "" || sub == "db" || sub == "status" || a.projectExists(sub) {
 			w.WriteHeader(200)
 			return
 		}

@@ -96,7 +96,7 @@ func (a *app) systemPage(w http.ResponseWriter, r *http.Request) {
 		"DBOK": dbOK, "PGVer": pgVer, "DBSize": dbSize, "ActiveAPIs": activeAPIs, "Svcs": svcs,
 		"Stats": a.hostStats(), "AppVersion": appVersion, "IsOwner": a.atLeast(r, "owner"),
 		"Checked": checked, "Upd": upd, "UpdateLog": updLog, "UpdateRunning": updateRunning,
-		"AutoUpd": a.settingOn("auto_update"), "Domain": a.cfg.domain, "StatusDomain": a.statusCustomDomain(), "StatusTitle": func() string {
+		"AutoUpd": a.settingOn("auto_update"), "Domain": a.cfg.domain, "StatusDomain": a.statusCustomDomain(), "SecondaryDomain": a.secondaryDomain(), "PanelRedirect": a.panelRedirectOn(), "StatusTitle": func() string {
 			var v string
 			a.db.QueryRow(`SELECT value FROM settings WHERE key='status_title'`).Scan(&v)
 			return v

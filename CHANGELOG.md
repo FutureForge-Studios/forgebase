@@ -13,6 +13,22 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.18] - 2026-08-22
+
+### Added
+- Secondary domain support: add a domain on the System page and the panel,
+  every project's API (project.yourdomain), and the status page all serve on
+  it - HTTPS certificates issue automatically on first visit. The original
+  domain keeps working forever, so nothing connected to it can break.
+- Connection strings on the new domain use db.<domain> for Postgres,
+  deliberately separate from the web hostnames - that split lets you put the
+  web side behind a proxy/CDN later while database traffic stays direct.
+- Optional redirect: once you trust the new domain, one checkbox makes
+  browsers visiting the old panel land on the new one (APIs and database
+  connections are never redirected).
+- Project cards show the new-domain connection strings with the legacy ones
+  one click away.
+
 ## [1.2.17] - 2026-08-22
 
 ### Changed
@@ -550,7 +566,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.17...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.18...HEAD
+[1.2.18]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.17...v1.2.18
 [1.2.17]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.16...v1.2.17
 [1.2.16]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.15...v1.2.16
 [1.2.15]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.14...v1.2.15

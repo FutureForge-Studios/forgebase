@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.2.17"
+const appVersion = "1.2.18"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,18 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.2.18", Date: "2026-08-22",
+		Summary: "Serve your platform on a second domain - with zero risk to the first.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Secondary domain support: add a domain on the System page and the panel, every project's API (project.yourdomain), and the status page all serve on it - HTTPS certificates issue automatically on first visit. The original domain keeps working forever, so nothing connected to it can break.",
+				"Connection strings on the new domain use db.<domain> for Postgres, deliberately separate from the web hostnames - that split lets you put the web side behind a proxy/CDN later while database traffic stays direct.",
+				"Optional redirect: once you trust the new domain, one checkbox makes browsers visiting the old panel land on the new one (APIs and database connections are never redirected).",
+				"Project cards show the new-domain connection strings with the legacy ones one click away.",
+			}},
+		},
+	},
 	{
 		Version: "1.2.17", Date: "2026-08-22",
 		Summary: "Every internal log is now bounded, and deleted projects clean up fully.",

@@ -15,9 +15,10 @@ import (
 )
 
 type projectView struct {
-	Slug, Status, Created, Size string
-	Conns                       int
-	DirectURL, PooledURL        string
+	Slug, Status, Created, Size      string
+	Conns                            int
+	DirectURL, PooledURL             string
+	LegacyDirectURL, LegacyPooledURL string // old-domain strings, shown collapsed
 }
 
 func (a *app) loadProjects() ([]projectView, error) {
@@ -42,8 +43,13 @@ func (a *app) loadProjects() ([]projectView, error) {
 		if err := rows.Scan(&v.Slug, &v.Status, &v.Created, &v.Size, &pw, &v.Conns); err != nil {
 			return nil, err
 		}
-		v.DirectURL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=require", v.Slug, pw, a.cfg.domain, v.Slug)
-		v.PooledURL = fmt.Sprintf("postgresql://%s:%s@%s:6543/%s", v.Slug, pw, a.cfg.domain, v.Slug)
+		host := a.dbHostForDisplay()
+		v.DirectURL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=require", v.Slug, pw, host, v.Slug)
+		v.PooledURL = fmt.Sprintf("postgresql://%s:%s@%s:6543/%s", v.Slug, pw, host, v.Slug)
+		if host != a.cfg.domain {
+			v.LegacyDirectURL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=require", v.Slug, pw, a.cfg.domain, v.Slug)
+			v.LegacyPooledURL = fmt.Sprintf("postgresql://%s:%s@%s:6543/%s", v.Slug, pw, a.cfg.domain, v.Slug)
+		}
 		out = append(out, v)
 	}
 	return out, nil
@@ -362,8 +368,8 @@ func (a *app) projectHome(w http.ResponseWriter, r *http.Request) {
 		"Slug": slug, "Status": status, "Size": size, "Tables": tables, "Conns": conns,
 		"Created": created, "Branches": branches, "Version": version, "Retention": retention,
 		"APIEnabled": apiEnabled, "Domain": a.cfg.domain,
-		"Direct": fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=require", slug, pw, a.cfg.domain, slug),
-		"Pooled": fmt.Sprintf("postgresql://%s:%s@%s:6543/%s", slug, pw, a.cfg.domain, slug),
+		"Direct": fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=require", slug, pw, a.dbHostForDisplay(), slug),
+		"Pooled": fmt.Sprintf("postgresql://%s:%s@%s:6543/%s", slug, pw, a.dbHostForDisplay(), slug),
 	})
 	a.renderShell(w, r, shellData{Title: slug, Nav: "home", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug}}}, content)

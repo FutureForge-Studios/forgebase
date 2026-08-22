@@ -57,6 +57,9 @@ const dashboardBody = `
     <div class="muted" style="font-size:12px;margin:.5rem 0 .2rem">created {{.Created}} · {{.Size}} · {{.Conns}} connection(s)</div>
     <div class="cs"><span class="tag">Direct TLS</span><code id="d-{{.Slug}}">{{.DirectURL}}</code><button class="copy" onclick="cp('d-{{.Slug}}')">{{icon "copy"}}</button></div>
     <div class="cs"><span class="tag">Pooled</span><code id="p-{{.Slug}}">{{.PooledURL}}</code><button class="copy" onclick="cp('p-{{.Slug}}')">{{icon "copy"}}</button></div>
+    {{if .LegacyDirectURL}}<details style="margin-top:.3rem"><summary class="muted" style="font-size:11px;cursor:pointer">legacy domain (still works)</summary>
+    <div class="cs"><span class="tag">Direct</span><code id="ld-{{.Slug}}">{{.LegacyDirectURL}}</code><button class="copy" onclick="cp('ld-{{.Slug}}')">{{icon "copy"}}</button></div>
+    <div class="cs"><span class="tag">Pooled</span><code id="lp-{{.Slug}}">{{.LegacyPooledURL}}</code><button class="copy" onclick="cp('lp-{{.Slug}}')">{{icon "copy"}}</button></div></details>{{end}}
     <div style="display:flex;gap:.5rem;margin-top:.9rem">
       {{if eq .Status "active"}}
       <form method="post" action="/pause"><input type="hidden" name="slug" value="{{.Slug}}"><button class="btn btn-ghost btn-sm">{{icon "pause"}} Pause</button></form>
@@ -1446,6 +1449,19 @@ const systemBody = `
     <button class="btn btn-ghost btn-sm" type="submit">Save</button>
   </form>
   <p class="muted" style="font-size:11px;margin:.4rem 0 0">Saving sends a test message. Save empty to disable.</p>
+  {{end}}
+</div>
+<div class="card" style="margin-bottom:1rem">
+  <h2>Domains</h2>
+  <p class="muted" style="font-size:12.5px;margin:.4rem 0 .6rem">Primary: <code>{{.Domain}}</code> (always keeps working). Add a secondary domain to serve the panel, project APIs, and the status page there too - certificates are automatic on first visit. Connection strings then show <code>db.&lt;secondary&gt;</code> for Postgres so the web hostnames can sit behind a proxy later; the old strings keep working forever.</p>
+  {{if .IsOwner}}
+  <form method="post" action="/system/secondary-domain" style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center">
+    <input type="text" name="domain" placeholder="base.example.com" value="{{.SecondaryDomain}}" style="flex:1;min-width:220px">
+    <label style="display:flex;align-items:center;gap:.35rem;font-size:12px;cursor:pointer">
+      <input type="checkbox" name="redirect" {{if .PanelRedirect}}checked{{end}} style="width:auto;margin:0"> redirect old panel here</label>
+    <button class="btn btn-ghost btn-sm" type="submit">Save</button>
+  </form>
+  <p class="muted" style="font-size:11px;margin:.4rem 0 0">DNS needed: <code>@</code> and <code>*</code> A-records for the secondary domain pointing at this server. Keep <code>db.&lt;secondary&gt;</code> un-proxied (direct DNS) - database traffic cannot pass through a web proxy.</p>
   {{end}}
 </div>
 <div class="card" style="margin-bottom:1rem">
