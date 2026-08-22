@@ -1840,10 +1840,120 @@ const syncBody = `
 
 // ----- shared JS snippets -----
 
+const policiesBody = `
+<div class="pagehead"><h1>Policies</h1><p>Row Level Security and column privileges, table by table. Policies decide which rows a role can see or change; column grants decide which fields.</p></div>
+{{if not .Tables}}<div class="card" style="text-align:center;padding:2.5rem"><p class="muted" style="margin:0">No tables yet.</p></div>{{end}}
+{{range .Tables}}
+<div class="card" style="margin-bottom:.8rem">
+  <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+    <h2 style="font-size:16px">{{.Name}}</h2>
+    {{if .Enabled}}<span class="badge active">RLS on</span>{{else}}<span class="badge paused">RLS off</span>{{end}}
+    {{if .Force}}<span class="badge active" title="Applies to the table owner too">forced</span>{{end}}
+    <div class="spacer"></div>
+    <form method="post" action="/p/{{$.Slug}}/rls/toggle" style="display:inline">
+      <input type="hidden" name="__back" value="policies"><input type="hidden" name="table" value="{{.Name}}">
+      <input type="hidden" name="action" value="{{if .Enabled}}disable{{else}}enable{{end}}">
+      <button class="btn btn-ghost btn-sm">{{if .Enabled}}Disable RLS{{else}}Enable RLS{{end}}</button>
+    </form>
+    <form method="post" action="/p/{{$.Slug}}/rls/force" style="display:inline">
+      <input type="hidden" name="table" value="{{.Name}}">
+      <input type="hidden" name="action" value="{{if .Force}}noforce{{else}}force{{end}}">
+      <button class="btn btn-ghost btn-sm" title="FORCE applies policies to the table owner as well">{{if .Force}}Unforce{{else}}Force{{end}}</button>
+    </form>
+  </div>
+  {{if .Policies}}
+  <div class="tblwrap" style="margin-top:.7rem"><table class="data">
+    <thead><tr><th>Policy</th><th>Command</th><th>Type</th><th>Roles</th><th>Using</th><th>With check</th><th></th></tr></thead>
+    <tbody>{{$t := .}}{{range .Policies}}<tr>
+      <td><code>{{.Name}}</code></td><td class="muted">{{.Cmd}}</td>
+      <td class="muted">{{if .Permissive}}permissive{{else}}restrictive{{end}}</td>
+      <td class="muted" style="font-size:11.5px">{{.Roles}}</td>
+      <td class="muted" style="font-size:11px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Qual}}">{{.Qual}}</td>
+      <td class="muted" style="font-size:11px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Check}}">{{.Check}}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="copy" type="button" title="Edit policy" onclick="var e=document.getElementById('pe_{{$t.Name}}_{{.Name}}');e.style.display=e.style.display==='none'?'':'none'">{{icon "settings"}}</button>
+        <form method="post" action="/p/{{$.Slug}}/rls/policy-drop" onsubmit="return confirm('Drop policy {{.Name}}?')" style="display:inline">
+          <input type="hidden" name="__back" value="policies"><input type="hidden" name="table" value="{{$t.Name}}"><input type="hidden" name="policy" value="{{.Name}}">
+          <button class="copy" style="color:hsl(var(--destructive))" title="Drop policy">{{icon "trash"}}</button>
+        </form>
+      </td></tr>
+      <tr id="pe_{{$t.Name}}_{{.Name}}" style="display:none"><td colspan="7" style="background:hsl(var(--bg))">
+        <form method="post" action="/p/{{$.Slug}}/rls/policy-alter" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;padding:.35rem 0">
+          <input type="hidden" name="table" value="{{$t.Name}}"><input type="hidden" name="policy" value="{{.Name}}">
+          <span class="muted" style="font-size:12px;display:flex;gap:.6rem;align-items:center;padding-bottom:.5rem">
+            <label style="display:flex;gap:.25rem;align-items:center"><input type="checkbox" name="roles" value="anon"> anon</label>
+            <label style="display:flex;gap:.25rem;align-items:center"><input type="checkbox" name="roles" value="authenticated"> authenticated</label>
+            <label style="display:flex;gap:.25rem;align-items:center"><input type="checkbox" name="roles" value="service_role"> service_role</label>
+          </span>
+          <label class="fld" style="margin:0;flex:1;min-width:200px"><span class="lt">USING</span><input type="text" name="using" value="{{.Qual}}" placeholder="unchanged if empty"></label>
+          <label class="fld" style="margin:0;flex:1;min-width:200px"><span class="lt">WITH CHECK</span><input type="text" name="check" value="{{.Check}}" placeholder="unchanged if empty"></label>
+          <button class="btn btn-primary btn-sm" type="submit">Save</button>
+          <span class="muted" style="font-size:11px">roles only change when at least one is ticked</span>
+        </form>
+      </td></tr>{{end}}</tbody>
+  </table></div>
+  {{else}}<p class="muted" style="font-size:12.5px;margin-top:.6rem">No policies{{if .Enabled}} - RLS is on, so nothing is accessible to API roles until you add one{{end}}.</p>{{end}}
+  <details style="margin-top:.7rem"><summary class="label" style="cursor:pointer">Add policy</summary>
+    <div style="display:flex;gap:1.6rem;flex-wrap:wrap;margin-top:.6rem">
+      <form method="post" action="/p/{{$.Slug}}/rls/policy" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end">
+        <input type="hidden" name="__back" value="policies"><input type="hidden" name="table" value="{{.Name}}">
+        <label class="fld" style="margin:0"><span class="lt">Template</span><select name="template" style="width:auto">
+          <option value="public-read">public read</option><option value="auth-read">authenticated read</option>
+          <option value="auth-write">authenticated write</option><option value="owner">owner only (by column)</option></select></label>
+        <label class="fld" style="margin:0"><span class="lt">Owner column</span><select name="column" style="width:auto"><option value="">-</option>{{range .Cols}}<option>{{.}}</option>{{end}}</select></label>
+        <button class="btn btn-ghost btn-sm" type="submit">Add template</button>
+      </form>
+      <form method="post" action="/p/{{$.Slug}}/rls/policy-create" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end">
+        <input type="hidden" name="table" value="{{.Name}}">
+        <label class="fld" style="margin:0"><span class="lt">Name</span><input type="text" name="name" placeholder="my policy" required style="width:130px"></label>
+        <label class="fld" style="margin:0"><span class="lt">Command</span><select name="cmd" style="width:auto"><option>ALL</option><option>SELECT</option><option>INSERT</option><option>UPDATE</option><option>DELETE</option></select></label>
+        <span class="muted" style="font-size:12px;display:flex;gap:.5rem;align-items:center;padding-bottom:.5rem">
+          <label style="display:flex;gap:.25rem;align-items:center"><input type="checkbox" name="roles" value="anon"> anon</label>
+          <label style="display:flex;gap:.25rem;align-items:center"><input type="checkbox" name="roles" value="authenticated" checked> auth</label>
+          <label style="display:flex;gap:.25rem;align-items:center"><input type="checkbox" name="roles" value="service_role"> service</label>
+        </span>
+        <label class="fld" style="margin:0"><span class="lt">USING</span><input type="text" name="using" placeholder="auth.uid() = user_id" style="width:180px"></label>
+        <label class="fld" style="margin:0"><span class="lt">WITH CHECK</span><input type="text" name="check" placeholder="optional" style="width:150px"></label>
+        <label class="muted" style="font-size:12px;display:flex;align-items:center;gap:.3rem"><input type="checkbox" name="restrictive"> restrictive</label>
+        <label class="muted" style="font-size:12px;display:flex;align-items:center;gap:.3rem" title="Also grant the matching table privileges to the chosen roles"><input type="checkbox" name="grant" checked> grant</label>
+        <button class="btn btn-primary btn-sm" type="submit">Create policy</button>
+      </form>
+    </div>
+  </details>
+  <details style="margin-top:.5rem"><summary class="label" style="cursor:pointer">Column privileges{{if .Grants}} ({{len .Grants}}){{end}}</summary>
+    {{if .Grants}}
+    <div class="tblwrap" style="margin-top:.5rem"><table class="data">
+      <thead><tr><th>Column</th><th>Role</th><th>Privilege</th><th></th></tr></thead>
+      <tbody>{{$t := .}}{{range .Grants}}<tr>
+        <td><code>{{.Col}}</code></td><td class="muted">{{.Role}}</td><td class="muted">{{.Priv}}</td>
+        <td style="text-align:right"><form method="post" action="/p/{{$.Slug}}/rls/col-revoke" onsubmit="return confirm('Revoke {{.Priv}} on {{.Col}} from {{.Role}}?')" style="display:inline">
+          <input type="hidden" name="table" value="{{$t.Name}}"><input type="hidden" name="column" value="{{.Col}}"><input type="hidden" name="role" value="{{.Role}}"><input type="hidden" name="priv" value="{{.Priv}}">
+          <button class="copy" style="color:hsl(var(--destructive))" title="Revoke">&times;</button></form></td>
+      </tr>{{end}}</tbody>
+    </table></div>{{end}}
+    <form method="post" action="/p/{{$.Slug}}/rls/col-grant" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.6rem">
+      <input type="hidden" name="table" value="{{.Name}}">
+      <label class="fld" style="margin:0"><span class="lt">Privilege</span><select name="priv" style="width:auto"><option>SELECT</option><option>INSERT</option><option>UPDATE</option></select></label>
+      <label class="fld" style="margin:0"><span class="lt">Columns (comma separated)</span><input type="text" name="columns" placeholder="email, name" required style="width:200px"></label>
+      <label class="fld" style="margin:0"><span class="lt">Role</span><select name="role" style="width:auto"><option>anon</option><option selected>authenticated</option><option>service_role</option></select></label>
+      <button class="btn btn-ghost btn-sm" type="submit">Grant on columns</button>
+      <span class="muted" style="font-size:11px">finer than a table grant - e.g. expose a table to anon but hide a cost column</span>
+    </form>
+  </details>
+</div>
+{{end}}
+`
+
 const erdBody = `
 <div class="pagehead"><h1>Schema Diagram</h1><p>Tables and their foreign-key relationships in <b>{{.Schema}}</b>. Click a table to open it in the editor.</p></div>
 <div style="display:flex;gap:.7rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
   <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/tables?sc={{.Schema}}">{{icon "back"}} Table Editor</a>
+  <span style="display:flex;gap:.25rem;align-items:center">
+    <button class="btn btn-ghost btn-sm" type="button" onclick="ezoom(0.8)" title="Zoom out">&minus;</button>
+    <button class="btn btn-ghost btn-sm" type="button" id="ezpct" onclick="ezreset()" title="Reset zoom">100%</button>
+    <button class="btn btn-ghost btn-sm" type="button" onclick="ezoom(1.25)" title="Zoom in">+</button>
+    <button class="btn btn-ghost btn-sm" type="button" onclick="ezfit()" title="Scale to fit the window">Fit</button>
+  </span>
   <div class="spacer"></div>
   <label class="label" style="display:flex;align-items:center;gap:.4rem">Schema
     <select onchange="location.href='/p/{{.Slug}}/erd?sc='+encodeURIComponent(this.value)" style="width:auto;padding:.4rem .6rem">
@@ -1854,7 +1964,7 @@ const erdBody = `
 <div class="card" style="text-align:center;padding:2.5rem"><p class="muted" style="margin:0">No tables in <b>{{.Schema}}</b> yet.</p></div>
 {{else}}
 <div class="card" style="padding:.4rem;overflow:auto;max-height:78vh">
-<svg width="{{.Width}}" height="{{.Height}}" xmlns="http://www.w3.org/2000/svg" style="display:block;font-family:var(--mono);width:{{.Width}}px;height:{{.Height}}px;max-width:none">
+<svg id="erdsvg" width="{{.Width}}" height="{{.Height}}" viewBox="0 0 {{.Width}} {{.Height}}" xmlns="http://www.w3.org/2000/svg" style="display:block;font-family:var(--mono);width:{{.Width}}px;height:{{.Height}}px;max-width:none">
   <defs><marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" style="fill:hsl(var(--muted-fg))"/></marker></defs>
   {{range .Edges}}<path d="{{.Path}}" style="fill:none;stroke:hsl(var(--muted-fg));stroke-width:1.3;opacity:.55" marker-end="url(#arr)"><title>{{.Title}}</title></path>{{end}}
   {{range .Boxes}}
@@ -1876,6 +1986,19 @@ const erdBody = `
 </div>
 <p class="muted" style="font-size:11.5px;margin-top:.5rem">* = primary key column. Arrows point from the referencing column to the referenced table.</p>
 {{end}}
+<script>
+var EW={{.Width}},EH={{.Height}},EZ=1;
+function ezapply(){var s=document.getElementById('erdsvg');if(!s)return;
+ s.style.width=Math.round(EW*EZ)+'px';s.style.height=Math.round(EH*EZ)+'px';
+ document.getElementById('ezpct').textContent=Math.round(EZ*100)+'%';}
+function ezoom(f){EZ=Math.min(3,Math.max(0.15,EZ*f));ezapply();}
+function ezreset(){EZ=1;ezapply();}
+function ezfit(){var s=document.getElementById('erdsvg');if(!s)return;
+ var box=s.parentElement;EZ=Math.min(1,Math.max(0.15,(box.clientWidth-16)/EW));
+ var vh=Math.max(240,window.innerHeight*0.74);var zh=vh/EH;if(zh<EZ)EZ=Math.max(0.15,zh);
+ ezapply();}
+ezfit();
+</script>
 `
 
 const objectsBody = `

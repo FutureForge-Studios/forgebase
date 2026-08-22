@@ -13,6 +13,16 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.11] - 2026-08-22
+
+### Added
+- Policies page: RLS state per table, full policy details, enable/disable,
+  FORCE mode.
+- Custom policy builder (command, roles, USING/WITH CHECK, permissive or
+  restrictive) with automatic matching grants; in-place policy editing.
+- Column-level privileges with listing and revoke.
+- Zoomable schema diagram (zoom, reset, fit-to-view default).
+
 ## [1.3.10] - 2026-08-22
 
 ### Added
@@ -779,7 +789,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.10...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.11...HEAD
+[1.3.11]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.10...v1.3.11
 [1.3.10]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.9...v1.3.10
 [1.3.9]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.8...v1.3.9
 [1.3.8]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.7...v1.3.8

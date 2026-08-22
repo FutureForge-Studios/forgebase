@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.10"
+const appVersion = "1.3.11"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,19 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.11", Date: "2026-08-22",
+		Summary: "A real policy editor, and a zoomable diagram.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"New Policies page: every table with its Row Level Security state, full policy details (command, permissive/restrictive, roles, USING and WITH CHECK expressions), one-click enable/disable, and FORCE mode (policies apply to the table owner too).",
+				"Custom policy builder: write any policy - pick the command, roles, USING and WITH CHECK expressions, permissive or restrictive - with matching table grants applied automatically so the policy actually works over the API.",
+				"Edit existing policies in place (roles and expressions).",
+				"Column-level privileges: grant SELECT/INSERT/UPDATE on specific columns to anon/authenticated/service_role - e.g. expose a table but hide a cost column - with a listing of every column grant and one-click revoke.",
+				"The schema diagram is now zoomable: zoom in/out, reset, and a Fit button that scales the whole diagram into view (fit is the default).",
+			}},
+		},
+	},
 	{
 		Version: "1.3.10", Date: "2026-08-22",
 		Summary: "SQL editor tabs, table definitions, and diagram fixes.",

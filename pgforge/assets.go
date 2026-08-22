@@ -434,6 +434,7 @@ func projectNav(slug string) []navItem {
 		{"api", "Data API", b + "/api", "api"},
 		{"storage", "Storage", b + "/storage", "folder"},
 		{"authn", "Auth", b + "/auth", "shield"},
+		{"policies", "Policies", b + "/policies", "key"},
 		{"realtime", "Realtime", b + "/realtime", "bolt"},
 		{"webhooks", "Webhooks", b + "/webhooks", "webhook"},
 		{"edge", "Edge Functions", b + "/functions", "terminal"},
