@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -25,8 +26,13 @@ func (a *app) secondaryDomain() string {
 		return v.(string)
 	}
 	var s string
-	a.db.QueryRow(`SELECT value FROM settings WHERE key='domain_secondary'`).Scan(&s)
+	err := a.db.QueryRow(`SELECT value FROM settings WHERE key='domain_secondary'`).Scan(&s)
 	s = strings.TrimSpace(strings.ToLower(s))
+	if err != nil && err != sql.ErrNoRows {
+		// transient DB error: return without caching, so one failed query at
+		// boot cannot pin the secondary domain to "" for the process lifetime
+		return s
+	}
 	secDomainCache.Store(s)
 	return s
 }
@@ -55,8 +61,9 @@ func hostMatchesDomain(host, domain string) (string, bool) {
 
 func (a *app) setSecondaryDomain(w http.ResponseWriter, r *http.Request) {
 	d := strings.ToLower(strings.TrimSpace(r.FormValue("domain")))
-	if d != "" && (!hostRe.MatchString(d) || d == a.cfg.domain) {
-		redirectErr(w, r, "/system", "Enter a bare domain like base.example.com (different from the current one).")
+	if d != "" && (!hostRe.MatchString(d) || d == a.cfg.domain ||
+		strings.HasSuffix(d, "."+a.cfg.domain) || strings.HasSuffix(a.cfg.domain, "."+d)) {
+		redirectErr(w, r, "/system", "Enter a bare domain like base.example.com - different from the current domain and not a subdomain of it (subdomains of the primary are project addresses).")
 		return
 	}
 	a.db.Exec(`INSERT INTO settings(key,value) VALUES ('domain_secondary',$1)

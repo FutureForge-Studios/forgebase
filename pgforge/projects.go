@@ -214,6 +214,7 @@ func (a *app) dropProjectFully(slug string) error {
 		a.db.Exec(`DELETE FROM `+t+` WHERE slug=$1`, slug)
 	}
 	os.RemoveAll(filepath.Join(storageRoot, slug))
+	a.s3Purge(slug)
 	os.RemoveAll(filepath.Join(funcRoot, slug))
 	trashProjectDumps(slug)
 	return nil
@@ -316,11 +317,20 @@ func (a *app) wakeProject(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/", "No such project.")
 		return
 	}
+	// Gate every side effect on the row ACTUALLY transitioning from
+	// 'suspended'. An unconditional ALTER ROLE LOGIN here would silently undo
+	// a paused project's NOLOGIN lockout.
+	var woke string
+	a.db.QueryRow(`UPDATE projects SET status='active', last_active=now()
+		WHERE slug=$1 AND status='suspended' RETURNING slug`, slug).Scan(&woke)
+	if woke == "" {
+		redirectMsg(w, r, "/", slug+" was not sleeping (paused projects use Resume).")
+		return
+	}
 	// clear a legacy hard-suspend NOLOGIN if one exists
 	a.db.Exec(fmt.Sprintf(`ALTER ROLE %s LOGIN`, pq.QuoteIdentifier(slug)))
-	a.db.Exec(`UPDATE projects SET status='active', last_active=now() WHERE slug=$1 AND status='suspended'`, slug)
 	if a.hasWebhooks(slug) {
-		a.rtGetHub(slug)
+		go a.rtGetHub(slug)
 	}
 	a.audit(r, "manual-wake", slug)
 	redirectMsg(w, r, "/", slug+" is awake.")

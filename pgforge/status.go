@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"html/template"
 	"net/http"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -221,11 +223,23 @@ func (a *app) setPublicStatus(w http.ResponseWriter, r *http.Request) {
 	redirectMsg(w, r, "/p/"+slug+"/settings", msg)
 }
 
+var statusDomainCache atomic.Value // string
+
 // statusCustomDomain returns the optional extra hostname that serves the page.
+// Cached: rootHandler consults it on EVERY inbound request, and a per-request
+// settings query would be a hot-path amplifier.
 func (a *app) statusCustomDomain() string {
+	if v := statusDomainCache.Load(); v != nil {
+		return v.(string)
+	}
 	var v string
-	a.db.QueryRow(`SELECT value FROM settings WHERE key='status_custom_domain'`).Scan(&v)
-	return strings.TrimSpace(v)
+	err := a.db.QueryRow(`SELECT value FROM settings WHERE key='status_custom_domain'`).Scan(&v)
+	v = strings.TrimSpace(v)
+	if err != nil && err != sql.ErrNoRows {
+		return v // transient error: do not cache
+	}
+	statusDomainCache.Store(v)
+	return v
 }
 
 func (a *app) setStatusDomain(w http.ResponseWriter, r *http.Request) {
@@ -239,8 +253,20 @@ func (a *app) setStatusDomain(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/system", "That does not look like a valid hostname.")
 		return
 	}
+	// The custom status domain is matched FIRST in rootHandler - accepting one
+	// of our own hostnames would shadow the panel or a project API and lock
+	// the operator out of that hostname entirely.
+	if d != "" {
+		for _, own := range []string{a.cfg.domain, a.secondaryDomain()} {
+			if own != "" && (d == own || strings.HasSuffix(d, "."+own)) {
+				redirectErr(w, r, "/system", "Use an outside hostname (like status.yourcompany.com) - "+own+" and its subdomains already belong to the platform (status."+own+" works out of the box).")
+				return
+			}
+		}
+	}
 	a.db.Exec(`INSERT INTO settings(key,value) VALUES ('status_custom_domain',$1)
 		ON CONFLICT (key) DO UPDATE SET value=$1`, d)
+	statusDomainCache.Store(d)
 	a.audit(r, "status-domain", d)
 	if d == "" {
 		redirectMsg(w, r, "/system", "Custom status domain cleared (status."+a.cfg.domain+" keeps working).")

@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.2.20"
+const appVersion = "1.2.21"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,28 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.2.21", Date: "2026-08-22",
+		Summary: "S3 object storage, and 20 fixes from a deep adversarial review.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"S3-compatible object storage for uploaded files (System page): files become durable in your object storage bucket while local disk acts as a fast ~1.5GB cache. Existing files migrate automatically in the background; without a remote configured, storage stays local exactly as before.",
+			}},
+			{"Security", []string{
+				"Login lockout now keys on the account itself, so alternating between an account's email and username no longer doubles the attempts an attacker gets - and the emergency admin login can no longer be locked out by junk attempts against it.",
+				"Waking a project can no longer silently unlock a deliberately paused one.",
+			}},
+			{"Fixed", []string{
+				"CRITICAL: with numbered project names (like app and app-2), the backup pruner's pattern could match the sibling's backups and delete them, and the skip-unchanged check could trust the sibling's dump. Both patterns are now date-anchored and cannot cross projects.",
+				"Skip-unchanged backups actually skip now: modern pg_dump embeds a randomized security token in every schema dump, which made the change-detection hash different on every run. The token is excluded from hashing.",
+				"Auto-install could silently never run: the update check's timing could permanently miss the 03:00-05:00 installation window. Checks are hourly now.",
+				"A fresh install's default backup age ceiling would have deleted the weekly backup tier; the ceiling now always reaches past it.",
+				"Realtime could briefly strand a subscriber that connected exactly as the idle reaper closed the listener; one unreachable project database could also stall realtime for every project. Both races fixed.",
+				"One project's busy or hung edge functions can no longer consume the whole platform's function capacity - each project is capped individually inside the global limit.",
+				"Assorted hardening: concurrent update launches, partial cluster snapshots counting toward retention, infra apply failures being masked, unbounded lockout bookkeeping, settings caches on transient errors, and hostname-validation gaps in the new domain settings.",
+			}},
+		},
+	},
 	{
 		Version: "1.2.20", Date: "2026-08-22",
 		Summary: "Restore any off-box backup from the panel, in one click.",

@@ -189,6 +189,7 @@ func main() {
 	mux.HandleFunc("POST /system/secondary-domain", a.auth(a.requireRole("owner", a.setSecondaryDomain)))
 	mux.HandleFunc("POST /system/incident", a.auth(a.requireRole("owner", a.saveIncident)))
 	mux.HandleFunc("POST /system/incident-resolve", a.auth(a.requireRole("owner", a.resolveIncident)))
+	mux.HandleFunc("POST /system/storage-remote", a.auth(a.requireRole("owner", a.setStorageRemote)))
 	// team (owner-only management)
 	mux.HandleFunc("GET /people", a.auth(a.peoplePage))
 	mux.HandleFunc("POST /people/add", a.auth(a.requireRole("owner", a.addMember)))
@@ -382,7 +383,7 @@ func (a *app) ensureSchema() error {
 			key text PRIMARY KEY,
 			value text NOT NULL
 		)`,
-		`INSERT INTO settings(key,value) VALUES ('retention_days','7')
+		`INSERT INTO settings(key,value) VALUES ('retention_days','35')
 			ON CONFLICT (key) DO NOTHING`,
 		// hours of zero client activity before a project goes to sleep (0 = never)
 		`INSERT INTO settings(key,value) VALUES ('suspend_hours','168')
@@ -624,7 +625,7 @@ func (a *app) startRateLimitPruner() {
 		for range time.Tick(15 * time.Minute) {
 			cut := time.Now().Add(-10 * time.Minute)
 			a.mu.Lock()
-			for _, m := range []map[string][]time.Time{a.attempts, a.authAttempts} {
+			for _, m := range []map[string][]time.Time{a.attempts, a.authAttempts, a.acctFails} {
 				for ip, ts := range m {
 					fresh := false
 					for _, t := range ts {

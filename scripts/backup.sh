@@ -36,6 +36,10 @@ KEEP_DAILY="$(num /opt/pgforge/dump_keep_daily 7)"
 KEEP_WEEKLY="$(num /opt/pgforge/dump_keep_weekly 4)"
 KEEP_BASE="${RETENTION_BASE:-$(num /opt/pgforge/basebackup_keep 2)}"
 [ "$KEEP_BASE" -lt 1 ] && KEEP_BASE=1
+# The age ceiling must always reach past the weekly tier, or it would silently
+# delete the weekly keepers the tier just decided to keep.
+MIN_CEIL=$(( KEEP_DAILY + KEEP_WEEKLY * 7 + 7 ))
+[ "$RETENTION_DUMPS" -lt "$MIN_CEIL" ] && RETENTION_DUMPS=$MIN_CEIL
 
 echo "== pgforge backup $(date -u '+%F %T') UTC =="
 mkdir -p "$OUT/dumps" "$OUT/dumps/.state" "$OUT/physical" "$OUT/files"
@@ -68,7 +72,7 @@ tier_prune() {
 prune_all() {
   # dumps: tiered per database prefix, then the age ceiling
   for pre in $(ls -1 "$OUT/dumps"/*.dump 2>/dev/null | sed -E 's|.*/||; s/-[0-9]{4}-[0-9]{2}-[0-9]{2}[^/]*\.dump$//' | sort -u); do
-    tier_prune "$OUT/dumps" "$pre-[0-9]*.dump"
+    tier_prune "$OUT/dumps" "$pre-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.dump"
   done
   tier_prune "$OUT/dumps" "globals-*.sql"
   find "$OUT/dumps" -maxdepth 1 -type f -mtime "+$RETENTION_DUMPS" -delete 2>/dev/null || true
@@ -82,10 +86,21 @@ prune_all() {
   tier_prune "$OUT/files" "functions-*.tgz"
   find "$OUT/files" -maxdepth 1 -type f -mtime "+$RETENTION_DUMPS" -delete 2>/dev/null || true
 
-  # physical: count-based - keep the newest $KEEP_BASE basebackups
-  ls -1dt "$OUT"/physical/base-* 2>/dev/null | tail -n "+$((KEEP_BASE + 1))" | while IFS= read -r d; do
-    rm -rf "$d" && echo "  pruned basebackup $(basename "$d")"
-  done
+  # physical: count-based - keep the newest $KEEP_BASE VALID basebackups. A
+  # dir without base.tar.gz is a crashed partial: it must never count toward
+  # the keep quota (that could evict every good backup) and gets removed once
+  # it is clearly not in progress anymore.
+  ls -1dt "$OUT"/physical/base-* 2>/dev/null | {
+    kept=0
+    while IFS= read -r d; do
+      if [ -f "$d/base.tar.gz" ]; then
+        kept=$((kept + 1))
+        [ "$kept" -gt "$KEEP_BASE" ] && rm -rf "$d" && echo "  pruned basebackup $(basename "$d")"
+      else
+        find "$d" -maxdepth 0 -mmin +120 -exec rm -rf {} + 2>/dev/null           && echo "  removed partial basebackup $(basename "$d")"
+      fi
+    done
+  }
 
   # PITR working files: restored dumps older than 2 days, stale scratch dirs
   find "$OUT/pitr" -maxdepth 1 -type f -name '*.dump' -mtime +2 -delete 2>/dev/null || true
@@ -146,9 +161,12 @@ for db in $(docker exec "$CONT" psql -U postgres -tAc \
   # dump. Safety valve: always dump when the newest dump is older than
   # FORCE_DAYS, so a broken detector can never leave only stale backups.
   sig="$(docker exec "$CONT" psql -U postgres -tAc "select coalesce(extract(epoch from stats_reset)::bigint,0)||'|'||tup_inserted||'|'||tup_updated||'|'||tup_deleted from pg_stat_database where datname='$db'" 2>/dev/null)"
-  schemasum="$(docker exec "$CONT" pg_dump -U postgres -s -d "$db" 2>/dev/null | sha256sum | cut -d' ' -f1)"
+  # awk drops psql meta-command lines (leading backslash): modern pg_dump
+  # embeds a RANDOMIZED estrict token in every run, which would make the
+  # schema hash different each night and defeat skip-unchanged entirely.
+  schemasum="$(docker exec "$CONT" pg_dump -U postgres -s -d "$db" 2>/dev/null | awk 'substr($0,1,1)!="\\"' | sha256sum | cut -d' ' -f1)"
   sig="$sig|$schemasum"
-  newest="$(ls -1t "$OUT/dumps/$db"-[0-9]*.dump 2>/dev/null | head -1)"
+  newest="$(ls -1t "$OUT/dumps/$db"-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.dump 2>/dev/null | head -1)"
   if [ -n "$newest" ] && [ "$(cat "$OUT/dumps/.state/$db.sig" 2>/dev/null)" = "$sig" ] \
      && [ -n "$(find "$newest" -mtime -"$FORCE_DAYS" 2>/dev/null)" ]; then
     echo "  == $db unchanged, skipped"

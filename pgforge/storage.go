@@ -264,6 +264,11 @@ func (a *app) uploadObject(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/storage?b="+bucket, fmt.Sprintf("File exceeds this bucket's %d MB limit.", maxBytes>>20))
 		return
 	}
+	if err := a.s3Push(dst, slug, bucket, rel); err != nil {
+		os.Remove(dst)
+		redirectErr(w, r, "/p/"+slug+"/storage?b="+bucket, "Object storage unreachable - nothing saved. "+err.Error())
+		return
+	}
 	a.db.Exec(`INSERT INTO storage_objects(slug,bucket,path,size,mime) VALUES ($1,$2,$3,$4,$5)
 		ON CONFLICT (slug,bucket,path) DO UPDATE SET size=$4, mime=$5, created_at=now()`,
 		slug, bucket, rel, n, mime)
@@ -286,6 +291,7 @@ func (a *app) deleteObject(w http.ResponseWriter, r *http.Request) {
 	rel := safeRel(path)
 	if rel != "" {
 		os.Remove(filepath.Join(storageRoot, slug, bucket, rel))
+		a.s3Delete(slug, bucket, rel)
 	}
 	a.db.Exec(`DELETE FROM storage_objects WHERE slug=$1 AND bucket=$2 AND path=$3`, slug, bucket, rel)
 	a.audit(r, "object-delete", slug+"/"+bucket+"/"+rel)
@@ -306,6 +312,7 @@ func (a *app) deleteBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	os.RemoveAll(filepath.Join(storageRoot, slug, bucket))
+	a.s3Purge(slug + "/" + bucket)
 	a.db.Exec(`DELETE FROM storage_objects WHERE slug=$1 AND bucket=$2`, slug, bucket)
 	a.db.Exec(`DELETE FROM storage_buckets WHERE slug=$1 AND bucket=$2`, slug, bucket)
 	a.audit(r, "bucket-delete", slug+"/"+bucket)
@@ -385,6 +392,8 @@ func splitObjectPath(p string) (bucket, rel string, ok bool) {
 // serveStorageFile writes the object to the response with anti-XSS headers.
 func (a *app) serveStorageFile(w http.ResponseWriter, r *http.Request, slug, bucket, path string) {
 	full := filepath.Join(storageRoot, slug, bucket, path)
+	// cache miss -> pull from object storage (no-op when S3 is off)
+	a.ensureLocal(full, slug, bucket, path)
 	var mime string
 	a.db.QueryRow(`SELECT mime FROM storage_objects WHERE slug=$1 AND bucket=$2 AND path=$3`, slug, bucket, path).Scan(&mime)
 	if mime != "" {
@@ -485,6 +494,11 @@ func (a *app) storageUploadAPI(w http.ResponseWriter, r *http.Request, slug, p s
 		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"message": fmt.Sprintf("file exceeds the bucket's %d MB limit", maxBytes>>20)})
 		return
 	}
+	if err := a.s3Push(dst, slug, bucket, rel); err != nil {
+		os.Remove(dst)
+		writeJSON(w, 502, map[string]string{"message": "object storage unreachable - nothing saved"})
+		return
+	}
 	a.db.Exec(`INSERT INTO storage_objects(slug,bucket,path,size,mime) VALUES ($1,$2,$3,$4,$5)
 		ON CONFLICT (slug,bucket,path) DO UPDATE SET size=$4, mime=$5, created_at=now()`,
 		slug, bucket, rel, n, mime)
@@ -519,6 +533,7 @@ func (a *app) storageDeleteAPI(w http.ResponseWriter, r *http.Request, slug, p s
 		return
 	}
 	os.Remove(filepath.Join(storageRoot, slug, bucket, rel))
+	a.s3Delete(slug, bucket, rel)
 	a.db.Exec(`DELETE FROM storage_objects WHERE slug=$1 AND bucket=$2 AND path=$3`, slug, bucket, rel)
 	writeJSON(w, 200, map[string]string{"message": "deleted"})
 }

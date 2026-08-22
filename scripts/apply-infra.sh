@@ -131,8 +131,12 @@ if [ "$MODE" = "--with-compose" ]; then
     done)
     log "stack synced from server/"
     # up -d recreates only services whose definition changed (the db recreate is
-    # the ~15-30s maintenance moment; Postgres data is untouched)
-    (cd "$STACK" && docker compose up -d 2>&1 | tail -3 | tee -a "$LOG")
+    # the ~15-30s maintenance moment; Postgres data is untouched). A failed
+    # apply must FAIL the script - success must never be recorded over it.
+    if ! (cd "$STACK" && docker compose up -d >> "$LOG" 2>&1); then
+      log "!! docker compose up FAILED - infra NOT applied, see $LOG"
+      exit 1
+    fi
     # HUP pgbouncer so an ini-only change (no recreate) still reloads
     docker kill -s HUP pgforge-pgbouncer >/dev/null 2>&1 || true
   fi

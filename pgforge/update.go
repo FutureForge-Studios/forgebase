@@ -232,7 +232,11 @@ func (a *app) startUpdateChecker() {
 					a.launchUpdate()
 				}
 			}
-			time.Sleep(6 * time.Hour)
+			// Hourly, not a longer fixed period: the auto-install window is
+			// 03:00-05:00 UTC, and a coarser cadence anchored at boot time can
+			// miss that window forever (a 6h cycle from a 00:10 boot checks at
+			// 00:10/06:10/12:10/18:10 and never installs anything).
+			time.Sleep(time.Hour)
 		}
 	}()
 }
@@ -309,9 +313,18 @@ func (a *app) applyUpdate(w http.ResponseWriter, r *http.Request) {
 	redirectMsg(w, r, "/system", "Update started. Watch the live log below - this page refreshes on its own until it finishes.")
 }
 
+var updLaunchMu sync.Mutex
+
 // launchUpdate stages the updater script and starts it in a transient unit.
-// Shared by the manual button and the opt-in nightly auto-installer.
+// Shared by the manual button and the opt-in nightly auto-installer. The mutex
+// plus the in-flight recheck close the check-then-launch race between a manual
+// click and the auto-installer (or two concurrent clicks).
 func (a *app) launchUpdate() error {
+	updLaunchMu.Lock()
+	defer updLaunchMu.Unlock()
+	if updateInFlight() {
+		return fmt.Errorf("an update is already in progress")
+	}
 	repoDir := ""
 	if b, err := os.ReadFile("/opt/pgforge/repo_dir"); err == nil {
 		repoDir = strings.TrimSpace(string(b))

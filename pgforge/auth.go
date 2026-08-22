@@ -142,26 +142,10 @@ func (a *app) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	pass := r.FormValue("pass")
 	remember := r.FormValue("remember") == "on"
 
-	// Per-ACCOUNT lockout: after 5 failed attempts on one account id within 15
-	// minutes, that account cannot be logged into at all for the window - even
-	// with the right password. This is what per-IP limits can't do: a botnet
-	// trying one password per IP against the real admin account hits this wall.
-	if a.acctLocked(id) {
-		a.auditRaw(id, ip, "login-locked", "panel")
-		a.renderAuth(w, "Locked", "", renderContent(loginForm, map[string]any{"Err": "This account is temporarily locked after repeated failed attempts. Try again in 15 minutes."}))
-		return
-	}
-
-	// 1) real user by email or name
-	var name, hash string
-	err := a.db.QueryRow(`SELECT name, pass_hash FROM users WHERE lower(email)=lower($1) OR lower(name)=lower($1)`, id).Scan(&name, &hash)
-	if err == nil && bcrypt.CompareHashAndPassword([]byte(hash), []byte(pass)) == nil {
-		a.setSession(w, r, name, remember)
-		a.auditRaw(name, ip, "login", "panel")
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-	// 2) break-glass env admin
+	// Break-glass env admin FIRST, and never subject to the account lockout:
+	// otherwise 5 junk attempts against the (guessable) PANEL_USER would lock
+	// the emergency door for 15 minutes. Wrong break-glass creds still fall
+	// through to the normal failure path (IP limits, delays, fail2ban).
 	if subtle.ConstantTimeCompare([]byte(id), []byte(a.cfg.panelUser)) == 1 &&
 		subtle.ConstantTimeCompare([]byte(pass), []byte(a.cfg.panelPass)) == 1 {
 		a.setSession(w, r, a.cfg.panelUser, remember)
@@ -169,8 +153,34 @@ func (a *app) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
+
+	// Resolve the account BEFORE the lockout check, and key the lockout by the
+	// canonical email - an account is reachable by email OR name, so keying on
+	// the raw submitted id would give an attacker two alias keys per account.
+	var name, email, hash string
+	found := a.db.QueryRow(`SELECT name, email, pass_hash FROM users
+		WHERE lower(email)=lower($1) OR lower(name)=lower($1)`, id).
+		Scan(&name, &email, &hash) == nil
+	lockKey := id
+	if found {
+		lockKey = email
+	}
+	// Per-ACCOUNT lockout: 5 failed attempts within 15 minutes lock the
+	// account for the window, even with the right password afterward. This is
+	// what per-IP limits cannot do against one-attempt-per-IP botnets.
+	if a.acctLocked(lockKey) {
+		a.auditRaw(id, ip, "login-locked", "panel")
+		a.renderAuth(w, "Locked", "", renderContent(loginForm, map[string]any{"Err": "This account is temporarily locked after repeated failed attempts. Try again in 15 minutes."}))
+		return
+	}
+	if found && bcrypt.CompareHashAndPassword([]byte(hash), []byte(pass)) == nil {
+		a.setSession(w, r, name, remember)
+		a.auditRaw(name, ip, "login", "panel")
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
 	a.recordAttempt(ip)
-	a.recordAcctFail(id)
+	a.recordAcctFail(lockKey)
 	a.auditRaw(id, ip, "login-failed", "panel")
 	log.Printf("FAILED LOGIN ip=%s user=%q", ip, id) // parseable for fail2ban
 	// Slow bots down: every failure costs a second, and during a platform-wide

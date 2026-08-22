@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -37,6 +38,29 @@ var edgeSlots = func() chan struct{} {
 	}
 	return make(chan struct{}, n)
 }()
+
+// Per-project slots (half the global cap, min 1) stop one busy or hung tenant
+// from monopolizing the whole pool - a noisy neighbor now saturates only its
+// own project's functions while everyone else keeps 2+ slots available.
+var (
+	edgeSlugMu    sync.Mutex
+	edgeSlugSlots = map[string]chan struct{}{}
+)
+
+func edgeSlotFor(slug string) chan struct{} {
+	edgeSlugMu.Lock()
+	defer edgeSlugMu.Unlock()
+	c, ok := edgeSlugSlots[slug]
+	if !ok {
+		n := cap(edgeSlots) / 2
+		if n < 1 {
+			n = 1
+		}
+		c = make(chan struct{}, n)
+		edgeSlugSlots[slug] = c
+	}
+	return c
+}
 
 const defaultFunc = `export default async (req: Request): Promise<Response> => {
   const url = new URL(req.url);
@@ -206,9 +230,24 @@ func (a *app) serveFunction(w http.ResponseWriter, r *http.Request, slug string)
 		"method": r.Method, "url": rq, "headers": hdr, "body": string(body),
 	})
 
-	// Concurrency cap: each invocation is a fresh Deno process (~40-80MB), so
+	// Concurrency caps: each invocation is a fresh Deno process (~40-80MB), so
 	// unbounded parallel invocations were the box's most likely OOM trigger.
-	// At the cap, callers wait up to 5s for a slot, then get a 429 to retry.
+	// The PER-PROJECT slot is taken first (a hung tenant saturates only its
+	// own functions), then the platform-wide slot. Callers wait up to 5s, then
+	// get a clean 429 retry signal.
+	slugSlot := edgeSlotFor(slug)
+	select {
+	case slugSlot <- struct{}{}:
+		defer func() { <-slugSlot }()
+	case <-time.After(5 * time.Second):
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "2")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"message":"this project's function capacity is busy, retry shortly"}`))
+		return
+	case <-r.Context().Done():
+		return
+	}
 	select {
 	case edgeSlots <- struct{}{}:
 		defer func() { <-edgeSlots }()

@@ -42,6 +42,10 @@ type rtHub struct {
 	// and serve no webhooks - each hub holds a dedicated Postgres LISTEN
 	// backend that would otherwise live until project deletion.
 	emptySince time.Time
+	// closed marks a hub the reaper has torn down. A client that raced the
+	// reaper sees it under h.mu and re-fetches a fresh hub instead of
+	// registering on a dead one that would never deliver an event.
+	closed bool
 }
 
 var (
@@ -97,11 +101,13 @@ func (a *app) reapHubIfUnused(slug string) {
 		return
 	}
 	h.mu.Lock()
-	n := len(h.clients)
-	h.mu.Unlock()
-	if n == 0 {
+	if len(h.clients) == 0 {
+		h.closed = true
+		h.mu.Unlock()
 		a.stopRealtimeHub(slug)
+		return
 	}
+	h.mu.Unlock()
 }
 
 // reapRealtimeHubs closes hubs that have had zero WebSocket clients for at
@@ -123,24 +129,37 @@ func (a *app) reapRealtimeHubs(idle time.Duration, pinned map[string]bool) {
 		emptyLong := len(h.clients) == 0 && !h.emptySince.IsZero() && time.Since(h.emptySince) > idle
 		h.mu.Unlock()
 		if emptyLong && !a.hasWebhooks(slug) {
-			a.stopRealtimeHub(slug)
+			// re-check under the lock: a client may have joined since
+			h.mu.Lock()
+			if len(h.clients) == 0 {
+				h.closed = true
+				h.mu.Unlock()
+				a.stopRealtimeHub(slug)
+			} else {
+				h.mu.Unlock()
+			}
 		}
 	}
 }
 
 func (a *app) rtGetHub(slug string) *rtHub {
 	rtMu.Lock()
-	defer rtMu.Unlock()
 	if h, ok := rtHubs[slug]; ok {
+		rtMu.Unlock()
 		return h
 	}
 	u := *a.baseURL
 	u.Path = "/" + slug
 	h := &rtHub{clients: map[*websocket.Conn]rtSub{}, emptySince: time.Now()}
 	lis := pq.NewListener(u.String(), 2*time.Second, time.Minute, nil)
-	lis.Listen("forgebase_realtime")
 	h.lis = lis
 	rtHubs[slug] = h
+	rtMu.Unlock()
+	// Listen BLOCKS until a database connection is established (and retries
+	// forever on failure) - it must never run under the global rtMu, or one
+	// unreachable project database wedges every realtime/webhook path and the
+	// sampler with it.
+	lis.Listen("forgebase_realtime")
 	go func() {
 		// A panic in this background goroutine would take down the whole binary
 		// (net/http only recovers per-request handler panics).
@@ -289,8 +308,23 @@ func (a *app) serveRealtime(w http.ResponseWriter, r *http.Request, slug string)
 	if err != nil {
 		return
 	}
-	h := a.rtGetHub(slug)
-	h.mu.Lock()
+	var h *rtHub
+	for i := 0; i < 5; i++ {
+		h = a.rtGetHub(slug)
+		h.mu.Lock()
+		if !h.closed {
+			break
+		}
+		// raced the reaper onto a dead hub - it is (being) removed from the
+		// map, so fetch a fresh one
+		h.mu.Unlock()
+		time.Sleep(50 * time.Millisecond)
+		h = nil
+	}
+	if h == nil {
+		conn.Close()
+		return
+	}
 	h.clients[conn] = sub
 	h.emptySince = time.Time{} // has clients again
 	h.mu.Unlock()
