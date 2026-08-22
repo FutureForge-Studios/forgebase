@@ -13,6 +13,15 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.7] - 2026-08-23
+
+### Added
+- Asymmetric JWT signing (opt-in, per project): user tokens become RS256
+  with a kid header, verifiable by anyone at /.well-known/jwks.json.
+  One-click key rotation keeps the previous public key valid. Anon and
+  service keys stay HS256, and the REST API verifies both at once (tested
+  against the production PostgREST build before shipping).
+
 ## [1.4.6] - 2026-08-23
 
 ### Added

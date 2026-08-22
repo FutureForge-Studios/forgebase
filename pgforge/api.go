@@ -291,7 +291,7 @@ func (a *app) ensurePostgREST(slug string) (*pgrst, error) {
 		"PGRST_DB_URI="+dbURI,
 		"PGRST_DB_SCHEMAS="+schemas,
 		"PGRST_DB_ANON_ROLE=anon",
-		"PGRST_JWT_SECRET="+secret,
+		"PGRST_JWT_SECRET="+a.pgrstJWKSecret(slug, secret),
 		fmt.Sprintf("PGRST_SERVER_PORT=%d", port),
 		"PGRST_SERVER_HOST=127.0.0.1",
 		"PGRST_DB_POOL=2",
@@ -506,6 +506,10 @@ func (a *app) serveAPI(w http.ResponseWriter, r *http.Request, slug string) {
 		return
 	}
 	a.touchAndResume(slug) // any request keeps the project alive / wakes it
+	if p := r.URL.Path; p == "/.well-known/jwks.json" || p == "/auth/v1/.well-known/jwks.json" {
+		a.serveJWKS(w, slug)
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/graphql/v1") {
 		a.serveGraphQL(w, r, slug)
 		return
@@ -663,9 +667,10 @@ func (a *app) apiPage(w http.ResponseWriter, r *http.Request) {
 	var extraSchemas, ipAllow string
 	a.db.QueryRow(`SELECT coalesce(max_rows,0), coalesce(extra_schemas,''), coalesce(ip_allowlist,'')
 		FROM api_config WHERE slug=$1`, slug).Scan(&maxRows, &extraSchemas, &ipAllow)
+	_, _, _, _, rsOn := a.rsInfo(slug)
 	content := renderContent(apiBody, map[string]any{
-		"IPAllowlist": ipAllow,
-		"Slug":        slug, "Enabled": enabled, "Base": base,
+		"IPAllowlist": ipAllow, "RSOn": rsOn,
+		"Slug": slug, "Enabled": enabled, "Base": base,
 		"MaxRows": maxRows, "ExtraSchemas": extraSchemas,
 		"Anon": anon, "Service": service, "Domain": a.cfg.domain, "Tables": tables,
 		"GraphQL": "https://" + slug + "." + a.cfg.domain + "/graphql/v1",

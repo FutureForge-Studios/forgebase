@@ -151,6 +151,7 @@ func main() {
 	if err := a.ensureSchema(); err != nil {
 		log.Fatalf("schema init: %v", err)
 	}
+	a.loadAllRSKeys() // warm the RS256 verifier cache before serving
 	a.startSampler()
 	a.startWebhookPumps()
 	a.startEdgeCron()
@@ -351,6 +352,7 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/instance-compute", a.auth(admin(a.setInstanceCompute)))
 	mux.HandleFunc("POST /p/{slug}/storage-rule-add", a.auth(admin(a.storageRuleAdd)))
 	mux.HandleFunc("POST /p/{slug}/storage-rule-delete", a.auth(admin(a.storageRuleDelete)))
+	mux.HandleFunc("POST /p/{slug}/jwks", a.auth(admin(a.jwksToggle)))
 	mux.HandleFunc("GET /p/{slug}/branch-diff", a.auth(proj(a.branchDiff)))
 	mux.HandleFunc("POST /p/{slug}/branch-reset", a.auth(admin(a.branchReset)))
 	mux.HandleFunc("GET /p/{slug}/realtime", a.auth(proj(a.realtimePage)))
@@ -514,6 +516,12 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS redirect_allowlist text NOT NULL DEFAULT ''`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS storage_quota_mb integer NOT NULL DEFAULT 1024`,
 		`ALTER TABLE api_config ADD COLUMN IF NOT EXISTS ip_allowlist text NOT NULL DEFAULT ''`,
+		`ALTER TABLE api_config ADD COLUMN IF NOT EXISTS rs_kid text NOT NULL DEFAULT ''`,
+		`ALTER TABLE api_config ADD COLUMN IF NOT EXISTS rs_pub text NOT NULL DEFAULT ''`,
+		`ALTER TABLE api_config ADD COLUMN IF NOT EXISTS rs_priv_enc bytea`,
+		`ALTER TABLE api_config ADD COLUMN IF NOT EXISTS rs_old_kid text NOT NULL DEFAULT ''`,
+		`ALTER TABLE api_config ADD COLUMN IF NOT EXISTS rs_old_pub text NOT NULL DEFAULT ''`,
+		`ALTER TABLE api_config ADD COLUMN IF NOT EXISTS rs_enabled boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS captcha_site text NOT NULL DEFAULT ''`,
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS captcha_secret text NOT NULL DEFAULT ''`,
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS rate_limit_per_min integer NOT NULL DEFAULT 30`,

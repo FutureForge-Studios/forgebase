@@ -152,6 +152,8 @@ func (a *app) issueTokensAAL(db *sql.DB, secret, slug, sub, email, familyID, aal
 		}
 		tok = signUserJWTTTL([]byte(secret), sub, email, userMeta, am, ttlSec, aal)
 	}
+	// asymmetric-mode projects: same claims, RS256 signature + kid header
+	tok = a.resignRS(slug, tok)
 	return tok, refresh, nil
 }
 
@@ -221,6 +223,11 @@ func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request, db *sql.DB, 
 }
 
 func verifyUserJWT(secret []byte, token string) (map[string]any, bool) {
+	if tokenAlgIsRS(token) {
+		// asymmetric-mode projects sign user tokens RS256; the kid in the
+		// header finds the right public key
+		return verifyRS256(token)
+	}
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return nil, false

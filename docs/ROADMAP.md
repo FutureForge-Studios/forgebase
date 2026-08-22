@@ -47,7 +47,7 @@ happy path.
       Facebook, Twitch, Slack, Spotify, LinkedIn, Bitbucket, Notion) plus a
       generic OIDC connector; identity linking.
 - [x] TOTP MFA with recovery codes and aal assurance claims; panel 2FA.
-- [ ] Asymmetric JWT signing with JWKS and key rotation.
+- [x] Asymmetric JWT signing with JWKS and key rotation.
 - [x] Per-project email template editor.
 - [ ] SAML SSO and phone OTP (provider adapters).
 - [x] Admin depth: impersonation, rich search, per-user sessions/identities.
@@ -106,8 +106,7 @@ happy path.
 ## Next (1.4.x)
 The remaining unchecked items above are the heavyweight tier - read replicas,
 PITR-branching, warm/streaming functions, S3-protocol storage, SAML SSO +
-phone OTP, asymmetric JWT signing with JWKS, per-subscriber RLS on change
-streams, and adaptive sizing. Each needs
+phone OTP, per-subscriber RLS on change streams, and adaptive sizing. Each needs
 its own design pass and ships as focused 1.4.x releases, in the order they
 unlock the most for real projects.
 

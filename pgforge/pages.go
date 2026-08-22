@@ -1185,6 +1185,20 @@ const apiBody = `
     <button class="btn btn-primary btn-sm" type="submit">Save allowlist</button>
     <span class="muted" style="font-size:11px">applies to REST, Auth, Storage, Realtime and Functions on this project's domain</span>
   </form>
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-top:.8rem;padding-top:.8rem;border-top:1px solid hsl(var(--border))">
+    <div style="flex:1;min-width:260px"><b style="font-size:13px">Asymmetric signing (RS256 + JWKS)</b>
+      {{if .RSOn}}<span class="badge active" style="margin-left:.4rem">on</span>{{end}}
+      <div class="muted" style="font-size:11.5px;margin-top:.2rem">{{if .RSOn}}User tokens are RS256; anyone can verify them at <code>https://{{.Slug}}.{{.Domain}}/.well-known/jwks.json</code> - no shared secret. Rotation keeps the previous key valid.{{else}}Sign user tokens with a project RSA key so third parties verify them against a public JWKS endpoint instead of your secret. Anon/service keys stay unchanged.{{end}}</div></div>
+    <form method="post" action="/p/{{.Slug}}/jwks" style="display:flex;gap:.4rem">
+      {{if .RSOn}}
+      <input type="hidden" name="op" value="rotate"><button class="btn btn-ghost btn-sm" type="submit" onclick="return confirm('Rotate the signing key? The previous public key stays in the JWKS so outstanding tokens keep working.')">Rotate key</button>
+      </form><form method="post" action="/p/{{.Slug}}/jwks" style="display:flex">
+      <input type="hidden" name="op" value="disable"><button class="btn btn-ghost btn-sm" type="submit">Turn off</button>
+      {{else}}
+      <input type="hidden" name="op" value="enable"><button class="btn btn-primary btn-sm" type="submit">Enable RS256</button>
+      {{end}}
+    </form>
+  </div>
 </div>
 <div class="card" style="margin-bottom:1rem">
   <div style="display:flex;align-items:center"><h2>Endpoints</h2><div class="spacer"></div><span class="label">{{len .Tables}} table(s)</span></div>

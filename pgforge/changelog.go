@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.6"
+const appVersion = "1.4.7"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,16 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.7", Date: "2026-08-23",
+		Summary: "Asymmetric JWT signing with a JWKS endpoint.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"RS256 user tokens, per project and opt-in: enable asymmetric signing on the Data API page and new user access tokens carry an RSA signature any third party can verify at https://<project>.<domain>/.well-known/jwks.json - your JWT secret never leaves the server. Key rotation is one click; the previous public key stays in the JWKS so outstanding tokens remain valid until they expire.",
+				"Everything keeps working while it is on: anon and service keys stay HS256 (nothing you have distributed changes), and the project's REST API verifies both algorithms at once - a compatibility we tested against the exact PostgREST build in production before shipping.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.6", Date: "2026-08-23",
 		Summary: "Storage grows up: path rules and resumable uploads.",
