@@ -100,7 +100,7 @@ var reserved = map[string]bool{
 	"admin": true, "root": true, "db": true, "www": true, "mail": true,
 	"api": true, "auth": true, "storage": true, "realtime": true, "panel": true,
 	"graphql": true, "rest": true, "functions": true, "pgbouncer": true,
-	"edge": true, "internal": true, "healthz": true,
+	"edge": true, "internal": true, "healthz": true, "status": true,
 }
 
 // isReserved also blocks the whole pg_* namespace, which Postgres reserves for
@@ -185,6 +185,7 @@ func main() {
 	mux.HandleFunc("POST /system/update", a.auth(a.requireRole("owner", a.applyUpdate)))
 	mux.HandleFunc("POST /system/discord", a.auth(a.requireRole("owner", a.setDiscordWebhook)))
 	mux.HandleFunc("POST /system/auto-update", a.auth(a.requireRole("owner", a.setAutoUpdate)))
+	mux.HandleFunc("POST /system/status-domain", a.auth(a.requireRole("owner", a.setStatusDomain)))
 	// team (owner-only management)
 	mux.HandleFunc("GET /people", a.auth(a.peoplePage))
 	mux.HandleFunc("POST /people/add", a.auth(a.requireRole("owner", a.addMember)))
@@ -232,6 +233,7 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/pitr", a.auth(admin(a.pitrRestore)))
 	mux.HandleFunc("POST /p/{slug}/retention", a.auth(admin(a.setRetention)))
 	mux.HandleFunc("POST /p/{slug}/keep-awake", a.auth(admin(a.setKeepAwake)))
+	mux.HandleFunc("POST /p/{slug}/public-status", a.auth(admin(a.setPublicStatus)))
 	mux.HandleFunc("POST /p/{slug}/suspend-hours", a.auth(admin(a.setSuspendHours)))
 	mux.HandleFunc("GET /p/{slug}/monitoring", a.auth(proj(a.monitoringPage)))
 	mux.HandleFunc("GET /p/{slug}/logs", a.auth(proj(a.logsPage)))
@@ -298,6 +300,10 @@ func (a *app) rootHandler(panel http.Handler) http.Handler {
 		if i := strings.IndexByte(host, ':'); i >= 0 {
 			host = host[:i]
 		}
+		if host == "status."+a.cfg.domain || (host != "" && host == a.statusCustomDomain()) {
+			a.statusPage(w, r)
+			return
+		}
 		if host != a.cfg.domain && strings.HasSuffix(host, "."+a.cfg.domain) {
 			slug := strings.TrimSuffix(host, "."+a.cfg.domain)
 			if slug != "db" && a.projectExists(slug) {
@@ -359,6 +365,8 @@ func (a *app) ensureSchema() error {
 			ON CONFLICT (key) DO NOTHING`,
 		// pinned projects are never auto-suspended (for production apps)
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS keep_awake boolean NOT NULL DEFAULT false`,
+		// opt-in visibility on the public status page
+		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_status boolean NOT NULL DEFAULT false`,
 		`CREATE TABLE IF NOT EXISTS api_config (
 			slug text PRIMARY KEY,
 			jwt_secret text NOT NULL,
@@ -628,7 +636,11 @@ func (a *app) authRateLimited(ip string) bool {
 // tlsCheck lets Caddy issue certs on demand only for hostnames we know.
 func (a *app) tlsCheck(w http.ResponseWriter, r *http.Request) {
 	d := r.URL.Query().Get("domain")
-	if d == a.cfg.domain || d == "db."+a.cfg.domain {
+	if d == a.cfg.domain || d == "db."+a.cfg.domain || d == "status."+a.cfg.domain {
+		w.WriteHeader(200)
+		return
+	}
+	if cd := a.statusCustomDomain(); cd != "" && d == cd {
 		w.WriteHeader(200)
 		return
 	}

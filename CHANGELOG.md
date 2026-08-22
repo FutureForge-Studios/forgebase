@@ -13,6 +13,18 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.13] - 2026-08-22
+
+### Added
+- Public status page at status.<your-domain>: overall platform health, 30-day
+  uptime bars built from the platform's own heartbeat, and live per-service
+  health - auto-refreshing, no login needed.
+- Privacy first: projects appear on the status page only after you opt them in
+  from their Settings page. Nothing is exposed by default.
+- Custom status domain: serve the same page at your own hostname (e.g.
+  status.mycompany.com) - set it on the System page, point DNS, HTTPS is
+  automatic.
+
 ## [1.2.12] - 2026-08-22
 
 ### Added
@@ -464,7 +476,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.12...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.13...HEAD
+[1.2.13]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.12...v1.2.13
 [1.2.12]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.11...v1.2.12
 [1.2.11]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.10...v1.2.11
 [1.2.10]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.9...v1.2.10

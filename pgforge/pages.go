@@ -546,6 +546,15 @@ const settingsBody = `
       <span class="muted" style="font-size:13px">hours idle (0 = never, platform-wide)</span>
       <button class="btn btn-ghost btn-sm" type="submit">Save</button>
     </form>
+    <form method="post" action="/p/{{.Slug}}/public-status" style="display:flex;gap:.5rem;align-items:center">
+      {{if .PublicStatus}}
+      <span class="badge active">on status page</span>
+      <button class="btn btn-ghost btn-sm" type="submit">Remove from public status page</button>
+      {{else}}
+      <input type="hidden" name="public_status" value="on">
+      <button class="btn btn-ghost btn-sm" type="submit">Show on public status page</button>
+      {{end}}
+    </form>
     <form method="post" action="/p/{{.Slug}}/keep-awake" style="display:flex;gap:.5rem;align-items:center">
       {{if .KeepAwake}}
       <span class="badge active">pinned awake</span>
@@ -1424,6 +1433,17 @@ const systemBody = `
     <button class="btn btn-ghost btn-sm" type="submit">Save</button>
   </form>
   <p class="muted" style="font-size:11px;margin:.4rem 0 0">Saving sends a test message. Save empty to disable.</p>
+  {{end}}
+</div>
+<div class="card" style="margin-bottom:1rem">
+  <h2>Status page</h2>
+  <p class="muted" style="font-size:12.5px;margin:.4rem 0 .6rem">A public page at <a href="https://status.{{.Domain}}" target="_blank" style="color:hsl(var(--primary))"><b>status.{{.Domain}}</b></a> shows platform uptime and the health of projects that opted in (each project's Settings page). No data or names are exposed unless you opt a project in.</p>
+  {{if .IsOwner}}
+  <form method="post" action="/system/status-domain" style="display:flex;gap:.5rem;flex-wrap:wrap">
+    <input type="text" name="domain" placeholder="optional custom domain, e.g. status.mycompany.com" value="{{.StatusDomain}}" style="flex:1;min-width:260px">
+    <button class="btn btn-ghost btn-sm" type="submit">Save</button>
+  </form>
+  <p class="muted" style="font-size:11px;margin:.4rem 0 0">Point the custom domain's DNS at this server; HTTPS is automatic.</p>
   {{end}}
 </div>
 <div class="card" style="margin-bottom:1rem">

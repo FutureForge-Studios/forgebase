@@ -466,15 +466,15 @@ func (a *app) settingsPage(w http.ResponseWriter, r *http.Request) {
 		a.db.QueryRow(`SELECT enabled FROM `+table+` WHERE slug=$1`, slug).Scan(&on)
 		return on
 	}
-	var keepAwake bool
-	a.db.QueryRow(`SELECT keep_awake FROM projects WHERE slug=$1`, slug).Scan(&keepAwake)
+	var keepAwake, publicStatus bool
+	a.db.QueryRow(`SELECT keep_awake, public_status FROM projects WHERE slug=$1`, slug).Scan(&keepAwake, &publicStatus)
 	suspendHours := "168"
 	a.db.QueryRow(`SELECT value FROM settings WHERE key='suspend_hours'`).Scan(&suspendHours)
 	content := renderContent(settingsBody, map[string]any{
 		"Slug": slug, "Status": status, "Created": created, "Size": size,
 		"Version": version, "LastActive": lastActive, "Domain": a.cfg.domain,
 		"API": feat("api_config"), "Auth": feat("auth_config"), "Realtime": feat("realtime_config"),
-		"KeepAwake": keepAwake, "SuspendHours": suspendHours,
+		"KeepAwake": keepAwake, "SuspendHours": suspendHours, "PublicStatus": publicStatus,
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Settings", Nav: "settings", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Settings"}}}, content)
