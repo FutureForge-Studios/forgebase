@@ -28,8 +28,8 @@ happy path.
 - [x] Scheduled (cron) functions with run history.
 - [x] Full invocation logs and per-function metrics.
 - [x] Per-function timeout/memory/env configuration.
-- [ ] Warm process pool - no cold starts for busy functions.
-- [ ] Streaming responses, background tasks, WebSocket support.
+- [x] Warm process pool - no cold starts for busy functions.
+- [x] Streaming responses, background tasks, WebSocket support.
 - [x] Message queues with a panel UI and function consumers.
 - [x] Team depth: per-project member scoping, role-based permissions,
       panel session management.
@@ -106,9 +106,9 @@ happy path.
 - [x] Foreign-data wrappers UI for external sources.
 
 ## Next (1.4.x)
-The remaining unchecked items above are the heavyweight tier - read replicas,
-PITR-branching, warm/streaming functions, S3-protocol storage, SAML SSO,
-and adaptive sizing. Each needs
+The remaining unchecked items above are the truly infrastructure-heavy
+tier - read replicas, PITR-branching, S3-protocol storage, SAML SSO, and
+adaptive instance sizing. Each needs
 its own design pass and ships as focused 1.4.x releases, in the order they
 unlock the most for real projects.
 

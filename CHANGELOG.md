@@ -13,6 +13,19 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.9] - 2026-08-23
+
+### Added
+- Warm process pool for edge functions: persistent per-function servers,
+  no per-request boot, module state survives between calls; idle processes
+  reaped after 5 minutes, redeploys/secret changes swap them automatically.
+- Streaming responses (ReadableStream/SSE) pass chunks through live.
+- WebSocket upgrades work through the functions endpoint.
+- Post-response background work (setTimeout past the reply) now runs.
+
+### Changed
+- The one-process-per-request runner stays as an automatic fallback.
+
 ## [1.4.8] - 2026-08-23
 
 ### Added

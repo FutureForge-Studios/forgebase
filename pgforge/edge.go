@@ -277,19 +277,6 @@ func (a *app) serveFunction(w http.ResponseWriter, r *http.Request, slug string)
 			return
 		}
 	}
-	body, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
-	hdr := map[string]string{}
-	for k := range r.Header {
-		hdr[strings.ToLower(k)] = r.Header.Get(k)
-	}
-	rq := subpath
-	if r.URL.RawQuery != "" {
-		rq += "?" + r.URL.RawQuery
-	}
-	input, _ := json.Marshal(map[string]any{
-		"method": r.Method, "url": rq, "headers": hdr, "body": string(body),
-	})
-
 	// Concurrency caps: each invocation is a fresh Deno process (~40-80MB), so
 	// unbounded parallel invocations were the box's most likely OOM trigger.
 	// The PER-PROJECT slot is taken first (a hung tenant saturates only its
@@ -321,8 +308,6 @@ func (a *app) serveFunction(w http.ResponseWriter, r *http.Request, slug string)
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(timeoutS)*time.Second)
-	defer cancel()
 	// Scoped env: NEVER inherit os.Environ() (it holds PANEL_PASS, SESSION_SECRET
 	// and the control-plane DSN). The function gets only its project context, the
 	// project's own API keys (so it can call its own REST/Auth with the
@@ -346,6 +331,29 @@ func (a *app) serveFunction(w http.ResponseWriter, r *http.Request, slug string)
 		}
 		rows.Close()
 	}
+
+	// Warm path first: a persistent per-function Deno server gives warm
+	// starts, streamed responses, WebSocket upgrades and background work.
+	// Any problem starting it falls through to the proven one-shot runner.
+	if proxy := a.warmProxy(slug, name, file, env, allow, memMB); proxy != nil {
+		a.serveWarm(w, r, proxy, slug, name, subpath, timeoutS)
+		return
+	}
+
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+	hdr := map[string]string{}
+	for k := range r.Header {
+		hdr[strings.ToLower(k)] = r.Header.Get(k)
+	}
+	rq := subpath
+	if r.URL.RawQuery != "" {
+		rq += "?" + r.URL.RawQuery
+	}
+	input, _ := json.Marshal(map[string]any{
+		"method": r.Method, "url": rq, "headers": hdr, "body": string(body),
+	})
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(timeoutS)*time.Second)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, "/usr/local/bin/deno", "run", "--quiet",
 		fmt.Sprintf("--v8-flags=--max-old-space-size=%d", memMB), // per-function JS heap cap
 		"--allow-net", "--allow-env="+allow, "--allow-read="+funcRoot, edgeRunner, file)

@@ -53,6 +53,12 @@ for s in "$REPO"/scripts/*.sh; do
 done
 log "scripts installed: $(ls "$REPO"/scripts/*.sh | wc -l) files -> $BIN"
 
+# ---- edge runners: the per-invoke runner and the warm-serve runner
+for rn in edge-runner.ts edge-server.ts; do
+  [ -f "$REPO/server/$rn" ] && install -m 0644 "$REPO/server/$rn" "/opt/pgforge/$rn"
+done
+log "edge runners installed"
+
 # ---- systemd units: install ALL of them, then enable the timers that exist.
 for u in "$REPO"/systemd/*; do
   install -m 0644 "$u" "/etc/systemd/system/$(basename "$u")"

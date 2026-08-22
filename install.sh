@@ -119,6 +119,7 @@ mkdir -p /opt/pgforge/{bin,certs,pgbouncer,caddy,stack} \
          /opt/pgforge-backups/{wal,physical,dumps} \
          /opt/pgforge-storage /opt/pgforge-functions
 install -m 0644 "$REPO_DIR/server/edge-runner.ts" /opt/pgforge/edge-runner.ts 2>/dev/null || true
+install -m 0644 "$REPO_DIR/server/edge-server.ts" /opt/pgforge/edge-server.ts 2>/dev/null || true
 printf '%s\n' "$DOMAIN" > /opt/pgforge/domain
 printf '%s\n' "$ACME_EMAIL" > /opt/pgforge/acme_email
 # Record the git checkout so the in-app self-update can pull + rebuild from here.

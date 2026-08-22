@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.8"
+const appVersion = "1.4.9"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,21 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.9", Date: "2026-08-23",
+		Summary: "Edge functions grow up: warm starts, streaming, WebSockets.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Warm process pool: the first call to a function starts a persistent server for it and every later call skips process boot entirely - busy functions answer in single-digit milliseconds, and module-level state (connection pools, caches) survives between requests. Idle processes are reaped after five minutes; redeploying or changing secrets swaps the process automatically.",
+				"Streaming responses: return a ReadableStream (SSE, chunked JSON, LLM token streams) and chunks reach the client as they are produced instead of after the function finishes.",
+				"WebSocket support: Deno.upgradeWebSocket works through the functions endpoint - realtime game loops, chat sockets, live dashboards, straight from a function.",
+				"Background work after the response: setTimeout / queueMicrotask work past the reply now that the process outlives the request.",
+			}},
+			{"Changed", []string{
+				"The previous one-process-per-request runner remains as an automatic fallback, so a function that cannot warm-start (or a box mid-update) keeps working exactly as before.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.8", Date: "2026-08-23",
 		Summary: "RLS-filtered change streams and phone sign-in.",
