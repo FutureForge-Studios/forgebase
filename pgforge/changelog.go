@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.2.8"
+const appVersion = "1.2.9"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,19 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.2.9", Date: "2026-08-22",
+		Summary: "Idle projects now release their realtime resources.",
+		Sections: []changeSection{
+			{"Changed", []string{
+				"Realtime and webhook listeners are now released when idle: a project whose realtime stream has had no subscribers for 15 minutes (and has no webhooks) gives back its dedicated database connection, and it comes back automatically on the next subscriber. Previously every project that ever used Realtime or webhooks held a database connection forever.",
+				"Removing a project's last webhook, or disabling Realtime, now also releases the listener immediately when nothing else needs it.",
+			}},
+			{"Fixed", []string{
+				"Idle-project detection now only counts real client connections. The platform's own internal connections previously counted as activity, which could keep an unused project marked active forever.",
+			}},
+		},
+	},
 	{
 		Version: "1.2.8", Date: "2026-08-22",
 		Summary: "Backups now use a fraction of the disk.",

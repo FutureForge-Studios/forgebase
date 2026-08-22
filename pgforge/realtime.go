@@ -37,6 +37,11 @@ type rtHub struct {
 	mu      sync.Mutex
 	clients map[*websocket.Conn]rtSub
 	lis     *pq.Listener
+	// emptySince is when the hub last had zero WebSocket clients (zero value =
+	// it has clients). The reaper closes hubs that have been empty for a while
+	// and serve no webhooks - each hub holds a dedicated Postgres LISTEN
+	// backend that would otherwise live until project deletion.
+	emptySince time.Time
 }
 
 var (
@@ -78,6 +83,48 @@ func (a *app) stopRealtimeHub(slug string) {
 	}
 }
 
+// reapHubIfUnused stops a project's hub when nothing needs it right now: no
+// WebSocket clients and no webhooks. rtGetHub re-creates it lazily on the next
+// subscribe or webhook, so this is always safe to call.
+func (a *app) reapHubIfUnused(slug string) {
+	if a.hasWebhooks(slug) {
+		return
+	}
+	rtMu.Lock()
+	h, ok := rtHubs[slug]
+	rtMu.Unlock()
+	if !ok {
+		return
+	}
+	h.mu.Lock()
+	n := len(h.clients)
+	h.mu.Unlock()
+	if n == 0 {
+		a.stopRealtimeHub(slug)
+	}
+}
+
+// reapRealtimeHubs closes hubs that have had zero WebSocket clients for at
+// least `idle` and serve no webhooks, releasing their dedicated LISTEN
+// backends. Called from the metrics sampler. Events NOTIFYed while no hub is
+// listening are dropped - which is already the behavior when nobody subscribes.
+func (a *app) reapRealtimeHubs(idle time.Duration) {
+	rtMu.Lock()
+	candidates := make(map[string]*rtHub, len(rtHubs))
+	for slug, h := range rtHubs {
+		candidates[slug] = h
+	}
+	rtMu.Unlock()
+	for slug, h := range candidates {
+		h.mu.Lock()
+		emptyLong := len(h.clients) == 0 && !h.emptySince.IsZero() && time.Since(h.emptySince) > idle
+		h.mu.Unlock()
+		if emptyLong && !a.hasWebhooks(slug) {
+			a.stopRealtimeHub(slug)
+		}
+	}
+}
+
 func (a *app) rtGetHub(slug string) *rtHub {
 	rtMu.Lock()
 	defer rtMu.Unlock()
@@ -86,7 +133,7 @@ func (a *app) rtGetHub(slug string) *rtHub {
 	}
 	u := *a.baseURL
 	u.Path = "/" + slug
-	h := &rtHub{clients: map[*websocket.Conn]rtSub{}}
+	h := &rtHub{clients: map[*websocket.Conn]rtSub{}, emptySince: time.Now()}
 	lis := pq.NewListener(u.String(), 2*time.Second, time.Minute, nil)
 	lis.Listen("forgebase_realtime")
 	h.lis = lis
@@ -184,6 +231,9 @@ func (h *rtHub) broadcast(msg []byte) {
 		if err := c.WriteMessage(websocket.TextMessage, msg); err != nil {
 			c.Close()
 			delete(h.clients, c)
+			if len(h.clients) == 0 {
+				h.emptySince = time.Now()
+			}
 		}
 	}
 }
@@ -239,6 +289,7 @@ func (a *app) serveRealtime(w http.ResponseWriter, r *http.Request, slug string)
 	h := a.rtGetHub(slug)
 	h.mu.Lock()
 	h.clients[conn] = sub
+	h.emptySince = time.Time{} // has clients again
 	h.mu.Unlock()
 	conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"connected","project":"`+slug+`"}`))
 	// read loop: we don't expect client messages, just detect disconnect
@@ -246,6 +297,9 @@ func (a *app) serveRealtime(w http.ResponseWriter, r *http.Request, slug string)
 		if _, _, err := conn.ReadMessage(); err != nil {
 			h.mu.Lock()
 			delete(h.clients, conn)
+			if len(h.clients) == 0 {
+				h.emptySince = time.Now()
+			}
 			h.mu.Unlock()
 			conn.Close()
 			return
@@ -317,6 +371,9 @@ func (a *app) disableRealtime(w http.ResponseWriter, r *http.Request) {
 	// Keep the shared change triggers if webhooks still need them; only drop when
 	// neither Realtime nor Webhooks is active.
 	a.reconcileChangeTriggers(slug)
+	// Release the LISTEN backend too if nothing needs the hub anymore (with
+	// live clients it lingers until they disconnect; the reaper then gets it).
+	a.reapHubIfUnused(slug)
 	a.audit(r, "realtime-disable", slug)
 	redirectMsg(w, r, "/p/"+slug+"/realtime", "Realtime disabled.")
 }

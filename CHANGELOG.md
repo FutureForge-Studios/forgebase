@@ -13,6 +13,22 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.9] - 2026-08-22
+
+### Changed
+- Realtime and webhook listeners are now released when idle: a project whose
+  realtime stream has had no subscribers for 15 minutes (and has no webhooks)
+  gives back its dedicated database connection, and it comes back automatically
+  on the next subscriber. Previously every project that ever used Realtime or
+  webhooks held a database connection forever.
+- Removing a project's last webhook, or disabling Realtime, now also releases
+  the listener immediately when nothing else needs it.
+
+### Fixed
+- Idle-project detection now only counts real client connections. The
+  platform's own internal connections previously counted as activity, which
+  could keep an unused project marked active forever.
+
 ## [1.2.8] - 2026-08-22
 
 ### Changed
@@ -383,7 +399,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.8...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.9...HEAD
+[1.2.9]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.8...v1.2.9
 [1.2.8]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.7...v1.2.8
 [1.2.7]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.6...v1.2.7
 [1.2.6]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.5...v1.2.6

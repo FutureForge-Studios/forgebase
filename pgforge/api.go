@@ -253,7 +253,7 @@ func (a *app) ensurePostgREST(slug string) (*pgrst, error) {
 	}
 	_, pw := a.projectCred(slug)
 	port := allocPgrstPort()
-	dbURI := fmt.Sprintf("postgres://%s:%s@127.0.0.1:5432/%s?sslmode=require",
+	dbURI := fmt.Sprintf("postgres://%s:%s@127.0.0.1:5432/%s?sslmode=require&application_name=pgforge-rest",
 		url.QueryEscape(slug), url.QueryEscape(pw), url.QueryEscape(slug))
 	cmd := exec.Command("/usr/local/bin/postgrest")
 	cmd.Env = append([]string{},

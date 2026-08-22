@@ -109,6 +109,17 @@ func isReserved(slug string) bool {
 
 func main() {
 	cfg := loadConfig()
+	// Tag every control-plane connection with an application_name so activity
+	// checks (auto-suspend) can tell the platform's own connections - meta pool,
+	// per-project pools, realtime LISTEN backends - apart from real client
+	// traffic. baseURL is derived from this DSN, so the tag propagates to all of
+	// them automatically.
+	if u, err := url.Parse(cfg.dsn); err == nil {
+		q := u.Query()
+		q.Set("application_name", "pgforged")
+		u.RawQuery = q.Encode()
+		cfg.dsn = u.String()
+	}
 	db, err := sql.Open("postgres", cfg.dsn)
 	if err != nil {
 		log.Fatal(err)

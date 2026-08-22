@@ -87,14 +87,22 @@ func (a *app) sampleOnce(full bool) {
 
 	a.autoSuspend()
 	a.reapPostgREST(15 * time.Minute)
+	a.reapRealtimeHubs(15 * time.Minute)
 }
 
 // autoSuspend marks projects with no activity for 14 days as suspended (role
 // NOLOGIN), freeing pooler/API resources. Any request auto-resumes them.
 func (a *app) autoSuspend() {
-	// projects with live connections are active right now
+	// Projects with live CLIENT connections are active right now. Filter out the
+	// control plane's own connections (meta/editor pools, realtime LISTEN
+	// backends, PostgREST) plus background workers - otherwise a project with a
+	// webhook hub or a live-sync subscription counts as "active" forever and can
+	// never suspend.
 	a.db.Exec(`UPDATE projects SET last_active=now()
-		WHERE slug IN (SELECT DISTINCT datname FROM pg_stat_activity WHERE datname IS NOT NULL)`)
+		WHERE slug IN (SELECT DISTINCT datname FROM pg_stat_activity
+			WHERE datname IS NOT NULL
+			  AND backend_type = 'client backend'
+			  AND application_name NOT IN ('pgforged','pgforge-rest'))`)
 	rows, err := a.db.Query(`SELECT slug FROM projects
 		WHERE status='active' AND last_active < now()-interval '14 days'`)
 	if err != nil {

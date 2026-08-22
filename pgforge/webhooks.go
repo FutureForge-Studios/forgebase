@@ -110,7 +110,10 @@ func (a *app) logDelivery(id, slug string, code int, ok bool, attempt int, errms
 // startWebhookPumps starts a per-project listener for every project that has
 // webhooks configured, so events fire even with no WebSocket clients connected.
 func (a *app) startWebhookPumps() {
-	rows, err := a.db.Query(`SELECT DISTINCT slug FROM webhooks`)
+	// Suspended/paused projects don't get a hub resurrected at boot - waking
+	// the project recreates it (rtGetHub is lazy).
+	rows, err := a.db.Query(`SELECT DISTINCT w.slug FROM webhooks w
+		JOIN projects p ON p.slug = w.slug WHERE p.status = 'active'`)
 	if err != nil {
 		return
 	}
@@ -207,6 +210,9 @@ func (a *app) deleteWebhook(w http.ResponseWriter, r *http.Request) {
 	a.db.Exec(`DELETE FROM webhooks WHERE id=$1 AND slug=$2`, r.FormValue("id"), slug)
 	// Drop the shared change triggers only if Realtime isn't using them either.
 	a.reconcileChangeTriggers(slug)
+	// If that was the last webhook and no WebSocket clients are connected, the
+	// hub (and its dedicated LISTEN backend) has nothing left to do.
+	a.reapHubIfUnused(slug)
 	a.audit(r, "webhook-delete", slug)
 	redirectMsg(w, r, "/p/"+slug+"/webhooks", "Webhook deleted.")
 }
