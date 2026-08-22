@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -41,6 +42,68 @@ func (a *app) oauthConfig(slug, provider string) (id, secret string, enabled boo
 	a.db.QueryRow(`SELECT client_id, client_secret, enabled FROM oauth_providers WHERE slug=$1 AND provider=$2`,
 		slug, provider).Scan(&id, &secret, &enabled)
 	return
+}
+
+// oauthIssuer returns the project's generic-OIDC issuer URL ("" when unset).
+func (a *app) oauthIssuer(slug string) string {
+	var iss string
+	a.db.QueryRow(`SELECT coalesce(issuer,'') FROM oauth_providers WHERE slug=$1 AND provider='oidc'`,
+		slug).Scan(&iss)
+	return strings.TrimRight(strings.TrimSpace(iss), "/")
+}
+
+var (
+	oidcMu    sync.Mutex
+	oidcCache = map[string]oauthMeta{}
+)
+
+// discoverOIDC resolves an issuer's endpoints via OpenID Connect discovery.
+// Results are cached for the process lifetime - endpoints do not move.
+func discoverOIDC(issuer string) (oauthMeta, error) {
+	oidcMu.Lock()
+	if m, ok := oidcCache[issuer]; ok {
+		oidcMu.Unlock()
+		return m, nil
+	}
+	oidcMu.Unlock()
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Get(issuer + "/.well-known/openid-configuration")
+	if err != nil {
+		return oauthMeta{}, err
+	}
+	defer resp.Body.Close()
+	var d struct {
+		AuthorizationEndpoint string `json:"authorization_endpoint"`
+		TokenEndpoint         string `json:"token_endpoint"`
+		UserinfoEndpoint      string `json:"userinfo_endpoint"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&d); err != nil {
+		return oauthMeta{}, err
+	}
+	if d.AuthorizationEndpoint == "" || d.TokenEndpoint == "" || d.UserinfoEndpoint == "" {
+		return oauthMeta{}, fmt.Errorf("issuer discovery incomplete (missing endpoints)")
+	}
+	m := oauthMeta{d.AuthorizationEndpoint, d.TokenEndpoint, d.UserinfoEndpoint, "openid email profile"}
+	oidcMu.Lock()
+	oidcCache[issuer] = m
+	oidcMu.Unlock()
+	return m, nil
+}
+
+// resolveProvider maps a provider name to its endpoints, handling the generic
+// "oidc" provider via per-project issuer discovery.
+func (a *app) resolveProvider(slug, provider string) (oauthMeta, error) {
+	if provider == "oidc" {
+		iss := a.oauthIssuer(slug)
+		if iss == "" {
+			return oauthMeta{}, fmt.Errorf("set the OIDC issuer URL on the Auth page first")
+		}
+		return discoverOIDC(iss)
+	}
+	meta, ok := oauthProviders[provider]
+	if !ok {
+		return oauthMeta{}, fmt.Errorf("unknown provider")
+	}
+	return meta, nil
 }
 
 func (a *app) signState(payload string) string {
@@ -91,9 +154,9 @@ func (a *app) safeOAuthRedirect(slug, redirectTo string) bool {
 
 func (a *app) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request, slug string) {
 	provider := r.URL.Query().Get("provider")
-	meta, ok := oauthProviders[provider]
-	if !ok {
-		writeJSON(w, 400, map[string]string{"message": "unknown provider"})
+	meta, merr := a.resolveProvider(slug, provider)
+	if merr != nil {
+		writeJSON(w, 400, map[string]string{"message": merr.Error()})
 		return
 	}
 	id, _, enabled := a.oauthConfig(slug, provider)
@@ -132,7 +195,11 @@ func (a *app) handleOAuthCallback(w http.ResponseWriter, r *http.Request, slug, 
 		return
 	}
 	provider, redirectTo := f[1], f[2]
-	meta := oauthProviders[provider]
+	meta, merr := a.resolveProvider(slug, provider)
+	if merr != nil {
+		writeJSON(w, 400, map[string]string{"message": merr.Error()})
+		return
+	}
 	id, sec, _ := a.oauthConfig(slug, provider)
 	cb := "https://" + slug + "." + a.cfg.domain + "/auth/v1/callback"
 
@@ -176,6 +243,11 @@ func (a *app) handleOAuthCallback(w http.ResponseWriter, r *http.Request, slug, 
 		db.QueryRow(`INSERT INTO auth.users(email, encrypted_password) VALUES ($1,'oauth') RETURNING id`, email).Scan(&uid)
 	}
 	db.Exec(`UPDATE auth.users SET last_sign_in_at=now() WHERE id=$1`, uid)
+	// record the linked identity: same verified email across providers is the
+	// same user, and this table shows which doors they have come through
+	db.Exec(`INSERT INTO auth.identities(user_id, provider, email) VALUES ($1,$2,$3)
+		ON CONFLICT (user_id, provider) DO UPDATE SET last_sign_in_at=now(), email=$3`,
+		uid, provider, email)
 	a.auditRaw(email, clientIP(r), "user-oauth", slug+"/"+provider)
 
 	acc, ref, terr := a.issueTokens(db, jwtSecret, slug, uid, email, "")
@@ -248,13 +320,21 @@ func (a *app) oauthEmail(provider string, meta oauthMeta, accessToken string) st
 func (a *app) saveOAuth(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	provider := r.FormValue("provider")
-	if _, ok := oauthProviders[provider]; !ok {
+	if _, ok := oauthProviders[provider]; !ok && provider != "oidc" {
 		redirectErr(w, r, "/p/"+slug+"/auth", "Unknown provider.")
 		return
 	}
 	id := strings.TrimSpace(r.FormValue("client_id"))
 	sec := strings.TrimSpace(r.FormValue("client_secret"))
 	enabled := r.FormValue("enabled") == "on"
+	if provider == "oidc" {
+		iss := strings.TrimRight(strings.TrimSpace(r.FormValue("issuer")), "/")
+		if enabled && !strings.HasPrefix(iss, "https://") {
+			redirectErr(w, r, "/p/"+slug+"/auth", "The OIDC issuer must be an https:// URL.")
+			return
+		}
+		defer a.db.Exec(`UPDATE oauth_providers SET issuer=$3 WHERE slug=$1 AND provider=$2`, slug, provider, iss)
+	}
 	if sec == "" {
 		// keep the existing secret when left blank
 		a.db.Exec(`INSERT INTO oauth_providers(slug,provider,client_id,enabled) VALUES ($1,$2,$3,$4)

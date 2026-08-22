@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.2"
+const appVersion = "1.4.3"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,21 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.3", Date: "2026-08-23",
+		Summary: "The finer auth cuts, and a smarter AI settings card.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Generic OpenID Connect: point the new Custom (OIDC) provider at any issuer URL (Keycloak, Okta, Auth0, Authentik, your own) and its endpoints are discovered automatically - sign-in works like every built-in provider.",
+				"Identity linking: signing in with any provider records the identity, and the same verified email across providers stays one user account.",
+				"Configurable auth rate limits: set requests-per-minute-per-IP on the Auth page (0 turns the limiter off).",
+				"Single-session mode: signing in anywhere signs the user out everywhere else.",
+				"Leaked-password protection: optionally reject passwords found in known breaches, checked privately via the HIBP k-anonymity API - only five characters of the hash ever leave your server.",
+				"User impersonation: mint a one-hour access token as any app user from the panel to see exactly what they see through RLS. Every use is audited.",
+				"The AI assistant card now has a provider picker (Claude / OpenAI / custom) and a live model dropdown: paste your key, click Load models, pick from the endpoint's real list instead of typing a model id.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.2", Date: "2026-08-23",
 		Summary: "Everything on the near-term roadmap, shipped in one release.",

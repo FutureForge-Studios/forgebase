@@ -37,17 +37,19 @@ happy path.
 ## Phase 3 - Auth depth
 - [x] Anonymous sign-ins with upgrade-to-permanent.
 - [x] Email OTP codes; configurable token lifetimes; redirect allowlists.
-- [x] Password policies + leaked-password protection. (minimum length shipped; leaked-password screening tracked separately)
-- [x] Per-user session list/revoke, single-session mode, inactivity timeouts. (session counts + revoke shipped; single-session mode tracked)
-- [x] CAPTCHA on auth endpoints (Cloudflare Turnstile).
+- [x] Password policies + leaked-password protection (HIBP k-anonymity).
+- [x] Per-user session list/revoke, single-session mode.
+- [x] CAPTCHA on auth endpoints (Cloudflare Turnstile); configurable rate
+      limits.
 - [x] Auth hooks (custom claims, before-create, send overrides). (custom claims shipped; other hook points tracked)
 - [x] 12 OAuth providers (Google, GitHub, GitLab, Discord, Microsoft,
-      Facebook, Twitch, Slack, Spotify, LinkedIn, Bitbucket, Notion).
+      Facebook, Twitch, Slack, Spotify, LinkedIn, Bitbucket, Notion) plus a
+      generic OIDC connector; identity linking.
 - [x] TOTP MFA with recovery codes for app users; panel-login 2FA.
 - [ ] Asymmetric JWT signing with JWKS and key rotation.
 - [x] Per-project email template editor.
 - [ ] SAML SSO and phone OTP (provider adapters).
-- [x] Admin depth: impersonation, rich search, per-user sessions/identities. (search + sessions shipped; impersonation tracked)
+- [x] Admin depth: impersonation, rich search, per-user sessions/identities.
 
 ## Phase 4 - Storage depth
 - [x] Move, copy, bulk delete, paginated + searchable listing, upsert,
@@ -106,11 +108,9 @@ PITR-branching, warm/streaming functions, TUS + S3-protocol storage,
 storage access rules, SAML SSO + phone OTP, asymmetric JWT signing with
 JWKS, per-subscriber RLS on change streams, per-instance compute controls,
 adaptive sizing, usage reports, foreign-data wrappers, team scoping, and the
-finer auth cuts (generic OIDC, identity linking, assurance levels,
-configurable rate limits, leaked-password screening, single-session mode,
-impersonation, before-create/send hooks). Each needs its own design pass and
-ships as focused 1.4.x releases, in the order they unlock the most for real
-projects.
+finer auth cuts (assurance levels, before-create/send hooks). Each needs its
+own design pass and ships as focused 1.4.x releases, in the order they unlock
+the most for real projects.
 
 ## How we run it
 1. Top-down inside a phase; phases interleave when priorities demand.

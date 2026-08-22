@@ -13,6 +13,21 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.3] - 2026-08-23
+
+### Added
+- Generic OpenID Connect provider: any issuer URL, endpoints discovered
+  automatically via .well-known/openid-configuration.
+- Identity linking: provider sign-ins are recorded in auth.identities; the
+  same verified email across providers stays one account.
+- Configurable auth rate limits (requests/min/IP, 0 = off).
+- Single-session mode: a new sign-in revokes every other session.
+- Leaked-password protection via the HIBP k-anonymity API (only 5 hash
+  characters ever leave the server; fails open on outages).
+- User impersonation: a one-hour access token as any app user, audited.
+- AI settings: provider picker (Claude / OpenAI / custom) plus a live model
+  dropdown loaded from the endpoint's own model list.
+
 ## [1.4.2] - 2026-08-23
 
 ### Added

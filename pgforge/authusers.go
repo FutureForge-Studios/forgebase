@@ -3,12 +3,14 @@ package main
 import (
 	"crypto/hmac"
 	crand "crypto/rand"
+	"crypto/sha1"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
 	"net/http"
@@ -87,6 +89,13 @@ func (a *app) authPolicy(slug string) (int, int, []string) {
 }
 
 func (a *app) issueTokens(db *sql.DB, secret, slug, sub, email, familyID string) (string, string, error) {
+	// Single-session mode: minting a session kills every other one, so a
+	// user is signed in from exactly one place at a time.
+	var single bool
+	a.db.QueryRow(`SELECT coalesce(single_session,false) FROM auth_config WHERE slug=$1`, slug).Scan(&single)
+	if single {
+		db.Exec(`UPDATE auth.refresh_tokens SET revoked=true WHERE user_id=$1 AND NOT revoked`, sub)
+	}
 	refresh := randHex(32)
 	sum := sha256.Sum256([]byte(refresh))
 	var err error
@@ -231,6 +240,53 @@ func (a *app) captchaOK(slug, token, ip string) bool {
 	return out.Success
 }
 
+// authRateFor returns the project's per-IP auth requests-per-minute cap.
+// 0 disables the limiter entirely (the owner's call to make).
+func (a *app) authRateFor(slug string) int {
+	limit := 30
+	a.db.QueryRow(`SELECT coalesce(rate_limit_per_min,30) FROM auth_config WHERE slug=$1`, slug).Scan(&limit)
+	if limit < 0 {
+		limit = 30
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	return limit
+}
+
+// passwordPwned checks the HIBP k-anonymity range API: only the first five
+// hex characters of the SHA-1 ever leave this server, never the password or
+// even its full hash. Fails open on any network error so an outage over
+// there can never block signups here.
+func passwordPwned(pw string) bool {
+	sum := sha1.Sum([]byte(pw))
+	h := strings.ToUpper(hex.EncodeToString(sum[:]))
+	resp, err := (&http.Client{Timeout: 6 * time.Second}).Get("https://api.pwnedpasswords.com/range/" + h[:5])
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	suffix := h[5:]
+	for _, ln := range strings.Split(string(body), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(ln), suffix+":") {
+			return true
+		}
+	}
+	return false
+}
+
+// pwRejected applies password policy beyond length: the optional
+// leaked-password screen. Returns a user-facing message, or "" when fine.
+func (a *app) pwRejected(slug, pw string) string {
+	var on bool
+	a.db.QueryRow(`SELECT coalesce(leaked_check,false) FROM auth_config WHERE slug=$1`, slug).Scan(&on)
+	if on && passwordPwned(pw) {
+		return "that password has appeared in known data breaches - please choose a different one"
+	}
+	return ""
+}
+
 // randInt returns a uniform random int in [0, max) from crypto/rand.
 func randInt(max int64) (int64, error) {
 	n, err := crand.Int(crand.Reader, big.NewInt(max))
@@ -308,6 +364,14 @@ func (a *app) ensureAuth(slug string) (string, error) {
 			created_at timestamptz NOT NULL DEFAULT now()
 		)`,
 		`CREATE INDEX IF NOT EXISTS recovery_codes_user ON auth.recovery_codes(user_id)`,
+		`CREATE TABLE IF NOT EXISTS auth.identities (
+			user_id uuid NOT NULL,
+			provider text NOT NULL,
+			email text NOT NULL DEFAULT '',
+			created_at timestamptz NOT NULL DEFAULT now(),
+			last_sign_in_at timestamptz NOT NULL DEFAULT now(),
+			PRIMARY KEY (user_id, provider)
+		)`,
 		`CREATE TABLE IF NOT EXISTS auth.one_time_tokens (
 			id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 			email text NOT NULL,
@@ -372,7 +436,7 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		a.handleOAuthCallback(w, r, slug, secret)
 
 	case path == "/signup" && r.Method == http.MethodPost:
-		if a.authRateLimited(clientIP(r)) {
+		if a.authRateLimited(clientIP(r), a.authRateFor(slug)) {
 			writeJSON(w, 429, map[string]string{"message": "too many requests"})
 			return
 		}
@@ -419,6 +483,10 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 			writeJSON(w, 400, map[string]string{"message": fmt.Sprintf("valid email and password (%d+ chars) required", minPw)})
 			return
 		}
+		if msg := a.pwRejected(slug, body.Password); msg != "" {
+			writeJSON(w, 400, map[string]string{"message": msg})
+			return
+		}
 		hash, herr := hashPassword(body.Password)
 		if herr != nil {
 			writeJSON(w, 400, map[string]string{"message": "password too long (max 72 bytes)"})
@@ -462,7 +530,7 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 			a.handleRefresh(w, r, db, secret, slug)
 			return
 		}
-		if a.authRateLimited(clientIP(r)) {
+		if a.authRateLimited(clientIP(r), a.authRateFor(slug)) {
 			writeJSON(w, 429, map[string]string{"message": "too many requests"})
 			return
 		}
@@ -572,6 +640,10 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 				writeJSON(w, 400, map[string]string{"message": fmt.Sprintf("valid email and password (%d+ chars) required to upgrade", minPw)})
 				return
 			}
+			if msg := a.pwRejected(slug, body.Password); msg != "" {
+				writeJSON(w, 400, map[string]string{"message": msg})
+				return
+			}
 			hash, herr := hashPassword(body.Password)
 			if herr != nil {
 				writeJSON(w, 400, map[string]string{"message": "password too long (max 72 bytes)"})
@@ -641,7 +713,7 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 
 	case path == "/otp" && r.Method == http.MethodPost:
 		// Email a 6-digit sign-in code (the standard JS client's signInWithOtp email flow).
-		if a.authRateLimited(clientIP(r)) {
+		if a.authRateLimited(clientIP(r), a.authRateFor(slug)) {
 			writeJSON(w, 429, map[string]string{"message": "too many requests"})
 			return
 		}
@@ -668,7 +740,7 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 
 	case path == "/verify" && r.Method == http.MethodPost:
 		// Verify an emailed OTP code and issue a session (verifyOtp type:email).
-		if a.authRateLimited(clientIP(r)) {
+		if a.authRateLimited(clientIP(r), a.authRateFor(slug)) {
 			writeJSON(w, 429, map[string]string{"message": "too many requests"})
 			return
 		}
@@ -709,7 +781,7 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 			"user": map[string]string{"id": uid, "email": body.Email}})
 
 	case path == "/magiclink" && r.Method == http.MethodPost:
-		if a.authRateLimited(clientIP(r)) {
+		if a.authRateLimited(clientIP(r), a.authRateFor(slug)) {
 			writeJSON(w, 429, map[string]string{"message": "too many requests"})
 			return
 		}
@@ -726,7 +798,7 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 
 	case path == "/recover" && r.Method == http.MethodPost && r.URL.Query().Get("token") == "":
 		// Request a password-reset email (no token in the request).
-		if a.authRateLimited(clientIP(r)) {
+		if a.authRateLimited(clientIP(r), a.authRateFor(slug)) {
 			writeJSON(w, 429, map[string]string{"message": "too many requests"})
 			return
 		}
@@ -773,6 +845,12 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(400)
 			w.Write([]byte("<h2>Password too short</h2><p>Use at least 6 characters.</p>"))
+			return
+		}
+		if msg := a.pwRejected(slug, pw); msg != "" {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(400)
+			w.Write([]byte("<h2>Password not allowed</h2><p>It has appeared in known data breaches - please choose a different one.</p>"))
 			return
 		}
 		hash, herr := hashPassword(pw)
@@ -976,6 +1054,13 @@ func (a *app) saveAuthPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	capSite := strings.TrimSpace(r.FormValue("captcha_site"))
 	capSecret := strings.TrimSpace(r.FormValue("captcha_secret"))
+	rate, rerr := strconv.Atoi(r.FormValue("rate_limit"))
+	if rerr != nil || rate < 0 || rate > 1000 {
+		redirectErr(w, r, back, "Rate limit must be 0 (off) to 1000 requests per minute per IP.")
+		return
+	}
+	single := r.FormValue("single_session") == "on"
+	leaked := r.FormValue("leaked_check") == "on"
 	allow := strings.TrimSpace(r.FormValue("redirects"))
 	for _, e := range strings.Split(allow, ",") {
 		e = strings.TrimSpace(e)
@@ -985,10 +1070,37 @@ func (a *app) saveAuthPolicy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	a.db.Exec(`UPDATE auth_config SET access_ttl_min=$2, min_pw_len=$3, redirect_allowlist=$4,
-		captcha_site=$5, captcha_secret=$6 WHERE slug=$1`,
-		slug, ttlMin, minPw, allow, capSite, capSecret)
+		captcha_site=$5, captcha_secret=$6, rate_limit_per_min=$7, single_session=$8, leaked_check=$9 WHERE slug=$1`,
+		slug, ttlMin, minPw, allow, capSite, capSecret, rate, single, leaked)
 	a.audit(r, "auth-policy", fmt.Sprintf("%s ttl=%dm pw>=%d", slug, ttlMin, minPw))
 	redirectMsg(w, r, back, "Auth policies saved.")
+}
+
+// impersonateUser mints a short-lived (1 hour) access token AS an app user,
+// so an admin can reproduce exactly what that user sees through RLS and the
+// APIs. Panel-admin only; every use is audited.
+func (a *app) impersonateUser(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	uid := strings.TrimSpace(r.FormValue("id"))
+	secret, enabled := a.authConfig(slug)
+	if !enabled || uid == "" {
+		writeJSON(w, 400, map[string]string{"message": "auth is not enabled, or no user id given"})
+		return
+	}
+	db, err := a.dbFor(slug)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"message": err.Error()})
+		return
+	}
+	var email, userMeta, appMeta string
+	if err := db.QueryRow(`SELECT coalesce(email,''), raw_user_meta_data::text, raw_app_meta_data::text
+			FROM auth.users WHERE id=$1`, uid).Scan(&email, &userMeta, &appMeta); err != nil {
+		writeJSON(w, 404, map[string]string{"message": "no such user"})
+		return
+	}
+	tok := signUserJWTTTL([]byte(secret), uid, email, userMeta, appMeta, 3600)
+	a.audit(r, "auth-impersonate", slug+"/"+email)
+	writeJSON(w, 200, map[string]string{"access_token": tok, "expires_in": "3600"})
 }
 
 func (a *app) setAuthAnon(w http.ResponseWriter, r *http.Request) {
@@ -1049,7 +1161,7 @@ func (a *app) authPage(w http.ResponseWriter, r *http.Request) {
 		Enabled        bool
 	}
 	var providers []provCfg
-	for _, p := range []string{"google", "github", "gitlab", "discord", "microsoft", "facebook", "twitch", "slack", "spotify", "linkedin", "bitbucket", "notion"} {
+	for _, p := range []string{"google", "github", "gitlab", "discord", "microsoft", "facebook", "twitch", "slack", "spotify", "linkedin", "bitbucket", "notion", "oidc"} {
 		id, _, en := a.oauthConfig(slug, p)
 		providers = append(providers, provCfg{Name: p, ClientID: id, Enabled: en})
 	}
@@ -1095,6 +1207,18 @@ func (a *app) authPage(w http.ResponseWriter, r *http.Request) {
 			a.db.QueryRow(`SELECT coalesce(redirect_allowlist,'') FROM auth_config WHERE slug=$1`, slug).Scan(&raw)
 			return raw
 		}(),
+		"RateLimit": a.authRateFor(slug),
+		"SingleSession": func() bool {
+			var v bool
+			a.db.QueryRow(`SELECT coalesce(single_session,false) FROM auth_config WHERE slug=$1`, slug).Scan(&v)
+			return v
+		}(),
+		"LeakedCheck": func() bool {
+			var v bool
+			a.db.QueryRow(`SELECT coalesce(leaked_check,false) FROM auth_config WHERE slug=$1`, slug).Scan(&v)
+			return v
+		}(),
+		"OIDCIssuer": a.oauthIssuer(slug),
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Auth", Nav: "authn", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Auth"}}}, content)

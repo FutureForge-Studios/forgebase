@@ -337,6 +337,8 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/log-view-delete", a.auth(proj(a.deleteLogView)))
 	mux.HandleFunc("POST /p/{slug}/log-ship", a.auth(admin(a.setLogShip)))
 	mux.HandleFunc("POST /account/ai", a.auth(a.saveAIConfig))
+	mux.HandleFunc("POST /account/ai-models", a.auth(a.aiModels))
+	mux.HandleFunc("POST /p/{slug}/auth-impersonate", a.auth(admin(a.impersonateUser)))
 	mux.HandleFunc("POST /p/{slug}/ai-sql", a.auth(proj(a.aiSQL)))
 	mux.HandleFunc("GET /api/cli/projects", a.auth(a.cliProjects))
 	mux.HandleFunc("GET /p/{slug}/branch-diff", a.auth(proj(a.branchDiff)))
@@ -504,6 +506,10 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE api_config ADD COLUMN IF NOT EXISTS ip_allowlist text NOT NULL DEFAULT ''`,
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS captcha_site text NOT NULL DEFAULT ''`,
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS captcha_secret text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS rate_limit_per_min integer NOT NULL DEFAULT 30`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS single_session boolean NOT NULL DEFAULT false`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS leaked_check boolean NOT NULL DEFAULT false`,
+		`ALTER TABLE oauth_providers ADD COLUMN IF NOT EXISTS issuer text NOT NULL DEFAULT ''`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS log_ship_url text NOT NULL DEFAULT ''`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS log_shipped_at timestamptz`,
 		`CREATE TABLE IF NOT EXISTS log_views (
@@ -802,9 +808,11 @@ func (a *app) recordAttempt(ip string) {
 // (/auth/v1/signup and /token) per IP. Each call runs bcrypt (~80 ms of CPU),
 // so without a cap a single client could exhaust the host's CPU. The window is
 // more generous than the panel login limiter since real apps sign users in.
-func (a *app) authRateLimited(ip string) bool {
+func (a *app) authRateLimited(ip string, max int) bool {
+	if max <= 0 {
+		return false // the project turned the limiter off
+	}
 	const window = time.Minute
-	const max = 30
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	cut := time.Now().Add(-window)

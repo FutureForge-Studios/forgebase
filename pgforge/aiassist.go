@@ -41,6 +41,69 @@ func (a *app) saveAIConfig(w http.ResponseWriter, r *http.Request) {
 	redirectMsg(w, r, "/account", "AI settings saved.")
 }
 
+// aiModels lists the models an endpoint offers, so the Account page can show
+// a dropdown instead of a free-text model field. The key never reaches the
+// browser's own requests: the panel proxies the one models call server-side,
+// using the just-typed key or, when blank, the stored one.
+func (a *app) aiModels(w http.ResponseWriter, r *http.Request) {
+	var body struct{ Base, Key string }
+	json.NewDecoder(r.Body).Decode(&body)
+	base := strings.TrimRight(strings.TrimSpace(body.Base), "/")
+	key := strings.TrimSpace(body.Key)
+	if !strings.HasPrefix(base, "https://") {
+		writeJSON(w, 400, map[string]string{"message": "set an https endpoint first"})
+		return
+	}
+	if key == "" {
+		_, key, _ = a.aiConfigFor(currentUser(r))
+	}
+	if key == "" {
+		writeJSON(w, 400, map[string]string{"message": "enter an API key first"})
+		return
+	}
+	var req *http.Request
+	if strings.Contains(base, "anthropic") {
+		req, _ = http.NewRequest(http.MethodGet, base+"/v1/models?limit=100", nil)
+		req.Header.Set("x-api-key", key)
+		req.Header.Set("anthropic-version", "2023-06-01")
+	} else {
+		req, _ = http.NewRequest(http.MethodGet, base+"/models", nil)
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"message": "endpoint unreachable: " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Data []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
+		} `json:"data"`
+		Error struct{ Message string } `json:"error"`
+	}
+	json.NewDecoder(resp.Body).Decode(&out)
+	if len(out.Data) == 0 {
+		msg := out.Error.Message
+		if msg == "" {
+			msg = resp.Status
+		}
+		writeJSON(w, 502, map[string]string{"message": "could not list models: " + msg})
+		return
+	}
+	type model struct{ ID, Name string }
+	var models []model
+	for _, m := range out.Data {
+		name := m.DisplayName
+		if name == "" {
+			name = m.ID
+		}
+		models = append(models, model{m.ID, name})
+	}
+	writeJSON(w, 200, map[string]any{"models": models})
+}
+
 // aiSQL answers a natural-language prompt with SQL for this project.
 func (a *app) aiSQL(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")

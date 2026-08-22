@@ -1449,6 +1449,12 @@ const authPageBody = `
       <input type="text" name="captcha_site" value="{{.CaptchaSite}}" placeholder="0x4AAA..." style="width:170px"></label>
     <label class="fld" style="margin:0"><span class="lt">Turnstile secret</span>
       <input type="password" name="captcha_secret" value="{{.CaptchaSecret}}" placeholder="keeps captcha off if empty" style="width:170px"></label>
+    <label class="fld" style="margin:0"><span class="lt">Rate limit (req/min/IP, 0 = off)</span>
+      <input type="number" name="rate_limit" value="{{.RateLimit}}" min="0" max="1000" style="width:110px"></label>
+    <label style="display:flex;align-items:center;gap:.35rem;font-size:12px;cursor:pointer;margin:0 0 .45rem" title="Signing in anywhere signs the user out everywhere else">
+      <input type="checkbox" name="single_session" {{if .SingleSession}}checked{{end}}> single session</label>
+    <label style="display:flex;align-items:center;gap:.35rem;font-size:12px;cursor:pointer;margin:0 0 .45rem" title="Rejects passwords found in known breaches - checked privately via the HIBP k-anonymity API (only 5 hash characters ever leave this server)">
+      <input type="checkbox" name="leaked_check" {{if .LeakedCheck}}checked{{end}}> block leaked passwords</label>
     <button class="btn btn-primary btn-sm" type="submit">Save policies</button>
     <span class="muted" style="font-size:11px">allowlist extends where magic links and OAuth may redirect beyond this project's own domain</span>
   </form>
@@ -1482,18 +1488,19 @@ const authPageBody = `
 </div>
 <div class="card" style="margin-bottom:1rem">
   <h2>Social sign-in</h2>
-  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .6rem">Let users sign in with Google, GitHub, GitLab or Discord. Register this callback URL with the provider, then start the flow at <code>{{.Base}}/authorize?provider=google&redirect_to=YOUR_APP</code>.</p>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .6rem">Twelve providers plus any OpenID Connect issuer. Register this callback URL with the provider, then start the flow at <code>{{.Base}}/authorize?provider=google&redirect_to=YOUR_APP</code>.</p>
   <div class="cs" style="margin-bottom:.9rem"><span class="tag">Callback</span><code id="cb">{{.Callback}}</code><button class="copy" onclick="cp('cb')">{{icon "copy"}}</button></div>
   <div class="grid g2">
   {{range .Providers}}
     <form method="post" action="/p/{{$.Slug}}/oauth-save" style="border:1px solid hsl(var(--border));border-radius:.7rem;padding:.9rem">
       <input type="hidden" name="provider" value="{{.Name}}">
-      <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.7rem"><b style="text-transform:capitalize;flex:1">{{.Name}}</b>
+      <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.7rem"><b style="text-transform:capitalize;flex:1">{{if eq .Name "oidc"}}Custom (OIDC){{else}}{{.Name}}{{end}}</b>
         {{if .Enabled}}<span class="badge active">on</span>{{end}}
         <label style="display:flex;align-items:center;gap:.4rem;font-size:12px;cursor:pointer"><input type="checkbox" name="enabled" {{if .Enabled}}checked{{end}}> Enabled</label></div>
+      {{if eq .Name "oidc"}}<label class="fld" style="margin-bottom:.5rem"><span class="lt" style="font-size:11px">Issuer URL (any OpenID Connect provider)</span><input type="text" name="issuer" value="{{$.OIDCIssuer}}" placeholder="https://auth.example.com"></label>{{end}}
       <label class="fld" style="margin-bottom:.5rem"><span class="lt" style="font-size:11px">Client ID</span><input type="text" name="client_id" value="{{.ClientID}}" placeholder="client id"></label>
       <label class="fld" style="margin-bottom:.6rem"><span class="lt" style="font-size:11px">Client secret</span><input type="password" name="client_secret" placeholder="{{if .ClientID}}leave blank to keep{{else}}client secret{{end}}"></label>
-      <button class="btn btn-ghost btn-sm" type="submit">Save {{.Name}}</button>
+      <button class="btn btn-ghost btn-sm" type="submit">Save {{if eq .Name "oidc"}}OIDC{{else}}{{.Name}}{{end}}</button>
     </form>
   {{end}}
   </div>
@@ -1529,12 +1536,24 @@ const authPageBody = `
           <form method="post" action="/p/{{$.Slug}}/auth-user-password" style="margin:0" onsubmit="this.password.value=prompt('New password for {{.Email}} (6+ chars):')||'';return this.password.value.length>=6">
             <input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="password">
             <button class="btn btn-ghost btn-sm">Reset password</button></form>
+          <button class="btn btn-ghost btn-sm" onclick="impUser('{{.ID}}')" title="Mint a 1-hour access token as this user, to see exactly what they see through RLS">Impersonate</button>
           <form method="post" action="/p/{{$.Slug}}/auth-user-delete" style="margin:0;display:flex" onsubmit="return confirm('Delete {{.Email}}?')">
             <input type="hidden" name="id" value="{{.ID}}"><button class="copy" style="color:hsl(var(--destructive))" title="delete">{{icon "trash"}}</button></form>
         </div>
       </td></tr>{{end}}</tbody>
   </table></div>{{end}}
 </div>
+<script>
+function impUser(id){
+  fetch('/p/{{.Slug}}/auth-impersonate',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'id='+encodeURIComponent(id)})
+    .then(function(r){return r.json()})
+    .then(function(d){
+      if(d.access_token){prompt('1-hour access token as this user (send as Authorization: Bearer):',d.access_token)}
+      else{alert(d.message||'impersonation failed')}
+    })
+    .catch(function(){alert('impersonation failed')});
+}
+</script>
 {{end}}
 ` + copyJS
 

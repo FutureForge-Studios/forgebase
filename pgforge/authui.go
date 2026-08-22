@@ -100,13 +100,59 @@ const accountBody = `
   </div>
   <div class="card">
     <h2>AI assistant (bring your own key)</h2>
-    <p class="muted" style="font-size:12.5px;margin:.4rem 0 .8rem">Powers "Ask AI" in the SQL editor. Works with Anthropic or any OpenAI-compatible endpoint; your key is encrypted at rest and only ever sent to the endpoint below.</p>
-    <form method="post" action="/account/ai">
-      <label class="fld"><span class="lt">Endpoint base URL</span><input type="text" name="ai_base" value="{{.AIBase}}" placeholder="https://api.anthropic.com"></label>
-      <label class="fld"><span class="lt">Model</span><input type="text" name="ai_model" value="{{.AIModel}}" placeholder="claude-sonnet-5"></label>
-      <label class="fld"><span class="lt">API key</span><input type="password" name="ai_key" placeholder="{{if .AIHasKey}}saved - leave blank to keep{{else}}sk-...{{end}}"></label>
+    <p class="muted" style="font-size:12.5px;margin:.4rem 0 .8rem">Powers "Ask AI" in the SQL editor. Pick a provider, paste your key, load its live model list and choose one; your key is encrypted at rest and only ever sent to the endpoint below.</p>
+    <form method="post" action="/account/ai" autocomplete="off">
+      <label class="fld"><span class="lt">Provider</span>
+        <select id="aiprov" onchange="aiProv()">
+          <option value="anthropic">Claude (Anthropic)</option>
+          <option value="openai">OpenAI</option>
+          <option value="custom">Custom OpenAI-compatible endpoint</option>
+        </select></label>
+      <label class="fld"><span class="lt">Endpoint base URL</span><input type="text" id="aibase" name="ai_base" value="{{.AIBase}}" placeholder="https://api.anthropic.com" autocomplete="off"></label>
+      <label class="fld"><span class="lt">API key</span><input type="password" id="aikey" name="ai_key" autocomplete="new-password" placeholder="{{if .AIHasKey}}saved - leave blank to keep{{else}}sk-...{{end}}"></label>
+      <label class="fld"><span class="lt">Model</span>
+        <div style="display:flex;gap:.4rem">
+          <select id="aimodel" name="ai_model" style="flex:1">
+            {{if .AIModel}}<option value="{{.AIModel}}" selected>{{.AIModel}}</option>{{else}}<option value="">load models, then pick one</option>{{end}}
+          </select>
+          <button class="btn btn-ghost btn-sm" type="button" onclick="aiLoadModels(this)">Load models</button>
+        </div></label>
       <button class="btn btn-primary btn-sm" type="submit">Save AI settings</button>
     </form>
+    <script>
+    function aiProv(){
+      var p=document.getElementById('aiprov').value, b=document.getElementById('aibase');
+      if(p==='anthropic'){b.value='https://api.anthropic.com';b.readOnly=true;}
+      else if(p==='openai'){b.value='https://api.openai.com/v1';b.readOnly=true;}
+      else{b.readOnly=false;if(b.value==='https://api.anthropic.com'||b.value==='https://api.openai.com/v1'){b.value='';}b.focus();}
+    }
+    (function(){
+      var b=document.getElementById('aibase').value, p=document.getElementById('aiprov');
+      if(b.indexOf('anthropic')>=0||b===''){p.value='anthropic';if(b===''){document.getElementById('aibase').value='https://api.anthropic.com';}}
+      else if(b.indexOf('api.openai.com')>=0){p.value='openai';}
+      else{p.value='custom';}
+      if(p.value!=='custom'){document.getElementById('aibase').readOnly=true;}
+    })();
+    function aiLoadModels(btn){
+      btn.disabled=true;btn.textContent='Loading...';
+      fetch('/account/ai-models',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({base:document.getElementById('aibase').value,key:document.getElementById('aikey').value})})
+        .then(function(r){return r.json()})
+        .then(function(d){
+          btn.disabled=false;btn.textContent='Load models';
+          if(!d.models){alert(d.message||'could not list models');return;}
+          var sel=document.getElementById('aimodel'), cur=sel.value;
+          sel.innerHTML='';
+          for(var i=0;i<d.models.length;i++){
+            var o=document.createElement('option');
+            o.value=d.models[i].ID;o.textContent=d.models[i].Name;
+            if(d.models[i].ID===cur){o.selected=true;}
+            sel.appendChild(o);
+          }
+        })
+        .catch(function(){btn.disabled=false;btn.textContent='Load models';alert('could not reach the panel');});
+    }
+    </script>
   </div>
   <div class="card">
     <h2>Two-factor authentication</h2>
