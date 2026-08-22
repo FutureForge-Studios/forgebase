@@ -49,7 +49,9 @@ happy path.
 - [x] TOTP MFA with recovery codes and aal assurance claims; panel 2FA.
 - [x] Asymmetric JWT signing with JWKS and key rotation.
 - [x] Per-project email template editor.
-- [ ] SAML SSO and phone OTP (provider adapters).
+- [x] Phone OTP via a bring-your-own SMS webhook adapter. SAML-only SSO
+      stays future work - most IdPs (Okta, Azure, Keycloak) connect today
+      through the generic OIDC provider.
 - [x] Admin depth: impersonation, rich search, per-user sessions/identities.
 
 ## Phase 4 - Storage depth
@@ -68,7 +70,7 @@ happy path.
 - [x] Broadcast channels (client pub/sub + send-from-SQL).
 - [x] Presence tracking.
 - [x] Private channels with authorization rules.
-- [ ] Per-subscriber row-level security on change streams.
+- [x] Per-subscriber row-level security on change streams.
 - [x] Per-project realtime settings and live connection stats.
 
 ## Phase 6 - Database platform depth
@@ -105,8 +107,8 @@ happy path.
 
 ## Next (1.4.x)
 The remaining unchecked items above are the heavyweight tier - read replicas,
-PITR-branching, warm/streaming functions, S3-protocol storage, SAML SSO +
-phone OTP, per-subscriber RLS on change streams, and adaptive sizing. Each needs
+PITR-branching, warm/streaming functions, S3-protocol storage, SAML SSO,
+and adaptive sizing. Each needs
 its own design pass and ships as focused 1.4.x releases, in the order they
 unlock the most for real projects.
 

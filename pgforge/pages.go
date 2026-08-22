@@ -1536,6 +1536,8 @@ const authPageBody = `
       <input type="password" name="captcha_secret" value="{{.CaptchaSecret}}" placeholder="keeps captcha off if empty" style="width:170px"></label>
     <label class="fld" style="margin:0"><span class="lt">Rate limit (req/min/IP, 0 = off)</span>
       <input type="number" name="rate_limit" value="{{.RateLimit}}" min="0" max="1000" style="width:110px"></label>
+    <label class="fld" style="margin:0;min-width:220px"><span class="lt">SMS webhook (enables phone OTP)</span>
+      <input type="text" name="sms_webhook" value="{{.SMSHook}}" placeholder="https://your-sms-sender.example/send" title="ForgeBase POSTs {phone, code, project} JSON here with an X-ForgeBase-Signature HMAC header; wire it to Twilio, Vonage or any SMS provider. Empty keeps phone sign-in off."></label>
     <label style="display:flex;align-items:center;gap:.35rem;font-size:12px;cursor:pointer;margin:0 0 .45rem" title="Signing in anywhere signs the user out everywhere else">
       <input type="checkbox" name="single_session" {{if .SingleSession}}checked{{end}}> single session</label>
     <label style="display:flex;align-items:center;gap:.35rem;font-size:12px;cursor:pointer;margin:0 0 .45rem" title="Rejects passwords found in known breaches - checked privately via the HIBP k-anonymity API (only 5 hash characters ever leave this server)">
@@ -1902,7 +1904,10 @@ const realtimeBody = `
   <form method="post" action="/p/{{.Slug}}/realtime-auth" style="margin-top:.5rem">
     <label style="display:flex;align-items:center;gap:.45rem;font-size:12.5px;cursor:pointer"><input type="checkbox" name="require_auth" {{if .RequireAuth}}checked{{end}} onchange="this.form.submit()"> Require an authenticated key (block the public <code>anon</code> key)</label>
   </form>
-  <p class="muted" style="font-size:11.5px;margin-top:.5rem">On (recommended): only <code>authenticated</code> and <code>service_role</code> keys can subscribe - the stream is not per-row RLS filtered, so the public <code>anon</code> key would otherwise see every change. Turn off only if your app subscribes with the anon key and the data is not sensitive.</p>
+  <form method="post" action="/p/{{.Slug}}/realtime-rls" style="margin-top:.5rem">
+    <label style="display:flex;align-items:center;gap:.45rem;font-size:12.5px;cursor:pointer"><input type="checkbox" name="rls_changes" {{if .RLSChanges}}checked{{end}} onchange="this.form.submit()"> Filter change events per subscriber through row-level security</label>
+  </form>
+  <p class="muted" style="font-size:11.5px;margin-top:.5rem">With RLS filtering on, every INSERT/UPDATE event is delivered only to subscribers whose token could SELECT that row under your policies - exactly as the REST API would answer them. Costs one lightweight visibility query per distinct subscriber token per event; DELETE events (the row is gone) and <code>service_role</code> subscribers pass through. Without it, keep "require an authenticated key" on unless the data is public.</p>
 </div>
 <div class="card">
   <div style="display:flex;align-items:center"><h2>Live tester</h2><div class="spacer"></div><span id="rtstatus" class="badge paused">connecting…</span></div>

@@ -31,6 +31,10 @@ type rtSub struct {
 	Event  string // INSERT / UPDATE / DELETE
 	Column string // optional equality filter column (?filter=id=eq.5)
 	Value  string
+	// Role + Claims (raw JSON) captured at join, for per-subscriber RLS
+	// checks on change events when the project enables them.
+	Role   string
+	Claims string
 	// Channel subscribes this client to broadcast + presence messages on one
 	// named channel (channels are independent of table change streams).
 	Channel string
@@ -42,6 +46,10 @@ type rtHub struct {
 	mu      sync.Mutex
 	clients map[*websocket.Conn]rtSub
 	lis     *pq.Listener
+	// app + slug let the change fan-out run per-subscriber RLS checks
+	// against the project database when the project has that enabled
+	app  *app
+	slug string
 	// emptySince is when the hub last had zero WebSocket clients (zero value =
 	// it has clients). The reaper closes hubs that have been empty for a while
 	// and serve no webhooks - each hub holds a dedicated Postgres LISTEN
@@ -162,7 +170,7 @@ func (a *app) rtGetHub(slug string) *rtHub {
 		u.Path = "/" + slug
 		dsn = u.String()
 	}
-	h := &rtHub{clients: map[*websocket.Conn]rtSub{}, emptySince: time.Now()}
+	h := &rtHub{clients: map[*websocket.Conn]rtSub{}, emptySince: time.Now(), app: a, slug: slug}
 	lis := pq.NewListener(dsn, 2*time.Second, time.Minute, nil)
 	h.lis = lis
 	rtHubs[slug] = h
@@ -340,24 +348,29 @@ func (h *rtHub) broadcast(msg []byte) {
 		Record               map[string]any
 	}
 	json.Unmarshal(msg, &ev)
+	isChange := ev.Type != "broadcast" && ev.Type != "presence"
+	// Per-subscriber RLS: when the project enables it, a change event is
+	// only delivered to a subscriber whose role/claims can SELECT that row.
+	// The visibility queries must run OUTSIDE the hub mutex, so delivery is
+	// three phases: match under the lock, check unlocked, write under the lock.
+	rlsGate := isChange && h.app != nil && h.app.realtimeRLSOn(h.slug)
+
+	type target struct {
+		c   *websocket.Conn
+		sub rtSub
+	}
+	var targets []target
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	for c, sub := range h.clients {
-		// channel traffic (broadcast/presence) goes only to that channel's
-		// subscribers; change events skip channel-only subscribers entirely
-		if ev.Type == "broadcast" || ev.Type == "presence" {
+		if !isChange {
 			if sub.Channel == "" || sub.Channel != ev.Channel {
 				continue
 			}
-			c.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			if err := c.WriteMessage(websocket.TextMessage, msg); err != nil {
-				c.Close()
-				delete(h.clients, c)
-				if len(h.clients) == 0 {
-					h.emptySince = time.Now()
-				}
-			}
+			targets = append(targets, target{c, sub})
 			continue
+		}
+		if sub.Channel != "" && sub.Table == "" {
+			continue // channel-only subscriber: no change events
 		}
 		if sub.Table != "" && sub.Table != ev.Table {
 			continue
@@ -373,15 +386,111 @@ func (h *rtHub) broadcast(msg []byte) {
 				continue
 			}
 		}
-		c.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		if err := c.WriteMessage(websocket.TextMessage, msg); err != nil {
-			c.Close()
-			delete(h.clients, c)
+		targets = append(targets, target{c, sub})
+	}
+	h.mu.Unlock()
+
+	if rlsGate && len(targets) > 0 {
+		kept := targets[:0]
+		// one visibility answer per distinct claims set - identical
+		// subscribers (same user, several tabs) cost one query
+		memo := map[string]bool{}
+		for _, t := range targets {
+			// service_role sees everything; DELETEs carry a gone row we
+			// cannot evaluate policies against, so they pass through
+			if t.sub.Role == "service_role" || ev.Type == "DELETE" || ev.Record == nil {
+				kept = append(kept, t)
+				continue
+			}
+			vis, seen := memo[t.sub.Claims]
+			if !seen {
+				vis = h.app.rtRowVisible(h.slug, ev.Table, ev.Record, t.sub.Claims, t.sub.Role)
+				memo[t.sub.Claims] = vis
+			}
+			if vis {
+				kept = append(kept, t)
+			}
+		}
+		targets = kept
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, t := range targets {
+		if _, still := h.clients[t.c]; !still {
+			continue
+		}
+		t.c.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if err := t.c.WriteMessage(websocket.TextMessage, msg); err != nil {
+			t.c.Close()
+			delete(h.clients, t.c)
 			if len(h.clients) == 0 {
 				h.emptySince = time.Now()
 			}
 		}
 	}
+}
+
+// realtimeRLSOn reports whether change events are RLS-filtered per subscriber.
+func (a *app) realtimeRLSOn(slug string) bool {
+	var v bool
+	a.db.QueryRow(`SELECT coalesce(rls_changes,false) FROM realtime_config WHERE slug=$1`, slug).Scan(&v)
+	return v
+}
+
+func (a *app) setRealtimeRLS(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	on := r.FormValue("rls_changes") == "on"
+	a.db.Exec(`UPDATE realtime_config SET rls_changes=$2 WHERE slug=$1`, slug, on)
+	a.audit(r, "realtime-rls", fmt.Sprintf("%s rls_changes=%v", slug, on))
+	redirectMsg(w, r, "/p/"+slug+"/realtime", "Change-stream RLS filtering updated.")
+}
+
+// rtRowVisible asks the project database whether this subscriber's
+// role+claims can SELECT the changed row, exactly as PostgREST would:
+// request.jwt.claims set, role assumed, everything rolled back. Errors
+// (no grant, no table, bad claims) suppress delivery - safe by default.
+// No primary key or missing pk values in the payload = deliver (nothing
+// row-level to check against).
+func (a *app) rtRowVisible(slug, table string, record map[string]any, claims, role string) bool {
+	if role != "anon" && role != "authenticated" {
+		return false
+	}
+	db, err := a.dbFor(slug)
+	if err != nil {
+		return false
+	}
+	pks := a.tablePK(db, "public", table)
+	if len(pks) == 0 {
+		return true
+	}
+	var conds []string
+	var vals []any
+	for i, col := range pks {
+		v, present := record[col]
+		if !present {
+			return true
+		}
+		conds = append(conds, fmt.Sprintf("%s::text = $%d", pq.QuoteIdentifier(col), i+1))
+		vals = append(vals, fmt.Sprintf("%v", v))
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return false
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`SELECT set_config('request.jwt.claims', $1, true)`, claims); err != nil {
+		return false
+	}
+	if _, err := tx.Exec(`SET LOCAL ROLE ` + pq.QuoteIdentifier(role)); err != nil {
+		return false
+	}
+	var vis bool
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM public.`+pq.QuoteIdentifier(table)+
+		` WHERE `+strings.Join(conds, " AND ")+`)`, vals...).Scan(&vis); err != nil {
+		return false
+	}
+	return vis
 }
 
 func (a *app) serveRealtime(w http.ResponseWriter, r *http.Request, slug string) {
@@ -425,6 +534,10 @@ func (a *app) serveRealtime(w http.ResponseWriter, r *http.Request, slug string)
 		Event:       strings.ToUpper(r.URL.Query().Get("event")),
 		Channel:     r.URL.Query().Get("channel"),
 		PresenceKey: r.URL.Query().Get("presence_key"),
+	}
+	sub.Role, _ = claims["role"].(string)
+	if cj, err := json.Marshal(claims); err == nil {
+		sub.Claims = string(cj)
 	}
 	// private channels: names starting with "private-" refuse the anon role
 	if strings.HasPrefix(sub.Channel, "private-") {
@@ -623,6 +736,7 @@ func (a *app) realtimePage(w http.ResponseWriter, r *http.Request) {
 	content := renderContent(realtimeBody, map[string]any{
 		"Slug": slug, "Enabled": enabled, "Tables": tables, "Clients": clients,
 		"RequireAuth": a.realtimeRequireAuth(slug),
+		"RLSChanges":  a.realtimeRLSOn(slug),
 		"Pubs":        a.rtPublications(slug),
 		"WS":          "wss://" + slug + "." + a.cfg.domain + "/realtime/v1",
 	})

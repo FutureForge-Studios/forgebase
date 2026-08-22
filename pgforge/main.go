@@ -353,6 +353,7 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/storage-rule-add", a.auth(admin(a.storageRuleAdd)))
 	mux.HandleFunc("POST /p/{slug}/storage-rule-delete", a.auth(admin(a.storageRuleDelete)))
 	mux.HandleFunc("POST /p/{slug}/jwks", a.auth(admin(a.jwksToggle)))
+	mux.HandleFunc("POST /p/{slug}/realtime-rls", a.auth(admin(a.setRealtimeRLS)))
 	mux.HandleFunc("GET /p/{slug}/branch-diff", a.auth(proj(a.branchDiff)))
 	mux.HandleFunc("POST /p/{slug}/branch-reset", a.auth(admin(a.branchReset)))
 	mux.HandleFunc("GET /p/{slug}/realtime", a.auth(proj(a.realtimePage)))
@@ -527,6 +528,7 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS rate_limit_per_min integer NOT NULL DEFAULT 30`,
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS single_session boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS leaked_check boolean NOT NULL DEFAULT false`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS sms_webhook_url text NOT NULL DEFAULT ''`,
 		`ALTER TABLE oauth_providers ADD COLUMN IF NOT EXISTS issuer text NOT NULL DEFAULT ''`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS instance_mem_mb integer NOT NULL DEFAULT 0`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS instance_cpus real NOT NULL DEFAULT 0`,
@@ -629,6 +631,7 @@ func (a *app) ensureSchema() error {
 			created_at timestamptz NOT NULL DEFAULT now()
 		)`,
 		`ALTER TABLE realtime_config ADD COLUMN IF NOT EXISTS require_auth boolean NOT NULL DEFAULT true`,
+		`ALTER TABLE realtime_config ADD COLUMN IF NOT EXISTS rls_changes boolean NOT NULL DEFAULT false`,
 		`CREATE TABLE IF NOT EXISTS oauth_providers (
 			slug text NOT NULL, provider text NOT NULL,
 			client_id text NOT NULL DEFAULT '', client_secret text NOT NULL DEFAULT '',

@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.7"
+const appVersion = "1.4.8"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,16 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.8", Date: "2026-08-23",
+		Summary: "RLS-filtered change streams and phone sign-in.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Per-subscriber RLS on change streams (opt-in, Realtime page): every INSERT/UPDATE event is delivered only to subscribers whose token could SELECT that row under your policies - the same answer the REST API would give them. One lightweight visibility check per distinct subscriber token per event, memoized across duplicate connections; service_role passes through.",
+				"Phone OTP sign-in, bring-your-own-SMS-provider: set an SMS webhook URL on the Auth page and clients get the standard signInWithOtp phone flow - we POST {phone, code, project} (HMAC-signed) to your endpoint, you forward it through Twilio, Vonage or anything else. Verified codes create phone-only user accounts with the usual tokens.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.7", Date: "2026-08-23",
 		Summary: "Asymmetric JWT signing with a JWKS endpoint.",

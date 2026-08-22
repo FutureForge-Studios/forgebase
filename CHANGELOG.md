@@ -13,6 +13,16 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.8] - 2026-08-23
+
+### Added
+- Per-subscriber RLS on realtime change streams (opt-in): INSERT/UPDATE
+  events reach only subscribers whose token could SELECT the row under
+  your policies; visibility checks are memoized per distinct token.
+- Phone OTP sign-in via a bring-your-own SMS webhook: ForgeBase POSTs the
+  HMAC-signed {phone, code, project} payload to your endpoint; verified
+  codes create phone-only accounts with standard tokens.
+
 ## [1.4.7] - 2026-08-23
 
 ### Added

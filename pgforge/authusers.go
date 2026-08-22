@@ -324,6 +324,52 @@ func (a *app) pwRejected(slug, pw string) string {
 	return ""
 }
 
+// normalizePhone reduces a phone number to +E.164-ish digits ("" = invalid).
+func normalizePhone(p string) string {
+	p = strings.TrimSpace(p)
+	var b strings.Builder
+	for i, r := range p {
+		if r == '+' && i == 0 {
+			b.WriteRune(r)
+		} else if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		} else if r == ' ' || r == '-' || r == '(' || r == ')' {
+			continue
+		} else {
+			return ""
+		}
+	}
+	digits := strings.TrimPrefix(b.String(), "+")
+	if len(digits) < 7 || len(digits) > 15 {
+		return ""
+	}
+	return b.String()
+}
+
+// sendSMSCode delivers a sign-in code through the project's SMS webhook -
+// a bring-your-own-provider adapter: the owner points it at any HTTPS
+// endpoint (a serverless function wrapping Twilio, Vonage, MessageBird...)
+// and we POST {phone, code, project} with an HMAC signature header so the
+// receiver can verify it really came from this server.
+func (a *app) sendSMSCode(slug, phone, code string) {
+	var hook string
+	a.db.QueryRow(`SELECT coalesce(sms_webhook_url,'') FROM auth_config WHERE slug=$1`, slug).Scan(&hook)
+	if !strings.HasPrefix(hook, "https://") {
+		return
+	}
+	payload, _ := json.Marshal(map[string]string{"phone": phone, "code": code, "project": slug})
+	req, _ := http.NewRequest(http.MethodPost, hook, strings.NewReader(string(payload)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-ForgeBase-Signature", a.sign("sms:"+string(payload)))
+	go func() {
+		defer func() { recover() }()
+		resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+		if err == nil {
+			resp.Body.Close()
+		}
+	}()
+}
+
 // randInt returns a uniform random int in [0, max) from crypto/rand.
 func randInt(max int64) (int64, error) {
 	n, err := crand.Int(crand.Reader, big.NewInt(max))
@@ -418,6 +464,10 @@ func (a *app) ensureAuth(slug string) (string, error) {
 			created_at timestamptz NOT NULL DEFAULT now()
 		)`,
 		`CREATE INDEX IF NOT EXISTS one_time_tokens_email ON auth.one_time_tokens(email)`,
+		`ALTER TABLE auth.one_time_tokens ADD COLUMN IF NOT EXISTS phone text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS phone text`,
+		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS phone_confirmed_at timestamptz`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS users_phone_uniq ON auth.users(phone) WHERE phone IS NOT NULL`,
 		`DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN NOINHERIT; END IF; END $$`,
 		`GRANT USAGE ON SCHEMA public TO authenticated`,
 		`GRANT SELECT ON ALL TABLES IN SCHEMA public TO authenticated`,
@@ -755,16 +805,34 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		w.Write([]byte("<h2>Invalid or expired link</h2>"))
 
 	case path == "/otp" && r.Method == http.MethodPost:
-		// Email a 6-digit sign-in code (the standard JS client's signInWithOtp email flow).
+		// A 6-digit sign-in code: by email, or by SMS when the project has
+		// an SMS webhook configured (signInWithOtp email/phone flows).
 		if a.authRateLimited(clientIP(r), a.authRateFor(slug)) {
 			writeJSON(w, 429, map[string]string{"message": "too many requests"})
 			return
 		}
 		var body struct {
 			Email string `json:"email"`
+			Phone string `json:"phone"`
 		}
 		json.NewDecoder(r.Body).Decode(&body)
 		body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+		if phone := normalizePhone(body.Phone); phone != "" {
+			var recent int
+			db.QueryRow(`SELECT count(*) FROM auth.one_time_tokens
+				WHERE phone=$1 AND created_at > now() - interval '1 hour'`, phone).Scan(&recent)
+			if recent < 4 {
+				n, _ := randInt(1000000)
+				code := fmt.Sprintf("%06d", n)
+				sum := sha256.Sum256([]byte(code))
+				db.Exec(`DELETE FROM auth.one_time_tokens WHERE phone=$1`, phone)
+				db.Exec(`INSERT INTO auth.one_time_tokens(email, phone, code_hash, expires_at)
+					VALUES ('', $1, $2, now() + interval '10 minutes')`, phone, hex.EncodeToString(sum[:]))
+				a.sendSMSCode(slug, phone, code) // best-effort; never reveal existence
+			}
+			writeJSON(w, 200, map[string]string{"message": "if that number can sign in, a code is on its way"})
+			return
+		}
 		if strings.Contains(body.Email, "@") {
 			var recent int
 			db.QueryRow(`SELECT count(*) FROM auth.one_time_tokens
@@ -789,6 +857,7 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		}
 		var body struct {
 			Email string `json:"email"`
+			Phone string `json:"phone"`
 			Token string `json:"token"`
 			Type  string `json:"type"`
 		}
@@ -796,6 +865,40 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		body.Email = strings.ToLower(strings.TrimSpace(body.Email))
 		body.Token = strings.TrimSpace(body.Token)
 		sum := sha256.Sum256([]byte(body.Token))
+		if phone := normalizePhone(body.Phone); phone != "" {
+			// SMS code -> session, creating the phone-only user on first login
+			var otpID string
+			err := db.QueryRow(`SELECT id FROM auth.one_time_tokens
+				WHERE phone=$1 AND code_hash=$2 AND expires_at > now() AND attempts < 5`,
+				phone, hex.EncodeToString(sum[:])).Scan(&otpID)
+			if err != nil {
+				db.Exec(`UPDATE auth.one_time_tokens SET attempts=attempts+1 WHERE phone=$1`, phone)
+				writeJSON(w, 401, map[string]string{"message": "invalid or expired code"})
+				return
+			}
+			db.Exec(`DELETE FROM auth.one_time_tokens WHERE id=$1`, otpID)
+			var uid string
+			if db.QueryRow(`SELECT id FROM auth.users WHERE phone=$1`, phone).Scan(&uid) != nil {
+				db.QueryRow(`INSERT INTO auth.users(phone, encrypted_password, phone_confirmed_at)
+					VALUES ($1,'otp',now()) RETURNING id`, phone).Scan(&uid)
+			} else {
+				db.Exec(`UPDATE auth.users SET phone_confirmed_at=coalesce(phone_confirmed_at,now()), last_sign_in_at=now() WHERE id=$1`, uid)
+			}
+			if uid == "" {
+				writeJSON(w, 500, map[string]string{"message": "could not create the user"})
+				return
+			}
+			acc, ref, terr := a.issueTokens(db, secret, slug, uid, "", "")
+			if terr != nil {
+				writeJSON(w, 500, map[string]string{"message": terr.Error()})
+				return
+			}
+			a.auditRaw(phone, clientIP(r), "user-sms-login", slug)
+			writeJSON(w, 200, map[string]any{"access_token": acc, "refresh_token": ref,
+				"token_type": "bearer", "expires_in": ttlSec,
+				"user": map[string]string{"id": uid, "phone": phone}})
+			return
+		}
 		var otpID string
 		err := db.QueryRow(`SELECT id FROM auth.one_time_tokens
 			WHERE email=$1 AND code_hash=$2 AND expires_at > now() AND attempts < 5`,
@@ -1104,6 +1207,11 @@ func (a *app) saveAuthPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	single := r.FormValue("single_session") == "on"
 	leaked := r.FormValue("leaked_check") == "on"
+	smsHook := strings.TrimSpace(r.FormValue("sms_webhook"))
+	if smsHook != "" && !strings.HasPrefix(smsHook, "https://") {
+		redirectErr(w, r, back, "The SMS webhook must be an https:// URL.")
+		return
+	}
 	allow := strings.TrimSpace(r.FormValue("redirects"))
 	for _, e := range strings.Split(allow, ",") {
 		e = strings.TrimSpace(e)
@@ -1113,8 +1221,9 @@ func (a *app) saveAuthPolicy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	a.db.Exec(`UPDATE auth_config SET access_ttl_min=$2, min_pw_len=$3, redirect_allowlist=$4,
-		captcha_site=$5, captcha_secret=$6, rate_limit_per_min=$7, single_session=$8, leaked_check=$9 WHERE slug=$1`,
-		slug, ttlMin, minPw, allow, capSite, capSecret, rate, single, leaked)
+		captcha_site=$5, captcha_secret=$6, rate_limit_per_min=$7, single_session=$8, leaked_check=$9,
+		sms_webhook_url=$10 WHERE slug=$1`,
+		slug, ttlMin, minPw, allow, capSite, capSecret, rate, single, leaked, smsHook)
 	a.audit(r, "auth-policy", fmt.Sprintf("%s ttl=%dm pw>=%d", slug, ttlMin, minPw))
 	redirectMsg(w, r, back, "Auth policies saved.")
 }
@@ -1262,6 +1371,11 @@ func (a *app) authPage(w http.ResponseWriter, r *http.Request) {
 			return v
 		}(),
 		"OIDCIssuer": a.oauthIssuer(slug),
+		"SMSHook": func() string {
+			var v string
+			a.db.QueryRow(`SELECT coalesce(sms_webhook_url,'') FROM auth_config WHERE slug=$1`, slug).Scan(&v)
+			return v
+		}(),
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Auth", Nav: "authn", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Auth"}}}, content)
