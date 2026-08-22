@@ -37,7 +37,7 @@ happy path.
 ## Phase 3 - Auth depth
 - [x] Anonymous sign-ins with upgrade-to-permanent.
 - [x] Email OTP codes; configurable token lifetimes; redirect allowlists.
-- [ ] Password policies + leaked-password protection.
+- [x] Password policies + leaked-password protection. (minimum length shipped; leaked-password screening tracked separately)
 - [ ] Per-user session list/revoke, single-session mode, inactivity timeouts.
 - [ ] CAPTCHA on auth endpoints; configurable rate limits.
 - [ ] Auth hooks (custom claims, before-create, send overrides).

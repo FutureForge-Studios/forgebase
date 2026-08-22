@@ -12,6 +12,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,12 +27,19 @@ import (
 
 // accessTokenTTL is short-lived (a common 1h default); clients keep a session
 // alive by exchanging the long-lived refresh token for a new access token.
-const accessTokenTTL = 3600
+const accessTokenTTL = 3600 // fallback when no per-project policy is set
+
+// authPolicy returns a project's token TTL (seconds), minimum password length
+// and redirect allowlist entries.
 
 // signUserJWT mints a short-lived authenticated-user access token. user_metadata
 // and app_metadata are embedded as raw JSON objects so apps (and RLS via
 // auth.jwt()) can read them, using the industry-standard claim shape.
 func signUserJWT(secret []byte, sub, email, userMeta, appMeta string) string {
+	return signUserJWTTTL(secret, sub, email, userMeta, appMeta, accessTokenTTL)
+}
+
+func signUserJWTTTL(secret []byte, sub, email, userMeta, appMeta string, ttlSec int) string {
 	if !json.Valid([]byte(userMeta)) {
 		userMeta = "{}"
 	}
@@ -43,7 +51,7 @@ func signUserJWT(secret []byte, sub, email, userMeta, appMeta string) string {
 	now := time.Now().Unix()
 	claims, _ := json.Marshal(map[string]any{
 		"sub": sub, "email": email, "role": "authenticated", "aud": "authenticated",
-		"iss": "pgforge", "iat": now, "exp": now + accessTokenTTL,
+		"iss": "pgforge", "iat": now, "exp": now + int64(ttlSec),
 		"user_metadata": json.RawMessage(userMeta),
 		"app_metadata":  json.RawMessage(appMeta),
 	})
@@ -57,7 +65,27 @@ func signUserJWT(secret []byte, sub, email, userMeta, appMeta string) string {
 // issueTokens mints a new pair. familyID ties a refresh token to a session
 // lineage: empty starts a new session (new family); on rotation we pass the
 // parent's family so reuse of any token in the lineage can revoke the whole thing.
-func (a *app) issueTokens(db *sql.DB, secret, sub, email, familyID string) (string, string, error) {
+func (a *app) authPolicy(slug string) (int, int, []string) {
+	ttlMin, minPw := 60, 6
+	var allowRaw string
+	a.db.QueryRow(`SELECT coalesce(access_ttl_min,60), coalesce(min_pw_len,6), coalesce(redirect_allowlist,'')
+		FROM auth_config WHERE slug=$1`, slug).Scan(&ttlMin, &minPw, &allowRaw)
+	if ttlMin < 5 || ttlMin > 1440 {
+		ttlMin = 60
+	}
+	if minPw < 6 || minPw > 72 {
+		minPw = 6
+	}
+	var allow []string
+	for _, e := range strings.FieldsFunc(allowRaw, func(r rune) bool { return r == ',' || r == '\n' }) {
+		if e = strings.TrimSpace(e); e != "" {
+			allow = append(allow, e)
+		}
+	}
+	return ttlMin * 60, minPw, allow
+}
+
+func (a *app) issueTokens(db *sql.DB, secret, slug, sub, email, familyID string) (string, string, error) {
 	refresh := randHex(32)
 	sum := sha256.Sum256([]byte(refresh))
 	var err error
@@ -75,7 +103,8 @@ func (a *app) issueTokens(db *sql.DB, secret, sub, email, familyID string) (stri
 	isAnon := false
 	db.QueryRow(`SELECT raw_user_meta_data::text, raw_app_meta_data::text, coalesce(is_anonymous,false)
 		FROM auth.users WHERE id=$1`, sub).Scan(&userMeta, &appMeta, &isAnon)
-	tok := signUserJWT([]byte(secret), sub, email, userMeta, appMeta)
+	ttlSec, _, _ := a.authPolicy(slug)
+	tok := signUserJWTTTL([]byte(secret), sub, email, userMeta, appMeta, ttlSec)
 	if isAnon {
 		// re-sign with the is_anonymous claim folded into app_metadata so
 		// policies can gate on (auth.jwt()->'app_metadata'->>'is_anonymous')
@@ -85,7 +114,7 @@ func (a *app) issueTokens(db *sql.DB, secret, sub, email, familyID string) (stri
 		} else {
 			am += `,"is_anonymous":true}`
 		}
-		tok = signUserJWT([]byte(secret), sub, email, userMeta, am)
+		tok = signUserJWTTTL([]byte(secret), sub, email, userMeta, am, ttlSec)
 	}
 	return tok, refresh, nil
 }
@@ -94,7 +123,7 @@ func (a *app) issueTokens(db *sql.DB, secret, sub, email, familyID string) (stri
 // a new pair in the same family) and returns a fresh access token. If an already-
 // revoked token is presented (reuse - i.e. it was stolen and replayed), the whole
 // token family is revoked so the compromised session cannot continue.
-func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request, db *sql.DB, secret string) {
+func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request, db *sql.DB, secret, slug string) {
 	var body struct {
 		RefreshToken string `json:"refresh_token"`
 	}
@@ -124,13 +153,14 @@ func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request, db *sql.DB, 
 		return
 	}
 	db.Exec(`UPDATE auth.refresh_tokens SET revoked=true WHERE token_hash=$1`, th)
-	acc, ref, terr := a.issueTokens(db, secret, id, email, familyID)
+	ttlSec, _, _ := a.authPolicy(slug)
+	acc, ref, terr := a.issueTokens(db, secret, slug, id, email, familyID)
 	if terr != nil {
 		writeJSON(w, 500, map[string]string{"message": terr.Error()})
 		return
 	}
 	writeJSON(w, 200, map[string]any{"access_token": acc, "refresh_token": ref,
-		"token_type": "bearer", "expires_in": accessTokenTTL,
+		"token_type": "bearer", "expires_in": ttlSec,
 		"user": map[string]string{"id": id, "email": email}})
 }
 
@@ -281,6 +311,8 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/auth/v1")
+	ttlSec, minPw, _ := a.authPolicy(slug)
+	_ = minPw
 
 	switch {
 	case path == "/authorize" && r.Method == http.MethodGet:
@@ -316,19 +348,19 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 				writeJSON(w, 500, map[string]string{"message": err.Error()})
 				return
 			}
-			acc, ref, terr := a.issueTokens(db, secret, id, "", "")
+			acc, ref, terr := a.issueTokens(db, secret, slug, id, "", "")
 			if terr != nil {
 				writeJSON(w, 500, map[string]string{"message": terr.Error()})
 				return
 			}
 			a.auditRaw("anonymous:"+id, clientIP(r), "user-signup-anon", slug)
 			writeJSON(w, 200, map[string]any{"access_token": acc, "refresh_token": ref,
-				"token_type": "bearer", "expires_in": accessTokenTTL,
+				"token_type": "bearer", "expires_in": ttlSec,
 				"user": map[string]any{"id": id, "email": nil, "is_anonymous": true}})
 			return
 		}
-		if !strings.Contains(body.Email, "@") || len(body.Password) < 6 {
-			writeJSON(w, 400, map[string]string{"message": "valid email and password (6+) required"})
+		if !strings.Contains(body.Email, "@") || len(body.Password) < minPw {
+			writeJSON(w, 400, map[string]string{"message": fmt.Sprintf("valid email and password (%d+ chars) required", minPw)})
 			return
 		}
 		hash, herr := hashPassword(body.Password)
@@ -358,20 +390,20 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 				"user": map[string]any{"id": id, "email": body.Email, "email_confirmed_at": nil}})
 			return
 		}
-		acc, ref, terr := a.issueTokens(db, secret, id, body.Email, "")
+		acc, ref, terr := a.issueTokens(db, secret, slug, id, body.Email, "")
 		if terr != nil {
 			writeJSON(w, 500, map[string]string{"message": terr.Error()})
 			return
 		}
 		a.auditRaw(body.Email, clientIP(r), "user-signup", slug)
 		writeJSON(w, 200, map[string]any{"access_token": acc, "refresh_token": ref,
-			"token_type": "bearer", "expires_in": accessTokenTTL,
+			"token_type": "bearer", "expires_in": ttlSec,
 			"user": map[string]string{"id": id, "email": body.Email}})
 
 	case path == "/token" && r.Method == http.MethodPost:
 		// grant_type=refresh_token exchanges a refresh token for a fresh pair.
 		if r.URL.Query().Get("grant_type") == "refresh_token" {
-			a.handleRefresh(w, r, db, secret)
+			a.handleRefresh(w, r, db, secret, slug)
 			return
 		}
 		if a.authRateLimited(clientIP(r)) {
@@ -397,14 +429,14 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 			return
 		}
 		db.Exec(`UPDATE auth.users SET last_sign_in_at=now() WHERE id=$1`, id)
-		acc, ref, terr := a.issueTokens(db, secret, id, body.Email, "")
+		acc, ref, terr := a.issueTokens(db, secret, slug, id, body.Email, "")
 		if terr != nil {
 			writeJSON(w, 500, map[string]string{"message": terr.Error()})
 			return
 		}
 		a.auditRaw(body.Email, clientIP(r), "user-login", slug)
 		writeJSON(w, 200, map[string]any{"access_token": acc, "refresh_token": ref,
-			"token_type": "bearer", "expires_in": accessTokenTTL,
+			"token_type": "bearer", "expires_in": ttlSec,
 			"user": map[string]string{"id": id, "email": body.Email}})
 
 	case path == "/logout" && r.Method == http.MethodPost:
@@ -461,8 +493,8 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 				return
 			}
 			body.Email = strings.ToLower(strings.TrimSpace(body.Email))
-			if !strings.Contains(body.Email, "@") || len(body.Password) < 6 {
-				writeJSON(w, 400, map[string]string{"message": "valid email and password (6+) required to upgrade"})
+			if !strings.Contains(body.Email, "@") || len(body.Password) < minPw {
+				writeJSON(w, 400, map[string]string{"message": fmt.Sprintf("valid email and password (%d+ chars) required to upgrade", minPw)})
 				return
 			}
 			hash, herr := hashPassword(body.Password)
@@ -506,7 +538,7 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 			} else {
 				db.Exec(`UPDATE auth.users SET email_confirmed_at=coalesce(email_confirmed_at,now()), last_sign_in_at=now() WHERE id=$1`, uid)
 			}
-			acc, ref, terr := a.issueTokens(db, secret, uid, email, "")
+			acc, ref, terr := a.issueTokens(db, secret, slug, uid, email, "")
 			if terr != nil {
 				writeJSON(w, 500, map[string]string{"message": terr.Error()})
 				return
@@ -533,7 +565,7 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		w.Write([]byte("<h2>Invalid or expired link</h2>"))
 
 	case path == "/otp" && r.Method == http.MethodPost:
-		// Email a 6-digit sign-in code (supabase-js signInWithOtp email flow).
+		// Email a 6-digit sign-in code (the standard JS client's signInWithOtp email flow).
 		if a.authRateLimited(clientIP(r)) {
 			writeJSON(w, 429, map[string]string{"message": "too many requests"})
 			return
@@ -591,14 +623,14 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		} else {
 			db.Exec(`UPDATE auth.users SET email_confirmed_at=coalesce(email_confirmed_at,now()), last_sign_in_at=now() WHERE id=$1`, uid)
 		}
-		acc, ref, terr := a.issueTokens(db, secret, uid, body.Email, "")
+		acc, ref, terr := a.issueTokens(db, secret, slug, uid, body.Email, "")
 		if terr != nil {
 			writeJSON(w, 500, map[string]string{"message": terr.Error()})
 			return
 		}
 		a.auditRaw(body.Email, clientIP(r), "user-otp-login", slug)
 		writeJSON(w, 200, map[string]any{"access_token": acc, "refresh_token": ref,
-			"token_type": "bearer", "expires_in": accessTokenTTL,
+			"token_type": "bearer", "expires_in": ttlSec,
 			"user": map[string]string{"id": uid, "email": body.Email}})
 
 	case path == "/magiclink" && r.Method == http.MethodPost:
@@ -857,6 +889,30 @@ func (a *app) authAnonEnabled(slug string) bool {
 	return v
 }
 
+// saveAuthPolicy stores token TTL, password minimum and redirect allowlist.
+func (a *app) saveAuthPolicy(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	back := "/p/" + slug + "/auth"
+	ttlMin, e1 := strconv.Atoi(r.FormValue("ttl_min"))
+	minPw, e2 := strconv.Atoi(r.FormValue("min_pw"))
+	if e1 != nil || e2 != nil || ttlMin < 5 || ttlMin > 1440 || minPw < 6 || minPw > 72 {
+		redirectErr(w, r, back, "Token lifetime 5-1440 minutes, password minimum 6-72 chars.")
+		return
+	}
+	allow := strings.TrimSpace(r.FormValue("redirects"))
+	for _, e := range strings.Split(allow, ",") {
+		e = strings.TrimSpace(e)
+		if e != "" && !strings.HasPrefix(e, "https://") {
+			redirectErr(w, r, back, "Redirect allowlist entries must start with https:// ("+e+").")
+			return
+		}
+	}
+	a.db.Exec(`UPDATE auth_config SET access_ttl_min=$2, min_pw_len=$3, redirect_allowlist=$4 WHERE slug=$1`,
+		slug, ttlMin, minPw, allow)
+	a.audit(r, "auth-policy", fmt.Sprintf("%s ttl=%dm pw>=%d", slug, ttlMin, minPw))
+	redirectMsg(w, r, back, "Auth policies saved.")
+}
+
 func (a *app) setAuthAnon(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	on := r.FormValue("anon") == "on"
@@ -923,6 +979,13 @@ func (a *app) authPage(w http.ResponseWriter, r *http.Request) {
 		"Providers": providers,
 		"SMTPHost":  smtpHost, "SMTPPort": smtpPort, "SMTPUser": smtpUser, "SMTPFrom": smtpFrom,
 		"ConfirmEmail": confirmEmail, "AnonOn": a.authAnonEnabled(slug),
+		"TTLMin": func() int { t, _, _ := a.authPolicy(slug); return t / 60 }(),
+		"MinPw":  func() int { _, m, _ := a.authPolicy(slug); return m }(),
+		"Redirects": func() string {
+			var raw string
+			a.db.QueryRow(`SELECT coalesce(redirect_allowlist,'') FROM auth_config WHERE slug=$1`, slug).Scan(&raw)
+			return raw
+		}(),
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Auth", Nav: "authn", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Auth"}}}, content)

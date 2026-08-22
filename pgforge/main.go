@@ -317,6 +317,7 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/oauth-save", a.auth(admin(a.saveOAuth)))
 	mux.HandleFunc("POST /p/{slug}/auth-smtp", a.auth(admin(a.saveAuthEmail)))
 	mux.HandleFunc("POST /p/{slug}/auth-anon", a.auth(admin(a.setAuthAnon)))
+	mux.HandleFunc("POST /p/{slug}/auth-policy", a.auth(admin(a.saveAuthPolicy)))
 	mux.HandleFunc("GET /p/{slug}/branch-diff", a.auth(proj(a.branchDiff)))
 	mux.HandleFunc("POST /p/{slug}/branch-reset", a.auth(admin(a.branchReset)))
 	mux.HandleFunc("GET /p/{slug}/realtime", a.auth(proj(a.realtimePage)))
@@ -472,6 +473,9 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS anon_signins boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS expires_at timestamptz`,
 		`ALTER TABLE edge_functions ADD COLUMN IF NOT EXISTS timeout_s integer NOT NULL DEFAULT 30`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS access_ttl_min integer NOT NULL DEFAULT 60`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS min_pw_len integer NOT NULL DEFAULT 6`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS redirect_allowlist text NOT NULL DEFAULT ''`,
 		`ALTER TABLE edge_functions ADD COLUMN IF NOT EXISTS mem_mb integer NOT NULL DEFAULT 128`,
 		`ALTER TABLE saved_queries ADD COLUMN IF NOT EXISTS is_private boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled boolean NOT NULL DEFAULT false`,

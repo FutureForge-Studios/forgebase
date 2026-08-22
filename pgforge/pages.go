@@ -1064,7 +1064,7 @@ const apiBody = `
     <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/types.ts?dl=1">{{icon "archive"}} Download database.types.ts</a>
     <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/openapi.json" target="_blank">{{icon "api"}} OpenAPI spec</a>
     <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/openapi.json?dl=1">{{icon "archive"}} Download spec</a>
-    <span class="muted" style="font-size:11.5px">generated live from your schema (tables, views, enums, relationships) - typed supabase-js clients autocomplete against it</span>
+    <span class="muted" style="font-size:11.5px">generated live from your schema (tables, views, enums, relationships) - typed JS clients autocomplete against it</span>
   </div>
   <form method="post" action="/p/{{.Slug}}/api-settings" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.8rem;padding-top:.8rem;border-top:1px solid hsl(var(--border))">
     <label class="fld" style="margin:0"><span class="lt">Max rows per response</span><input type="number" name="max_rows" value="{{.MaxRows}}" min="0" max="1000000" style="width:130px"></label>
@@ -1316,6 +1316,19 @@ const authPageBody = `
   <form method="post" action="/p/{{.Slug}}/auth-enable"><button class="btn btn-primary" type="submit">{{icon "shield"}} Enable Auth</button></form>
 </div>
 {{else}}
+<div class="card" style="margin-bottom:1rem">
+  <h2>Policies</h2>
+  <form method="post" action="/p/{{.Slug}}/auth-policy" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.6rem">
+    <label class="fld" style="margin:0"><span class="lt">Access token lifetime (min)</span>
+      <input type="number" name="ttl_min" value="{{.TTLMin}}" min="5" max="1440" style="width:110px"></label>
+    <label class="fld" style="margin:0"><span class="lt">Password minimum length</span>
+      <input type="number" name="min_pw" value="{{.MinPw}}" min="6" max="72" style="width:100px"></label>
+    <label class="fld" style="margin:0;flex:1;min-width:260px"><span class="lt">Redirect allowlist (https URLs, comma separated)</span>
+      <input type="text" name="redirects" value="{{.Redirects}}" placeholder="https://app.example.com/auth"></label>
+    <button class="btn btn-primary btn-sm" type="submit">Save policies</button>
+    <span class="muted" style="font-size:11px">allowlist extends where magic links and OAuth may redirect beyond this project's own domain</span>
+  </form>
+</div>
 <div class="card" style="margin-bottom:1rem">
   <div style="display:flex;align-items:center;gap:.6rem"><h2>Endpoints</h2><span class="badge active">live</span><div class="spacer"></div>
     <form method="post" action="/p/{{.Slug}}/auth-anon" style="display:flex;align-items:center;margin-right:.6rem">

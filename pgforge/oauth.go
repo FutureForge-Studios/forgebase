@@ -68,6 +68,15 @@ func (a *app) safeOAuthRedirect(slug, redirectTo string) bool {
 	if err != nil || u.Scheme != "https" {
 		return false
 	}
+	// project-configured allowlist first: exact-prefix matches let apps live
+	// on their own domains
+	if _, _, allow := a.authPolicy(slug); len(allow) > 0 {
+		for _, p := range allow {
+			if strings.HasPrefix(redirectTo, p) {
+				return true
+			}
+		}
+	}
 	host := u.Hostname()
 	return host == slug+"."+a.cfg.domain || host == a.cfg.domain
 }
@@ -161,7 +170,7 @@ func (a *app) handleOAuthCallback(w http.ResponseWriter, r *http.Request, slug, 
 	db.Exec(`UPDATE auth.users SET last_sign_in_at=now() WHERE id=$1`, uid)
 	a.auditRaw(email, clientIP(r), "user-oauth", slug+"/"+provider)
 
-	acc, ref, terr := a.issueTokens(db, jwtSecret, uid, email, "")
+	acc, ref, terr := a.issueTokens(db, jwtSecret, slug, uid, email, "")
 	if terr != nil {
 		writeJSON(w, 500, map[string]string{"message": terr.Error()})
 		return

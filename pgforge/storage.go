@@ -544,7 +544,7 @@ func (a *app) serveStorage(w http.ResponseWriter, r *http.Request, slug string) 
 	}
 }
 
-// storageListAPI implements supabase-js storage.from(bucket).list(): POST
+// storageListAPI implements the JS client's storage.from(bucket).list(): POST
 // /storage/v1/object/list/<bucket> with {prefix, limit, offset, search}.
 // One level per call - subpaths appear as folder entries with null id and
 // metadata, exactly as typed clients expect.
@@ -635,7 +635,7 @@ func (a *app) storageListAPI(w http.ResponseWriter, r *http.Request, slug, bucke
 }
 
 // storageSignUpload mints a time-limited token that authorizes ONE upload to a
-// fixed bucket/path without any JWT - supabase-js createSignedUploadUrl.
+// fixed bucket/path without any JWT (the JS client's createSignedUploadUrl).
 func (a *app) storageSignUpload(w http.ResponseWriter, r *http.Request, slug, p string) {
 	role, ok := a.storageAuth(r, slug)
 	if !ok || (role != "authenticated" && role != "service_role") {

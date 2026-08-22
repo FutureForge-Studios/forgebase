@@ -1,7 +1,7 @@
 package main
 
 // TypeScript type generation: /p/{slug}/types.ts renders the public schema as
-// a supabase-js-compatible Database interface (Tables Row/Insert/Update,
+// a Database interface in the shape typed JS clients expect (Row/Insert/Update,
 // Views, Enums), so typed clients autocomplete against the live schema.
 
 import (
@@ -28,7 +28,7 @@ func tsType(c tableCol, enums map[string][]string) string {
 	case t == "smallint", t == "integer", t == "real", t == "double precision":
 		return "number"
 	case t == "bigint", t == "numeric":
-		return "number" // beware precision; matches supabase-js convention
+		return "number" // beware precision; matches the JS client convention
 	case t == "json", t == "jsonb":
 		return "Json"
 	case strings.HasPrefix(t, "timestamp"), t == "date", strings.HasPrefix(t, "time"):

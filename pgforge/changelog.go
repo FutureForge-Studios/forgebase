@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.36"
+const appVersion = "1.3.37"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -26,6 +26,18 @@ type release struct {
 // releases, newest first.
 var releases = []release{
 	{
+		Version: "1.3.37", Date: "2026-08-23",
+		Summary: "Auth policies you control.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Per-project auth policies (Auth page): access-token lifetime (5-1440 minutes), minimum password length (6-72), and a redirect allowlist so magic links and OAuth can land on your app's own domain safely.",
+			}},
+			{"Changed", []string{
+				"Release notes and interface text now describe client compatibility neutrally; only real package names remain inside the code snippets themselves.",
+			}},
+		},
+	},
+	{
 		Version: "1.3.36", Date: "2026-08-23",
 		Summary: "Per-function timeouts and memory.",
 		Sections: []changeSection{
@@ -39,7 +51,7 @@ var releases = []release{
 		Summary: "Sign in with an emailed code.",
 		Sections: []changeSection{
 			{"Added", []string{
-				"Email OTP sign-in: request a 6-digit code (rate-limited, hashed at rest, 10-minute expiry, 5 attempts) and verify it for a session - the supabase-js signInWithOtp / verifyOtp email flow. First-time emails get a confirmed account automatically, like magic links.",
+				"Email OTP sign-in: request a 6-digit code (rate-limited, hashed at rest, 10-minute expiry, 5 attempts) and verify it for a session - the standard signInWithOtp / verifyOtp email flow of JS client libraries. First-time emails get a confirmed account automatically, like magic links.",
 			}},
 		},
 	},
@@ -48,7 +60,7 @@ var releases = []release{
 		Summary: "Signed upload URLs.",
 		Sections: []changeSection{
 			{"Added", []string{
-				"Signed upload URLs for Storage (supabase-js createSignedUploadUrl compatible): mint a time-limited token bound to one exact bucket and path, hand it to a browser or service, and it can upload that single object without holding any API key. Bucket size and type limits still apply, and off-box object storage stays in sync.",
+				"Signed upload URLs for Storage (createSignedUploadUrl-compatible with standard JS clients): mint a time-limited token bound to one exact bucket and path, hand it to a browser or service, and it can upload that single object without holding any API key. Bucket size and type limits still apply, and off-box object storage stays in sync.",
 			}},
 		},
 	},
@@ -195,7 +207,7 @@ var releases = []release{
 		Summary: "Clients can finally list objects.",
 		Sections: []changeSection{
 			{"Added", []string{
-				"Storage list endpoint: supabase-js storage.from(bucket).list() now works - POST /storage/v1/object/list/<bucket> with prefix, limit, offset and search, returning folder and file entries exactly as typed clients expect. Public buckets list with any valid key; private buckets need an authenticated or service key.",
+				"Storage list endpoint: the standard JS client's storage.from(bucket).list() now works - POST /storage/v1/object/list/<bucket> with prefix, limit, offset and search, returning folder and file entries exactly as typed clients expect. Public buckets list with any valid key; private buckets need an authenticated or service key.",
 			}},
 		},
 	},
@@ -225,7 +237,7 @@ var releases = []release{
 		Summary: "Copy-paste client code for every table.",
 		Sections: []changeSection{
 			{"Added", []string{
-				"Per-table code snippets on the Data API page: click the terminal icon next to any endpoint for ready-to-paste supabase-js, fetch, cURL and Python examples - reads, inserts, updates and deletes, pre-filled with your project URL and anon key (and the typed client import).",
+				"Per-table code snippets on the Data API page: click the terminal icon next to any endpoint for ready-to-paste JS client, fetch, cURL and Python examples - reads, inserts, updates and deletes, pre-filled with your project URL and anon key (and the typed client import).",
 			}},
 		},
 	},
@@ -234,7 +246,7 @@ var releases = []release{
 		Summary: "Typed clients, straight from your schema.",
 		Sections: []changeSection{
 			{"Added", []string{
-				"TypeScript type generation: view or download database.types.ts from the Data API page - a typed Database interface (Row/Insert/Update per table, views, enums, relationships) generated live from your schema, compatible with typed supabase-js clients.",
+				"TypeScript type generation: view or download database.types.ts from the Data API page - a typed Database interface (Row/Insert/Update per table, views, enums, relationships) generated live from your schema, compatible with typed JS clients.",
 			}},
 		},
 	},
