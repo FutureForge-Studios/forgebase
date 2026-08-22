@@ -193,10 +193,28 @@ func (a *app) ensureChangeTriggers(slug string) error {
 	if _, err := db.Exec(rtTriggerFn); err != nil {
 		return err
 	}
+	pubs := a.rtPubConfig(slug)
 	for _, t := range a.listTables(db) {
 		q := pq.QuoteIdentifier(t)
 		db.Exec(fmt.Sprintf(`DROP TRIGGER IF EXISTS forgebase_rt ON public.%s`, q))
-		db.Exec(fmt.Sprintf(`CREATE TRIGGER forgebase_rt AFTER INSERT OR UPDATE OR DELETE ON public.%s FOR EACH ROW EXECUTE FUNCTION forgebase_notify()`, q))
+		events := "INSERT OR UPDATE OR DELETE"
+		if p, ok := pubs[t]; ok {
+			var evs []string
+			if p[0] {
+				evs = append(evs, "INSERT")
+			}
+			if p[1] {
+				evs = append(evs, "UPDATE")
+			}
+			if p[2] {
+				evs = append(evs, "DELETE")
+			}
+			if len(evs) == 0 {
+				continue // publication fully off for this table
+			}
+			events = strings.Join(evs, " OR ")
+		}
+		db.Exec(fmt.Sprintf(`CREATE TRIGGER forgebase_rt AFTER %s ON public.%s FOR EACH ROW EXECUTE FUNCTION forgebase_notify()`, events, q))
 	}
 	db.Exec(rtEventTriggerFn)
 	db.Exec(`DROP EVENT TRIGGER IF EXISTS forgebase_rt_ddl`)
@@ -214,6 +232,76 @@ func (a *app) dropChangeTriggers(slug string) {
 	for _, t := range a.listTables(db) {
 		db.Exec(fmt.Sprintf(`DROP TRIGGER IF EXISTS forgebase_rt ON public.%s`, pq.QuoteIdentifier(t)))
 	}
+}
+
+// rtPubConfig returns per-table event toggles: [insert, update, delete].
+// Tables with no row keep the default (everything on).
+func (a *app) rtPubConfig(slug string) map[string][3]bool {
+	out := map[string][3]bool{}
+	rows, err := a.db.Query(`SELECT tablename, ins, upd, del FROM rt_publications WHERE slug=$1`, slug)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var t string
+		var i, u, d bool
+		rows.Scan(&t, &i, &u, &d)
+		out[t] = [3]bool{i, u, d}
+	}
+	return out
+}
+
+// rtPub is one table's publication row for the settings UI.
+type rtPub struct {
+	Table         string
+	Ins, Upd, Del bool
+}
+
+func (a *app) rtPublications(slug string) []rtPub {
+	db, err := a.dbFor(slug)
+	if err != nil {
+		return nil
+	}
+	cfg := a.rtPubConfig(slug)
+	var out []rtPub
+	for _, t := range a.listTables(db) {
+		p := rtPub{Table: t, Ins: true, Upd: true, Del: true}
+		if c, ok := cfg[t]; ok {
+			p.Ins, p.Upd, p.Del = c[0], c[1], c[2]
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// setRtPublication stores a table's event toggles and reinstalls triggers.
+func (a *app) setRtPublication(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	table := r.FormValue("table")
+	back := "/p/" + slug + "/realtime"
+	db, err := a.dbFor(slug)
+	if err != nil {
+		redirectErr(w, r, back, err.Error())
+		return
+	}
+	if !tableIn(db, "public", table) {
+		redirectErr(w, r, back, "Unknown table.")
+		return
+	}
+	ins, upd, del := r.FormValue("ins") == "on", r.FormValue("upd") == "on", r.FormValue("del") == "on"
+	if _, err := a.db.Exec(`INSERT INTO rt_publications (slug, tablename, ins, upd, del)
+		VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (slug, tablename) DO UPDATE SET ins=$3, upd=$4, del=$5`,
+		slug, table, ins, upd, del); err != nil {
+		redirectErr(w, r, back, err.Error())
+		return
+	}
+	if a.realtimeEnabled(slug) || a.hasWebhooks(slug) {
+		a.ensureChangeTriggers(slug)
+	}
+	a.audit(r, "realtime-pub", fmt.Sprintf("%s/%s ins=%t upd=%t del=%t", slug, table, ins, upd, del))
+	redirectMsg(w, r, back, "Captured events for "+table+" updated.")
 }
 
 func (a *app) hasWebhooks(slug string) bool {
@@ -444,6 +532,7 @@ func (a *app) realtimePage(w http.ResponseWriter, r *http.Request) {
 	content := renderContent(realtimeBody, map[string]any{
 		"Slug": slug, "Enabled": enabled, "Tables": tables, "Clients": clients,
 		"RequireAuth": a.realtimeRequireAuth(slug),
+		"Pubs":        a.rtPublications(slug),
 		"WS":          "wss://" + slug + "." + a.cfg.domain + "/realtime/v1",
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Realtime", Nav: "realtime", Slug: slug,

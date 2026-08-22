@@ -1517,6 +1517,23 @@ const realtimeBody = `
     <form method="post" action="/p/{{.Slug}}/realtime-disable"><button class="btn btn-ghost btn-sm">Disable</button></form></div>
   <div class="cs"><span class="tag">WS URL</span><code id="ws">{{.WS}}</code><button class="copy" onclick="cp('ws')">{{icon "copy"}}</button></div>
   <div class="cs"><span class="tag">Browser</span><code id="js">const ws = new WebSocket('{{.WS}}'); ws.onmessage = e => console.log(JSON.parse(e.data));</code><button class="copy" onclick="cp('js')">{{icon "copy"}}</button></div>
+</div>
+<div class="card" style="margin-bottom:1rem">
+  <div style="display:flex;align-items:center;gap:.6rem"><h2>Captured changes per table</h2></div>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .6rem">Choose which events each table publishes. This governs realtime streams AND webhooks - an event switched off here fires neither. New tables start with everything on.</p>
+  {{if not .Pubs}}<p class="muted" style="font-size:12.5px">No tables yet.</p>{{else}}
+  <div class="tblwrap"><table class="data">
+    <thead><tr><th>Table</th><th>insert</th><th>update</th><th>delete</th><th></th></tr></thead>
+    <tbody>{{range .Pubs}}<tr>
+      <td><code>{{.Table}}</code>
+        <form id="pub_{{.Table}}" method="post" action="/p/{{$.Slug}}/realtime-pub" style="display:none">
+          <input type="hidden" name="table" value="{{.Table}}"></form></td>
+      <td><input form="pub_{{.Table}}" type="checkbox" name="ins" {{if .Ins}}checked{{end}}></td>
+      <td><input form="pub_{{.Table}}" type="checkbox" name="upd" {{if .Upd}}checked{{end}}></td>
+      <td><input form="pub_{{.Table}}" type="checkbox" name="del" {{if .Del}}checked{{end}}></td>
+      <td style="text-align:right"><button form="pub_{{.Table}}" class="btn btn-ghost btn-sm" type="submit">Save</button></td>
+    </tr>{{end}}</tbody>
+  </table></div>{{end}}
   <p class="muted" style="font-size:11.5px;margin-top:.6rem">Messages look like <code>{"type":"INSERT","table":"customers","record":{...}}</code>. New tables created later need a "Re-scan tables". Filter with <code>?table=customers&amp;event=INSERT&amp;filter=id=eq.5</code>.</p>
 </div>
 <div class="card" style="margin-bottom:1rem">

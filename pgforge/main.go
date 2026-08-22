@@ -288,6 +288,7 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/cron-run", a.auth(proj(a.cronRunNow)))
 	mux.HandleFunc("GET /p/{slug}/advisors", a.auth(proj(a.advisorsPage)))
 	mux.HandleFunc("GET /p/{slug}/types.ts", a.auth(proj(a.typesTS)))
+	mux.HandleFunc("POST /p/{slug}/realtime-pub", a.auth(proj(a.setRtPublication)))
 	mux.HandleFunc("GET /p/{slug}/auth", a.auth(proj(a.authPage)))
 	mux.HandleFunc("POST /p/{slug}/auth-enable", a.auth(proj(a.enableAuth)))
 	mux.HandleFunc("POST /p/{slug}/auth-disable", a.auth(proj(a.disableAuth)))
@@ -440,6 +441,14 @@ func (a *app) ensureSchema() error {
 		// container on copy-on-write storage: instant branches, scale-to-zero)
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'shared'`,
 		// per-project SQL run history (capped in sqlRun; newest first in the panel)
+		`CREATE TABLE IF NOT EXISTS rt_publications (
+			slug text NOT NULL,
+			tablename text NOT NULL,
+			ins boolean NOT NULL DEFAULT true,
+			upd boolean NOT NULL DEFAULT true,
+			del boolean NOT NULL DEFAULT true,
+			PRIMARY KEY (slug, tablename)
+		)`,
 		`CREATE TABLE IF NOT EXISTS sql_history (
 			id bigserial PRIMARY KEY,
 			slug text NOT NULL,
