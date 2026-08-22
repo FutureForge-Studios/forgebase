@@ -451,6 +451,9 @@ func (a *app) ensureSchema() error {
 		// per-project SQL run history (capped in sqlRun; newest first in the panel)
 		`ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS payload bytea`,
 		`ALTER TABLE api_config ADD COLUMN IF NOT EXISTS max_rows integer NOT NULL DEFAULT 0`,
+		`ALTER TABLE edge_logs ADD COLUMN IF NOT EXISTS status integer NOT NULL DEFAULT 0`,
+		`ALTER TABLE edge_logs ADD COLUMN IF NOT EXISTS ms integer NOT NULL DEFAULT 0`,
+		`ALTER TABLE edge_logs ADD COLUMN IF NOT EXISTS ok boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE api_config ADD COLUMN IF NOT EXISTS extra_schemas text NOT NULL DEFAULT ''`,
 		`CREATE TABLE IF NOT EXISTS rt_publications (
 			slug text NOT NULL,

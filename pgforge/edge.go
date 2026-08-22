@@ -79,6 +79,8 @@ func (a *app) edgePage(w http.ResponseWriter, r *http.Request) {
 	type fn struct {
 		Name, Created string
 		VerifyJWT     bool
+		Calls, Errs   int64
+		AvgMs         int64
 	}
 	var fns []fn
 	rows, _ := a.db.Query(`SELECT name, to_char(created_at,'Mon DD, YYYY'), verify_jwt FROM edge_functions WHERE slug=$1 ORDER BY name`, slug)
@@ -89,6 +91,27 @@ func (a *app) edgePage(w http.ResponseWriter, r *http.Request) {
 			fns = append(fns, f)
 		}
 		rows.Close()
+	}
+	// last-24h per-function metrics from the invocation log
+	if mrows, err := a.db.Query(`SELECT name, count(*),
+			count(*) FILTER (WHERE NOT ok),
+			coalesce(round(avg(ms))::bigint, 0)
+		FROM edge_logs WHERE slug=$1 AND at > now() - interval '24 hours'
+		GROUP BY name`, slug); err == nil {
+		type m struct{ c, e, a int64 }
+		mm := map[string]m{}
+		for mrows.Next() {
+			var n string
+			var v m
+			mrows.Scan(&n, &v.c, &v.e, &v.a)
+			mm[n] = v
+		}
+		mrows.Close()
+		for i := range fns {
+			if v, ok := mm[fns[i].Name]; ok {
+				fns[i].Calls, fns[i].Errs, fns[i].AvgMs = v.c, v.e, v.a
+			}
+		}
 	}
 	edit := r.URL.Query().Get("fn")
 	code := defaultFunc
@@ -105,12 +128,18 @@ func (a *app) edgePage(w http.ResponseWriter, r *http.Request) {
 		}
 		rows.Close()
 	}
-	type elog struct{ Name, At, Error string }
+	type elog struct {
+		Name, At, Error string
+		Status, Ms      int
+		OK              bool
+	}
 	var logs []elog
-	if rows, _ := a.db.Query(`SELECT name, to_char(at,'Mon DD HH24:MI'), coalesce(error,'') FROM edge_logs WHERE slug=$1 ORDER BY at DESC LIMIT 20`, slug); rows != nil {
+	if rows, _ := a.db.Query(`SELECT name, to_char(at,'Mon DD HH24:MI:SS'), coalesce(error,''),
+			coalesce(status,0), coalesce(ms,0), coalesce(ok,false)
+		FROM edge_logs WHERE slug=$1 ORDER BY at DESC LIMIT 50`, slug); rows != nil {
 		for rows.Next() {
 			var l elog
-			rows.Scan(&l.Name, &l.At, &l.Error)
+			rows.Scan(&l.Name, &l.At, &l.Error, &l.Status, &l.Ms, &l.OK)
 			logs = append(logs, l)
 		}
 		rows.Close()
@@ -293,10 +322,12 @@ func (a *app) serveFunction(w http.ResponseWriter, r *http.Request, slug string)
 	cmd.Env = env
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
+	started := time.Now()
 	out, err := cmd.Output()
+	tookMs := int(time.Since(started).Milliseconds())
 	if err != nil {
-		a.db.Exec(`INSERT INTO edge_logs(slug, name, error) VALUES ($1,$2,$3)`,
-			slug, name, safeTail(strings.TrimSpace(stderr.String()), 2000))
+		a.db.Exec(`INSERT INTO edge_logs(slug, name, error, status, ms, ok) VALUES ($1,$2,$3,500,$4,false)`,
+			slug, name, safeTail(strings.TrimSpace(stderr.String()), 2000), tookMs)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(500)
 		w.Write([]byte(`{"message":"function error or timeout"}`))
@@ -318,6 +349,8 @@ func (a *app) serveFunction(w http.ResponseWriter, r *http.Request, slug string)
 	if res.Status == 0 {
 		res.Status = 200
 	}
+	a.db.Exec(`INSERT INTO edge_logs(slug, name, error, status, ms, ok) VALUES ($1,$2,'',$3,$4,$5)`,
+		slug, name, res.Status, tookMs, res.Status < 500)
 	w.WriteHeader(res.Status)
 	w.Write([]byte(res.Body))
 }

@@ -1694,7 +1694,7 @@ const edgeBody = `
     <div class="card" style="padding:.7rem;margin-bottom:.8rem">
       <div class="label" style="padding:.2rem .4rem .4rem">Functions</div>
       {{if not .Fns}}<div class="muted" style="font-size:12px;padding:.3rem .4rem">None yet.</div>{{end}}
-      {{range .Fns}}<a class="navi {{if eq .Name $.Edit}}active{{end}}" href="/p/{{$.Slug}}/functions?fn={{.Name}}" style="font-size:12.5px">{{icon "terminal"}} {{.Name}}</a>{{end}}
+      {{range .Fns}}<a class="navi {{if eq .Name $.Edit}}active{{end}}" href="/p/{{$.Slug}}/functions?fn={{.Name}}" style="font-size:12.5px">{{icon "terminal"}} {{.Name}}<span class="muted" style="margin-left:auto;font-size:10.5px" title="last 24h: calls / errors / avg ms">{{.Calls}}{{if .Errs}} · <span style="color:hsl(var(--destructive))">{{.Errs}}err</span>{{end}}{{if .AvgMs}} · {{.AvgMs}}ms{{end}}</span></a>{{end}}
       <a class="navi" href="/p/{{.Slug}}/functions" style="font-size:12.5px;color:hsl(var(--primary))">{{icon "plus"}} New function</a>
     </div>
   </div>
@@ -1735,7 +1735,7 @@ const edgeBody = `
       <h2 style="font-size:16px">Recent errors</h2>
       {{if not .Logs}}<p class="muted" style="font-size:12px;margin-top:.4rem">No errors logged.</p>{{else}}
       <div class="tblwrap" style="margin-top:.5rem"><table class="data"><thead><tr><th>When</th><th>Function</th><th>Error</th></tr></thead>
-        <tbody>{{range .Logs}}<tr><td class="muted" style="font-size:11px;white-space:nowrap">{{.At}}</td><td><code>{{.Name}}</code></td><td class="muted" style="font-size:11px;white-space:normal;max-width:380px">{{.Error}}</td></tr>{{end}}</tbody>
+        <tbody>{{range .Logs}}<tr><td class="muted" style="font-size:11px;white-space:nowrap">{{.At}}</td><td><code>{{.Name}}</code></td><td>{{if .OK}}<span class="badge active">{{.Status}}</span>{{else}}<span class="badge paused">{{if .Status}}{{.Status}}{{else}}err{{end}}</span>{{end}}</td><td class="muted" style="font-size:11px">{{.Ms}}ms</td><td class="muted" style="font-size:11px;white-space:normal;max-width:340px">{{.Error}}</td></tr>{{end}}</tbody>
       </table></div>{{end}}
     </div>
   </div>
