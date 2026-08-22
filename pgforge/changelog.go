@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.20"
+const appVersion = "1.3.21"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.21", Date: "2026-08-22",
+		Summary: "Tune the Data API per project.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Per-project API settings on the Data API page: a max-rows-per-response cap (protects clients from accidental full-table fetches) and extra exposed schemas beyond public (queryable via the Accept-Profile header, with usage grants applied automatically). Changes apply on the next request - no restart needed.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.20", Date: "2026-08-22",
 		Summary: "Webhooks you can test and replay.",

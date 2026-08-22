@@ -1006,6 +1006,12 @@ const apiBody = `
     <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/types.ts?dl=1">{{icon "archive"}} Download database.types.ts</a>
     <span class="muted" style="font-size:11.5px">generated live from your schema (tables, views, enums, relationships) - typed supabase-js clients autocomplete against it</span>
   </div>
+  <form method="post" action="/p/{{.Slug}}/api-settings" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.8rem;padding-top:.8rem;border-top:1px solid hsl(var(--border))">
+    <label class="fld" style="margin:0"><span class="lt">Max rows per response</span><input type="number" name="max_rows" value="{{.MaxRows}}" min="0" max="1000000" style="width:130px"></label>
+    <label class="fld" style="margin:0"><span class="lt">Extra exposed schemas (comma separated)</span><input type="text" name="extra_schemas" value="{{.ExtraSchemas}}" placeholder="none - public only" style="width:230px"></label>
+    <button class="btn btn-primary btn-sm" type="submit">Save API settings</button>
+    <span class="muted" style="font-size:11px">0 rows = unlimited; a cap protects clients from accidental full-table fetches. Extra schemas become queryable via the Accept-Profile header.</span>
+  </form>
 </div>
 <div class="card" style="margin-bottom:1rem">
   <div style="display:flex;align-items:center"><h2>Endpoints</h2><div class="spacer"></div><span class="label">{{len .Tables}} table(s)</span></div>

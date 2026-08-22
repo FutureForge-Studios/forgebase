@@ -9,6 +9,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -273,10 +274,20 @@ func (a *app) ensurePostgREST(slug string) (*pgrst, error) {
 		dbURI = fmt.Sprintf("postgres://%s:%s@127.0.0.1:%d/%s?sslmode=disable&application_name=pgforge-rest",
 			url.QueryEscape(slug), url.QueryEscape(pw), instancePort, url.QueryEscape(slug))
 	}
+	// per-project API tuning: exposed schemas beyond public, and a response
+	// row cap (0 = PostgREST default, unlimited)
+	var maxRows int
+	var extraSchemas string
+	a.db.QueryRow(`SELECT coalesce(max_rows,0), coalesce(extra_schemas,'')
+		FROM api_config WHERE slug=$1`, slug).Scan(&maxRows, &extraSchemas)
+	schemas := "public"
+	if extraSchemas != "" {
+		schemas += "," + extraSchemas
+	}
 	cmd := exec.Command("/usr/local/bin/postgrest")
 	cmd.Env = append([]string{},
 		"PGRST_DB_URI="+dbURI,
-		"PGRST_DB_SCHEMAS=public",
+		"PGRST_DB_SCHEMAS="+schemas,
 		"PGRST_DB_ANON_ROLE=anon",
 		"PGRST_JWT_SECRET="+secret,
 		fmt.Sprintf("PGRST_SERVER_PORT=%d", port),
@@ -284,6 +295,9 @@ func (a *app) ensurePostgREST(slug string) (*pgrst, error) {
 		"PGRST_DB_POOL=2",
 		"PGRST_LOG_LEVEL=error",
 	)
+	if maxRows > 0 {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("PGRST_DB_MAX_ROWS=%d", maxRows))
+	}
 	if err := cmd.Start(); err != nil {
 		pgrstMu.Unlock()
 		return nil, err
@@ -487,6 +501,53 @@ func (a *app) serveAPI(w http.ResponseWriter, r *http.Request, slug string) {
 
 // ----------------------------------------------------------------- page
 
+// apiSettings stores the row cap and extra exposed schemas, then recycles the
+// PostgREST sidecar so the change applies on the next request.
+func (a *app) apiSettings(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	back := "/p/" + slug + "/api"
+	maxRows, _ := strconv.Atoi(r.FormValue("max_rows"))
+	if maxRows < 0 || maxRows > 1000000 {
+		redirectErr(w, r, back, "Row cap must be between 0 and 1000000 (0 = unlimited).")
+		return
+	}
+	db, err := a.dbFor(slug)
+	if err != nil {
+		redirectErr(w, r, back, err.Error())
+		return
+	}
+	known := map[string]bool{}
+	for _, sc := range a.listSchemas(db) {
+		known[sc] = true
+	}
+	var extra []string
+	for _, sc := range strings.Split(r.FormValue("extra_schemas"), ",") {
+		sc = strings.TrimSpace(sc)
+		if sc == "" || sc == "public" {
+			continue
+		}
+		if !known[sc] {
+			redirectErr(w, r, back, "Unknown schema "+sc+".")
+			return
+		}
+		extra = append(extra, sc)
+	}
+	if _, err := a.db.Exec(`UPDATE api_config SET max_rows=$2, extra_schemas=$3 WHERE slug=$1`,
+		slug, maxRows, strings.Join(extra, ",")); err != nil {
+		redirectErr(w, r, back, err.Error())
+		return
+	}
+	// grant API roles a path into the newly exposed schemas
+	for _, sc := range extra {
+		q := pq.QuoteIdentifier(sc)
+		db.Exec(fmt.Sprintf(`GRANT USAGE ON SCHEMA %s TO anon, authenticated, service_role`, q))
+		db.Exec(fmt.Sprintf(`GRANT SELECT ON ALL TABLES IN SCHEMA %s TO authenticated, service_role`, q))
+	}
+	a.stopPostgREST(slug)
+	a.audit(r, "api-settings", fmt.Sprintf("%s max_rows=%d schemas=%s", slug, maxRows, strings.Join(extra, ",")))
+	redirectMsg(w, r, back, "API settings saved - they apply on the next request.")
+}
+
 func (a *app) apiPage(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	if !a.projectExists(slug) {
@@ -503,8 +564,13 @@ func (a *app) apiPage(w http.ResponseWriter, r *http.Request) {
 		}
 		rls = a.rlsData(slug)
 	}
+	var maxRows int
+	var extraSchemas string
+	a.db.QueryRow(`SELECT coalesce(max_rows,0), coalesce(extra_schemas,'')
+		FROM api_config WHERE slug=$1`, slug).Scan(&maxRows, &extraSchemas)
 	content := renderContent(apiBody, map[string]any{
 		"Slug": slug, "Enabled": enabled, "Base": base,
+		"MaxRows": maxRows, "ExtraSchemas": extraSchemas,
 		"Anon": anon, "Service": service, "Domain": a.cfg.domain, "Tables": tables,
 		"GraphQL": "https://" + slug + "." + a.cfg.domain + "/graphql/v1",
 		"RLS":     rls, "CanAdmin": a.atLeast(r, "admin"),

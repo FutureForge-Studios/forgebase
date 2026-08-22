@@ -294,6 +294,7 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/storage/bulk-delete", a.auth(proj(a.bulkDeleteObjects)))
 	mux.HandleFunc("POST /p/{slug}/webhook-replay", a.auth(proj(a.replayDelivery)))
 	mux.HandleFunc("POST /p/{slug}/webhook-test", a.auth(proj(a.testWebhook)))
+	mux.HandleFunc("POST /p/{slug}/api-settings", a.auth(proj(a.apiSettings)))
 	mux.HandleFunc("GET /p/{slug}/auth", a.auth(proj(a.authPage)))
 	mux.HandleFunc("POST /p/{slug}/auth-enable", a.auth(proj(a.enableAuth)))
 	mux.HandleFunc("POST /p/{slug}/auth-disable", a.auth(proj(a.disableAuth)))
@@ -447,6 +448,8 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'shared'`,
 		// per-project SQL run history (capped in sqlRun; newest first in the panel)
 		`ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS payload bytea`,
+		`ALTER TABLE api_config ADD COLUMN IF NOT EXISTS max_rows integer NOT NULL DEFAULT 0`,
+		`ALTER TABLE api_config ADD COLUMN IF NOT EXISTS extra_schemas text NOT NULL DEFAULT ''`,
 		`CREATE TABLE IF NOT EXISTS rt_publications (
 			slug text NOT NULL,
 			tablename text NOT NULL,

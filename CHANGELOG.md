@@ -13,6 +13,12 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.21] - 2026-08-22
+
+### Added
+- Per-project API settings: max-rows response cap and extra exposed schemas
+  (auto-granted), applied by recycling the PostgREST sidecar lazily.
+
 ## [1.3.20] - 2026-08-22
 
 ### Added
@@ -851,7 +857,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.20...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.21...HEAD
+[1.3.21]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.20...v1.3.21
 [1.3.20]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.19...v1.3.20
 [1.3.19]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.18...v1.3.19
 [1.3.18]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.17...v1.3.18
