@@ -163,6 +163,15 @@ input[type=file]::file-selector-button:hover{background:hsl(var(--accent))}
   box-shadow:var(--shadow-soft); overflow:hidden}
 .ac .aci{padding:.35rem .7rem; font-family:var(--mono); font-size:12.5px; cursor:pointer}
 .ac .aci.on,.ac .aci:hover{background:hsl(var(--primary)/.12); color:hsl(var(--primary))}
+/* row side panel */
+.drawer{position:fixed; top:0; right:0; bottom:0; width:min(440px,92vw); z-index:70;
+  background:hsl(var(--card)); border-left:1px solid hsl(var(--border));
+  box-shadow:-12px 0 40px hsl(var(--fg) / .08); padding:1.1rem 1.2rem; overflow-y:auto;
+  display:none}
+.drawer.open{display:block}
+.drawer .fld{margin-bottom:.7rem}
+.drawerhead{display:flex; align-items:center; gap:.5rem; margin-bottom:.9rem;
+  padding-bottom:.6rem; border-bottom:1px solid hsl(var(--border))}
 .upddot{display:inline-block; width:8px; height:8px; border-radius:50%; background:hsl(var(--warn));
   margin-left:auto; animation:pulse 2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}

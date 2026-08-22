@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.5"
+const appVersion = "1.3.6"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,21 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.6", Date: "2026-08-22",
+		Summary: "Table Editor, part two: smarter editing everywhere.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Type-aware cell editing: booleans and enums edit as dropdowns, dates and timestamps get native pickers, numbers get numeric inputs - and nullable cells grow a one-click set-to-NULL button.",
+				"JSON editor: double-clicking a json/jsonb cell opens a proper editor dialog with pretty-printing and validation before save.",
+				"Row panel: open any row in a side panel to see and edit every field at full length (the grid truncates long values; the panel never does), with explicit null checkboxes and a single transactional save.",
+				"Foreign keys, visible: FK columns are marked in the grid and column list with their target, and the row panel suggests live values from the referenced table as you type.",
+				"Column management: rename a column, change its type (with automatic casting - a failed cast rolls back cleanly), edit its default, toggle not-null, and write per-column comments, all from the Columns card.",
+				"Table rename and table comments.",
+				"Insert form now uses dropdowns for enums and booleans and date/number inputs where the type calls for them.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.5", Date: "2026-08-22",
 		Summary: "Snippet buttons and schema clicks paint instantly.",

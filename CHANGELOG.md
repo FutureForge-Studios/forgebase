@@ -13,6 +13,21 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.6] - 2026-08-22
+
+### Added
+- Type-aware cell editing: boolean/enum dropdowns, date and timestamp pickers,
+  numeric inputs, and a one-click set-to-NULL button on nullable cells.
+- JSON editor dialog for json/jsonb cells with pretty-print and validation.
+- Row side panel: view and edit every field of a row at full length with
+  explicit null checkboxes and one transactional save.
+- Foreign keys marked in the grid and column list; the row panel suggests
+  live values from the referenced table.
+- Column management: rename, change type (casting existing data, rolling back
+  cleanly on failure), edit defaults, toggle not-null, per-column comments.
+- Table rename and table comments.
+- Type-aware insert form (enum/boolean dropdowns, date and number inputs).
+
 ## [1.3.5] - 2026-08-22
 
 ### Fixed
@@ -718,7 +733,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.5...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.6...HEAD
+[1.3.6]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.5...v1.3.6
 [1.3.5]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.4...v1.3.5
 [1.3.4]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.3...v1.3.4
 [1.3.3]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.2...v1.3.3

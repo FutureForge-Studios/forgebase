@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"io"
 	"net/http"
 	"regexp"
@@ -181,21 +182,77 @@ func (a *app) tablePK(db *sql.DB, table string) []string {
 
 type tableCol struct {
 	Name, Type, Nullable, Default string
+	UDT, Comment                  string
+	FKTable, FKCol                string
+	EnumVals                      []string
 }
 
 func (a *app) tableCols(db *sql.DB, table string) []tableCol {
-	rows, err := db.Query(`SELECT column_name, data_type, is_nullable, coalesce(column_default,'')
-		FROM information_schema.columns WHERE table_schema='public' AND table_name=$1
-		ORDER BY ordinal_position`, table)
+	reg := "public." + pq.QuoteIdentifier(table)
+	// comments come via pg_attribute.attnum, NOT ordinal_position - the two
+	// drift apart once a column has ever been dropped from the table
+	rows, err := db.Query(`SELECT c.column_name, c.data_type, c.is_nullable, coalesce(c.column_default,''),
+			c.udt_name, coalesce((SELECT col_description($2::regclass, a.attnum)
+				FROM pg_attribute a WHERE a.attrelid=$2::regclass AND a.attname=c.column_name),'')
+		FROM information_schema.columns c WHERE c.table_schema='public' AND c.table_name=$1
+		ORDER BY c.ordinal_position`, table, reg)
 	if err != nil {
 		return nil
 	}
-	defer rows.Close()
 	var out []tableCol
 	for rows.Next() {
 		var c tableCol
-		rows.Scan(&c.Name, &c.Type, &c.Nullable, &c.Default)
+		rows.Scan(&c.Name, &c.Type, &c.Nullable, &c.Default, &c.UDT, &c.Comment)
 		out = append(out, c)
+	}
+	rows.Close()
+	// foreign keys: map each referencing column to its target table.column
+	if fks, err := db.Query(`SELECT a.attname, cl.relname, af.attname
+			FROM pg_constraint co
+			JOIN pg_class cl ON cl.oid = co.confrelid
+			JOIN unnest(co.conkey) WITH ORDINALITY AS k(attnum, ord) ON true
+			JOIN unnest(co.confkey) WITH ORDINALITY AS f(attnum, ord) ON f.ord = k.ord
+			JOIN pg_attribute a ON a.attrelid = co.conrelid AND a.attnum = k.attnum
+			JOIN pg_attribute af ON af.attrelid = co.confrelid AND af.attnum = f.attnum
+			WHERE co.conrelid = $1::regclass AND co.contype = 'f'`, reg); err == nil {
+		ref := map[string][2]string{}
+		for fks.Next() {
+			var col, rt, rc string
+			fks.Scan(&col, &rt, &rc)
+			ref[col] = [2]string{rt, rc}
+		}
+		fks.Close()
+		for i := range out {
+			if r, ok := ref[out[i].Name]; ok {
+				out[i].FKTable, out[i].FKCol = r[0], r[1]
+			}
+		}
+	}
+	// enum labels for user-defined enum types (one lookup per distinct type)
+	enums := map[string][]string{}
+	for i := range out {
+		if out[i].Type != "USER-DEFINED" {
+			continue
+		}
+		vals, seen := enums[out[i].UDT]
+		if !seen {
+			if ers, err := db.Query(`SELECT e.enumlabel FROM pg_type t
+					JOIN pg_enum e ON e.enumtypid=t.oid
+					JOIN pg_namespace n ON n.oid=t.typnamespace AND n.nspname='public'
+					WHERE t.typname=$1 ORDER BY e.enumsortorder`, out[i].UDT); err == nil {
+				for ers.Next() {
+					var l string
+					ers.Scan(&l)
+					vals = append(vals, l)
+				}
+				ers.Close()
+			}
+			enums[out[i].UDT] = vals
+		}
+		out[i].EnumVals = vals
+		if len(vals) > 0 {
+			out[i].Type = out[i].UDT // show the enum's own name instead of USER-DEFINED
+		}
 	}
 	return out
 }
@@ -432,6 +489,30 @@ func (a *app) tablesPage(w http.ResponseWriter, r *http.Request) {
 			selExpr = strings.Join(proj, ", ")
 		}
 		data["Types"] = types
+		// table comment + per-column metadata for the client-side editors
+		var tComment string
+		db.QueryRow(`SELECT coalesce(obj_description($1::regclass),'')`,
+			"public."+pq.QuoteIdentifier(sel)).Scan(&tComment)
+		data["TableComment"] = tComment
+		type colMetaJS struct {
+			T    string   `json:"t"`
+			Null bool     `json:"null"`
+			FKT  string   `json:"fkt,omitempty"`
+			FKC  string   `json:"fkc,omitempty"`
+			Enum []string `json:"enum,omitempty"`
+		}
+		cmeta := map[string]colMetaJS{}
+		fkm := map[string]string{}
+		for _, c := range cols {
+			cmeta[c.Name] = colMetaJS{T: c.Type, Null: c.Nullable == "YES", FKT: c.FKTable, FKC: c.FKCol, Enum: c.EnumVals}
+			if c.FKTable != "" {
+				fkm[c.Name] = c.FKTable + "." + c.FKCol
+			}
+		}
+		if b, err := json.Marshal(cmeta); err == nil {
+			data["ColMetaJS"] = template.JS(b)
+		}
+		data["FKs"] = fkm
 		colSet := map[string]bool{}
 		for _, c := range cols {
 			colSet[c.Name] = true
@@ -551,7 +632,12 @@ func (a *app) rowUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	var where []string
 	var args []any
-	args = append(args, val)
+	// __null=1 writes SQL NULL (nil travels as NULL through the driver)
+	var sv any = val
+	if r.FormValue("__null") == "1" {
+		sv = nil
+	}
+	args = append(args, sv)
 	i := 2
 	for _, k := range pk {
 		where = append(where, fmt.Sprintf("%s=$%d", pq.QuoteIdentifier(k), i))
@@ -608,6 +694,352 @@ func (a *app) rowDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	a.audit(r, "row-delete", slug+"/"+table)
 	redirectMsg(w, r, "/p/"+slug+"/tables?t="+table, "Row deleted.")
+}
+
+// rowUpdateFull updates several columns of one row in a single UPDATE. The
+// side panel posts every field plus a __dirty list; only dirty columns are
+// written, so untouched fields can never clobber concurrent changes.
+func (a *app) rowUpdateFull(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	r.ParseForm()
+	table := r.FormValue("__table")
+	db, err := a.dbFor(slug)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if !a.publicTableExists(db, table) {
+		http.Error(w, "unknown table", 400)
+		return
+	}
+	pk := a.tablePK(db, table)
+	if len(pk) == 0 {
+		http.Error(w, "table has no primary key", 400)
+		return
+	}
+	colSet := map[string]bool{}
+	for _, c := range a.tableCols(db, table) {
+		colSet[c.Name] = true
+	}
+	var sets []string
+	var args []any
+	for _, c := range r.Form["__dirty"] {
+		if !colSet[c] {
+			continue
+		}
+		if r.FormValue("n_"+c) == "1" {
+			sets = append(sets, pq.QuoteIdentifier(c)+"=NULL")
+			continue
+		}
+		args = append(args, r.FormValue("c_"+c))
+		sets = append(sets, fmt.Sprintf("%s=$%d", pq.QuoteIdentifier(c), len(args)))
+	}
+	if len(sets) == 0 {
+		http.Error(w, "nothing changed", 400)
+		return
+	}
+	var where []string
+	for _, k := range pk {
+		args = append(args, r.FormValue("pk_"+k))
+		where = append(where, fmt.Sprintf("%s=$%d", pq.QuoteIdentifier(k), len(args)))
+	}
+	q := fmt.Sprintf(`UPDATE public.%s SET %s WHERE %s`,
+		pq.QuoteIdentifier(table), strings.Join(sets, ", "), strings.Join(where, " AND "))
+	res, err := db.Exec(q, args...)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		http.Error(w, "no row matched", http.StatusConflict)
+		return
+	}
+	a.audit(r, "row-update", slug+"/"+table)
+	w.WriteHeader(204)
+}
+
+// rowJSON returns one full row as JSON for the side panel - the grid truncates
+// long values, so the panel re-reads them at full length (capped at 256 KB per
+// value; bytea stays a size marker).
+func (a *app) rowJSON(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	table := r.URL.Query().Get("t")
+	db, err := a.dbFor(slug)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if !a.publicTableExists(db, table) {
+		http.Error(w, "unknown table", 400)
+		return
+	}
+	pk := a.tablePK(db, table)
+	if len(pk) == 0 {
+		http.Error(w, "table has no primary key", 400)
+		return
+	}
+	cols := a.tableCols(db, table)
+	var proj []string
+	for _, c := range cols {
+		qi := pq.QuoteIdentifier(c.Name)
+		if c.Type == "bytea" {
+			proj = append(proj, fmt.Sprintf(
+				`CASE WHEN %s IS NULL THEN NULL ELSE '[bytea · '||pg_size_pretty(octet_length(%s)::bigint)||']' END`, qi, qi))
+		} else {
+			proj = append(proj, fmt.Sprintf(`left(%s::text, 262144)`, qi))
+		}
+	}
+	var where []string
+	var args []any
+	for _, k := range pk {
+		args = append(args, r.URL.Query().Get("pk_"+k))
+		where = append(where, fmt.Sprintf("%s=$%d", pq.QuoteIdentifier(k), len(args)))
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	row := db.QueryRowContext(ctx, fmt.Sprintf(`SELECT %s FROM public.%s WHERE %s LIMIT 1`,
+		strings.Join(proj, ", "), pq.QuoteIdentifier(table), strings.Join(where, " AND ")), args...)
+	vals := make([]any, len(cols))
+	ptrs := make([]any, len(cols))
+	for i := range vals {
+		ptrs[i] = &vals[i]
+	}
+	if err := row.Scan(ptrs...); err != nil {
+		http.Error(w, err.Error(), 404)
+		return
+	}
+	type field struct {
+		C    string  `json:"c"`
+		V    *string `json:"v"`
+		Null bool    `json:"null"`
+	}
+	out := make([]field, 0, len(cols))
+	for i, c := range cols {
+		f := field{C: c.Name}
+		switch v := vals[i].(type) {
+		case nil:
+			f.Null = true
+		case []byte:
+			s := string(v)
+			f.V = &s
+		case string:
+			f.V = &v
+		default:
+			s := fmt.Sprint(v)
+			f.V = &s
+		}
+		out = append(out, f)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}
+
+// fkOptions returns up to 50 candidate values for a foreign-key column: the
+// referenced key plus a human label (the referenced table's first text-ish
+// column). Backs the pickers in the row panel.
+func (a *app) fkOptions(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	refT := r.URL.Query().Get("t")
+	refC := r.URL.Query().Get("c")
+	search := r.URL.Query().Get("q")
+	db, err := a.dbFor(slug)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if !a.publicTableExists(db, refT) {
+		http.Error(w, "unknown table", 400)
+		return
+	}
+	label, okCol := "", false
+	for _, c := range a.tableCols(db, refT) {
+		if c.Name == refC {
+			okCol = true
+		}
+		if label == "" && c.Name != refC && (c.Type == "text" || c.Type == "character varying") {
+			label = c.Name
+		}
+	}
+	if !okCol {
+		http.Error(w, "unknown column", 400)
+		return
+	}
+	lsel := "''"
+	if label != "" {
+		lsel = "left(" + pq.QuoteIdentifier(label) + "::text, 60)"
+	}
+	q := fmt.Sprintf(`SELECT %s::text, coalesce(%s,'') FROM public.%s`,
+		pq.QuoteIdentifier(refC), lsel, pq.QuoteIdentifier(refT))
+	var args []any
+	if search != "" {
+		args = append(args, "%"+search+"%")
+		q += fmt.Sprintf(` WHERE %s::text ILIKE $1`, pq.QuoteIdentifier(refC))
+		if label != "" {
+			q += fmt.Sprintf(` OR %s::text ILIKE $1`, pq.QuoteIdentifier(label))
+		}
+	}
+	q += ` ORDER BY 1 LIMIT 50`
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	rows, err := db.QueryContext(ctx, q, args...)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	defer rows.Close()
+	type opt struct {
+		V string `json:"v"`
+		L string `json:"l"`
+	}
+	out := make([]opt, 0, 50)
+	for rows.Next() {
+		var o opt
+		rows.Scan(&o.V, &o.L)
+		out = append(out, o)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}
+
+// target types the column editor may cast to (base name + optional precision)
+var alterTypeRe = regexp.MustCompile(`^(text|integer|bigint|smallint|boolean|real|double precision|numeric(\(\d+,\d+\))?|timestamptz|timestamp|date|time|uuid|jsonb|json|inet|bytea|varchar\(\d+\)|character varying(\(\d+\))?)$`)
+
+// default expressions allowed through raw; anything else is quoted as a literal
+var rawDefaultRe = regexp.MustCompile(`^(now\(\)|current_timestamp|current_date|gen_random_uuid\(\)|true|false|-?\d+(\.\d+)?)$`)
+
+// columnAlter applies the column-edit form as a diff: only aspects that changed
+// produce ALTERs, all inside one transaction, with any rename last so earlier
+// statements still address the old name.
+func (a *app) columnAlter(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	table := r.FormValue("table")
+	col := r.FormValue("column")
+	back := "/p/" + slug + "/tables?t=" + table
+	db, err := a.dbFor(slug)
+	if err != nil {
+		redirectErr(w, r, back, err.Error())
+		return
+	}
+	if !a.publicTableExists(db, table) || !columnExists(db, table, col) {
+		redirectErr(w, r, back, "Unknown table or column.")
+		return
+	}
+	qt, qc := pq.QuoteIdentifier(table), pq.QuoteIdentifier(col)
+	var stmts, applied []string
+	if typ := strings.ToLower(strings.TrimSpace(r.FormValue("type"))); typ != "" {
+		if !alterTypeRe.MatchString(typ) {
+			redirectErr(w, r, back, "Unsupported target type.")
+			return
+		}
+		stmts = append(stmts, fmt.Sprintf(`ALTER TABLE public.%s ALTER COLUMN %s TYPE %s USING %s::%s`, qt, qc, typ, qc, typ))
+		applied = append(applied, "type")
+	}
+	if d, od := strings.TrimSpace(r.FormValue("default")), strings.TrimSpace(r.FormValue("__old_default")); d != od {
+		switch {
+		case d == "":
+			stmts = append(stmts, fmt.Sprintf(`ALTER TABLE public.%s ALTER COLUMN %s DROP DEFAULT`, qt, qc))
+		case rawDefaultRe.MatchString(strings.ToLower(d)):
+			stmts = append(stmts, fmt.Sprintf(`ALTER TABLE public.%s ALTER COLUMN %s SET DEFAULT %s`, qt, qc, d))
+		default:
+			stmts = append(stmts, fmt.Sprintf(`ALTER TABLE public.%s ALTER COLUMN %s SET DEFAULT %s`, qt, qc, pq.QuoteLiteral(d)))
+		}
+		applied = append(applied, "default")
+	}
+	if nn, was := r.FormValue("notnull") == "on", r.FormValue("__old_notnull") == "1"; nn != was {
+		if nn {
+			stmts = append(stmts, fmt.Sprintf(`ALTER TABLE public.%s ALTER COLUMN %s SET NOT NULL`, qt, qc))
+		} else {
+			stmts = append(stmts, fmt.Sprintf(`ALTER TABLE public.%s ALTER COLUMN %s DROP NOT NULL`, qt, qc))
+		}
+		applied = append(applied, "nullability")
+	}
+	if cm, ocm := strings.TrimSpace(r.FormValue("comment")), strings.TrimSpace(r.FormValue("__old_comment")); cm != ocm {
+		lit := "NULL"
+		if cm != "" {
+			lit = pq.QuoteLiteral(cm)
+		}
+		stmts = append(stmts, fmt.Sprintf(`COMMENT ON COLUMN public.%s.%s IS %s`, qt, qc, lit))
+		applied = append(applied, "comment")
+	}
+	if newName := sanitizeIdent(r.FormValue("name")); newName != "" && newName != col {
+		stmts = append(stmts, fmt.Sprintf(`ALTER TABLE public.%s RENAME COLUMN %s TO %s`, qt, qc, pq.QuoteIdentifier(newName)))
+		applied = append(applied, "name")
+	}
+	if len(stmts) == 0 {
+		redirectMsg(w, r, back, "No changes.")
+		return
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		redirectErr(w, r, back, err.Error())
+		return
+	}
+	for _, s := range stmts {
+		if _, err := tx.Exec(s); err != nil {
+			tx.Rollback()
+			redirectErr(w, r, back, "Change failed (nothing applied): "+err.Error())
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		redirectErr(w, r, back, err.Error())
+		return
+	}
+	a.reloadPostgRESTSchema(slug)
+	a.audit(r, "column-alter", slug+"/"+table+"."+col+" ("+strings.Join(applied, ",")+")")
+	redirectMsg(w, r, back, "Column "+col+" updated ("+strings.Join(applied, ", ")+").")
+}
+
+func (a *app) tableRename(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	table := r.FormValue("table")
+	newName := sanitizeIdent(r.FormValue("name"))
+	db, err := a.dbFor(slug)
+	if err != nil {
+		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, err.Error())
+		return
+	}
+	if !a.publicTableExists(db, table) {
+		redirectErr(w, r, "/p/"+slug+"/tables", "Unknown table.")
+		return
+	}
+	if newName == "" || newName == table {
+		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Enter a new table name.")
+		return
+	}
+	if _, err := db.Exec(fmt.Sprintf(`ALTER TABLE public.%s RENAME TO %s`,
+		pq.QuoteIdentifier(table), pq.QuoteIdentifier(newName))); err != nil {
+		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Rename failed: "+err.Error())
+		return
+	}
+	a.reloadPostgRESTSchema(slug)
+	a.audit(r, "table-rename", slug+"/"+table+" -> "+newName)
+	redirectMsg(w, r, "/p/"+slug+"/tables?t="+newName, "Table renamed to "+newName+".")
+}
+
+func (a *app) tableComment(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	table := r.FormValue("table")
+	cm := strings.TrimSpace(r.FormValue("comment"))
+	db, err := a.dbFor(slug)
+	if err != nil {
+		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, err.Error())
+		return
+	}
+	if !a.publicTableExists(db, table) {
+		redirectErr(w, r, "/p/"+slug+"/tables", "Unknown table.")
+		return
+	}
+	lit := "NULL"
+	if cm != "" {
+		lit = pq.QuoteLiteral(cm)
+	}
+	if _, err := db.Exec(fmt.Sprintf(`COMMENT ON TABLE public.%s IS %s`, pq.QuoteIdentifier(table), lit)); err != nil {
+		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Comment failed: "+err.Error())
+		return
+	}
+	a.audit(r, "table-comment", slug+"/"+table)
+	redirectMsg(w, r, "/p/"+slug+"/tables?t="+table, "Comment saved.")
 }
 
 // ----------------------------------------------------------------- sql editor

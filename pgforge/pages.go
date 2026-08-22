@@ -199,6 +199,7 @@ const tablesBody = `
   <div style="flex:1;min-width:0">
     <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem">
       <h2 style="font-size:18px">{{.Sel}}</h2>
+      <button class="copy" type="button" title="Rename table" onclick="document.getElementById('ren').style.display='flex'">{{icon "settings"}}</button>
       <span class="muted" style="font-size:12px">{{if .EstUnknown}}~ rows{{else}}≈{{.Est}} rows{{end}}{{if not .HasPK}} · no primary key (read-only rows){{end}}</span>
       <div class="spacer"></div>
       <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/export?t={{.Sel}}">{{icon "archive"}} CSV</a>
@@ -207,6 +208,21 @@ const tablesBody = `
       {{if .Meta}}<button class="btn btn-ghost btn-sm" onclick="document.getElementById('ins').style.display='block'">{{icon "plus"}} Insert row</button>{{end}}
     </div>
     {{if .Error}}<div class="flash err">{{.Error}}</div>{{end}}
+
+    <form method="post" action="/p/{{.Slug}}/table-comment" style="display:flex;gap:.4rem;align-items:center;margin:-.2rem 0 .8rem">
+      <input type="hidden" name="table" value="{{.Sel}}">
+      <input type="text" name="comment" value="{{.TableComment}}" placeholder="table comment - describe what this table holds" style="flex:1;font-size:12px;padding:.3rem .55rem;color:hsl(var(--muted-fg))" oninput="document.getElementById('tcsave').style.display='inline-flex'">
+      <button class="btn btn-ghost btn-sm" type="submit" id="tcsave" style="display:none">Save comment</button>
+    </form>
+
+    <form id="ren" class="card" method="post" action="/p/{{.Slug}}/table-rename" style="display:none;gap:.6rem;align-items:center;margin-bottom:.9rem">
+      <input type="hidden" name="table" value="{{.Sel}}">
+      <span class="label">Rename {{.Sel}} to</span>
+      <input type="text" name="name" placeholder="new_name" required style="width:200px">
+      <span class="muted" style="font-size:11.5px">references, indexes and constraints follow automatically; update code that queries the old name</span>
+      <button class="btn btn-primary btn-sm" type="submit">Rename</button>
+      <button class="btn btn-ghost btn-sm" type="button" onclick="document.getElementById('ren').style.display='none'">Cancel</button>
+    </form>
 
     <form id="dup" class="card" method="post" action="/p/{{.Slug}}/table-duplicate" style="display:none;gap:.6rem;align-items:center;margin-bottom:.9rem">
       <input type="hidden" name="table" value="{{.Sel}}">
@@ -243,7 +259,13 @@ const tablesBody = `
       <form method="post" action="/p/{{.Slug}}/row-insert">
         <input type="hidden" name="__table" value="{{.Sel}}">
         <div class="grid g2">
-        {{range .Meta}}<label class="fld" style="margin-bottom:.4rem"><span class="lt" style="font-size:11px">{{.Name}} <span class="muted">{{.Type}}</span></span><input type="text" name="c_{{.Name}}" placeholder="{{if .Default}}default{{else if eq .Nullable "YES"}}null{{end}}"></label>{{end}}
+        {{range .Meta}}<label class="fld" style="margin-bottom:.4rem"><span class="lt" style="font-size:11px">{{.Name}} <span class="muted">{{.Type}}</span>{{if .FKTable}} <span class="muted" title="references {{.FKTable}}.{{.FKCol}}">&rarr; {{.FKTable}}</span>{{end}}</span>
+        {{if .EnumVals}}<select name="c_{{.Name}}"><option value="">{{if .Default}}(default){{else if eq .Nullable "YES"}}(null){{end}}</option>{{range .EnumVals}}<option>{{.}}</option>{{end}}</select>
+        {{else if eq .Type "boolean"}}<select name="c_{{.Name}}"><option value="">{{if .Default}}(default){{else if eq .Nullable "YES"}}(null){{end}}</option><option>true</option><option>false</option></select>
+        {{else if eq .Type "date"}}<input type="date" name="c_{{.Name}}">
+        {{else if eq .Type "timestamp without time zone"}}<input type="datetime-local" step="any" name="c_{{.Name}}">
+        {{else if or (eq .Type "integer") (eq .Type "bigint") (eq .Type "smallint") (eq .Type "numeric") (eq .Type "real") (eq .Type "double precision")}}<input type="number" step="any" name="c_{{.Name}}" placeholder="{{if .Default}}default{{else if eq .Nullable "YES"}}null{{end}}">
+        {{else}}<input type="text" name="c_{{.Name}}" placeholder="{{if .Default}}default{{else if eq .Nullable "YES"}}null{{end}}">{{end}}</label>{{end}}
         </div>
         <button class="btn btn-primary btn-sm" type="submit">Insert</button>
         <button class="btn btn-ghost btn-sm" type="button" onclick="document.getElementById('ins').style.display='none'">Cancel</button>
@@ -252,7 +274,7 @@ const tablesBody = `
 
     <div class="tblwrap">
       <table class="data">
-        <thead><tr>{{if .HasPK}}<th style="width:26px"><input type="checkbox" onclick="tickAll(this)" style="width:auto"></th>{{end}}{{range $cn := .Cols}}<th style="cursor:pointer" onclick="cycleSort('{{$cn}}')" title="Click to sort">{{$cn}}<span class="muted" style="font-weight:400">{{range $.Sorts}}{{if eq .Col $cn}} {{if eq .Dir "asc"}}&uarr;{{else}}&darr;{{end}}{{end}}{{end}}</span></th>{{end}}{{if .HasPK}}<th></th>{{end}}</tr></thead>
+        <thead><tr>{{if .HasPK}}<th style="width:26px"><input type="checkbox" onclick="tickAll(this)" style="width:auto"></th>{{end}}{{range $cn := .Cols}}<th style="cursor:pointer" onclick="cycleSort('{{$cn}}')" title="Click to sort{{with index $.FKs $cn}} · references {{.}}{{end}}">{{$cn}}{{with index $.FKs $cn}}<sup class="muted" style="font-size:8.5px;font-weight:700"> FK</sup>{{end}}<span class="muted" style="font-weight:400">{{range $.Sorts}}{{if eq .Col $cn}} {{if eq .Dir "asc"}}&uarr;{{else}}&darr;{{end}}{{end}}{{end}}</span></th>{{end}}{{if .HasPK}}<th></th>{{end}}</tr></thead>
         <tbody>
         {{$s := .Slug}}{{$sel := .Sel}}{{$cols := .Cols}}{{$pk := .PK}}{{$haspk := .HasPK}}{{$types := .Types}}
         {{range $ri, $row := .Rows}}
@@ -261,7 +283,8 @@ const tablesBody = `
             {{range $ci, $c := $row}}
               <td {{if and $haspk (ne (index $types (index $cols $ci)) "bytea")}}data-c="{{index $cols $ci}}" ondblclick="editCell(this)"{{end}}>{{if $c.Null}}<span class="null">null</span>{{else}}{{$c.Val}}{{end}}</td>
             {{end}}
-            {{if $haspk}}<td style="text-align:right">
+            {{if $haspk}}<td style="text-align:right;white-space:nowrap">
+              <button class="copy" type="button" title="Open row panel" onclick="openRow(this)">{{icon "list"}}</button>
               <form method="post" action="/p/{{$s}}/row-delete" onsubmit="return confirm('Delete this row?')" style="display:inline">
                 <input type="hidden" name="__table" value="{{$sel}}">
                 {{range $k := $pk}}<input type="hidden" name="pk_{{$k}}" value="{{range $ci,$cn := $cols}}{{if eq $cn $k}}{{$cell := index $row $ci}}{{$cell.Val}}{{end}}{{end}}">{{end}}
@@ -291,10 +314,23 @@ const tablesBody = `
         <form method="post" action="/p/{{.Slug}}/table-drop" onsubmit="return confirm('Drop table {{.Sel}} and ALL its data?')" style="display:inline"><input type="hidden" name="table" value="{{.Sel}}"><button class="btn btn-ghost btn-sm" style="color:hsl(var(--destructive))">{{icon "trash"}} Drop table</button></form>
       </div>
       <div class="tblwrap" style="margin-top:.6rem"><table class="data">
-        <thead><tr><th>Column</th><th>Type</th><th>Nullable</th><th>Default</th><th></th></tr></thead>
-        <tbody>{{range .Meta}}<tr><td><code>{{.Name}}</code></td><td class="muted">{{.Type}}</td><td class="muted">{{.Nullable}}</td><td class="muted" style="font-size:11px;max-width:200px">{{.Default}}</td>
-          <td style="text-align:right"><form method="post" action="/p/{{$.Slug}}/column-drop" onsubmit="return confirm('Drop column {{.Name}}? Its data is lost.')" style="display:inline"><input type="hidden" name="table" value="{{$.Sel}}"><input type="hidden" name="column" value="{{.Name}}"><button class="copy" style="color:hsl(var(--destructive))" title="Drop column">×</button></form></td>
-        </tr>{{end}}</tbody>
+        <thead><tr><th>Column</th><th>Type</th><th>Nullable</th><th>Default</th><th>Comment</th><th></th></tr></thead>
+        <tbody>{{range .Meta}}<tr><td><code>{{.Name}}</code>{{if .FKTable}} <span class="muted" style="font-size:10px" title="references {{.FKTable}}.{{.FKCol}}">&rarr; {{.FKTable}}</span>{{end}}</td><td class="muted">{{.Type}}</td><td class="muted">{{.Nullable}}</td><td class="muted" style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.Default}}</td><td class="muted" style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.Comment}}</td>
+          <td style="text-align:right;white-space:nowrap"><button class="copy" type="button" title="Edit column" onclick="var e=document.getElementById('ce_{{.Name}}');e.style.display=e.style.display==='none'?'':'none'">{{icon "settings"}}</button><form method="post" action="/p/{{$.Slug}}/column-drop" onsubmit="return confirm('Drop column {{.Name}}? Its data is lost.')" style="display:inline"><input type="hidden" name="table" value="{{$.Sel}}"><input type="hidden" name="column" value="{{.Name}}"><button class="copy" style="color:hsl(var(--destructive))" title="Drop column">×</button></form></td>
+        </tr>
+        <tr id="ce_{{.Name}}" style="display:none"><td colspan="6" style="background:hsl(var(--bg))">
+          <form method="post" action="/p/{{$.Slug}}/column-alter" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;padding:.35rem 0">
+            <input type="hidden" name="table" value="{{$.Sel}}"><input type="hidden" name="column" value="{{.Name}}">
+            <input type="hidden" name="__old_default" value="{{.Default}}"><input type="hidden" name="__old_notnull" value="{{if eq .Nullable "NO"}}1{{else}}0{{end}}"><input type="hidden" name="__old_comment" value="{{.Comment}}">
+            <label class="fld" style="margin:0"><span class="lt">Name</span><input type="text" name="name" value="{{.Name}}" style="width:140px"></label>
+            <label class="fld" style="margin:0"><span class="lt">Type</span><select name="type" style="width:auto"><option value="">keep: {{.Type}}</option><option>text</option><option>varchar(255)</option><option>integer</option><option>bigint</option><option>smallint</option><option>boolean</option><option>numeric</option><option>numeric(12,2)</option><option>real</option><option>double precision</option><option>timestamptz</option><option>timestamp</option><option>date</option><option>time</option><option>uuid</option><option>jsonb</option><option>json</option><option>inet</option><option>bytea</option></select></label>
+            <label class="fld" style="margin:0"><span class="lt">Default</span><input type="text" name="default" value="{{.Default}}" placeholder="empty = none" style="width:130px"></label>
+            <label class="muted" style="font-size:12px;display:flex;align-items:center;gap:.3rem"><input type="checkbox" name="notnull" {{if eq .Nullable "NO"}}checked{{end}}> not null</label>
+            <label class="fld" style="margin:0"><span class="lt">Comment</span><input type="text" name="comment" value="{{.Comment}}" style="width:170px"></label>
+            <button class="btn btn-primary btn-sm" type="submit">Save changes</button>
+            <span class="muted" style="font-size:11px">type changes cast existing data; a failed cast rolls everything back</span>
+          </form>
+        </td></tr>{{end}}</tbody>
       </table></div>
       <form method="post" action="/p/{{.Slug}}/column-add" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.8rem;padding-top:.8rem;border-top:1px solid hsl(var(--border))">
         <input type="hidden" name="table" value="{{.Sel}}">
@@ -309,10 +345,22 @@ const tablesBody = `
   </div>
 </div>
 {{end}}
+<div id="drawer" class="drawer"></div>
+<dialog id="jdlg" style="border:1px solid hsl(var(--border));border-radius:1rem;padding:1.2rem;width:min(640px,92vw);background:hsl(var(--card));color:hsl(var(--fg))">
+  <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.6rem"><b>Edit JSON</b> <code id="jcol"></code><div class="spacer"></div>
+    <button class="btn btn-ghost btn-sm" type="button" id="jfmt">Pretty</button>
+    <button class="btn btn-ghost btn-sm" type="button" onclick="document.getElementById('jdlg').close()">Cancel</button>
+    <button class="btn btn-primary btn-sm" type="button" id="jsave">Save</button></div>
+  <textarea id="jta" rows="14" style="width:100%;font-family:var(--mono);font-size:12.5px"></textarea>
+  <p class="muted" style="font-size:11px;margin:.4rem 0 0">Validated as JSON before saving. Empty saves NULL (if the column allows it).</p>
+</dialog>
 <script>
+var COLMETA={{.ColMetaJS}}||{};
 function filterTables(){var q=document.getElementById('tsearch').value.toLowerCase();
   document.querySelectorAll('.tbl-item').forEach(function(a){
     a.style.display=a.getAttribute('data-name').toLowerCase().indexOf(q)<0?'none':'';});}
+(function(){var b=document.getElementById('jfmt');if(b)b.onclick=function(){var ta=document.getElementById('jta');
+  try{ta.value=JSON.stringify(JSON.parse(ta.value),null,2)}catch(e){alert('Not valid JSON: '+e.message)}};})();
 </script>
 ` + editCellJS
 
@@ -1794,29 +1842,160 @@ function bulkDelete(){var ks=[];document.querySelectorAll('.rowck:checked').forE
  var o={};x.getAttribute('data-keys').split('&').forEach(function(kv){var i=kv.indexOf('=');o[kv.slice(0,i)]=kv.slice(i+1)});ks.push(o)});
  if(!ks.length)return;if(!confirm('Delete '+ks.length+' selected row(s)?'))return;
  document.getElementById('bulkkeys').value=JSON.stringify(ks);document.getElementById('bulkdel').submit();}
+if(typeof COLMETA==='undefined'){window.COLMETA={};}
+function cellMeta(n){return COLMETA[n]||{t:'text',null:true};}
+function numType(t){return ['integer','bigint','smallint','numeric','real','double precision'].indexOf(t)>=0;}
+function esc2(t){return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
+function rowPK(tr){var pk={};tr.querySelectorAll('form input[name^=pk_]').forEach(function(i){pk[i.name]=i.value;});return pk;}
 function editCell(td){
-  if(td.querySelector('input'))return;
+  if(td.querySelector('input,select'))return;
   var old=td.textContent==='null'?'':td.textContent;
   if(/\[(binary|bytea) · [^\]]*\]$/.test(old)||/- edit via SQL\]$/.test(old)){
-    alert('This value is too large to edit inline - use the SQL editor.');return;}
-  var meta=td.getAttribute('data-c'); if(!meta)return;
+    alert('This value is too long to edit inline - open the row panel (list button on the right).');return;}
+  var name=td.getAttribute('data-c'); if(!name)return;
+  var meta=cellMeta(name);
+  if(meta.t==='json'||meta.t==='jsonb'){openJSONCell(td,name);return;}
   var tr=td.parentElement, form=tr.querySelector('form');
-  var pk={}; form.querySelectorAll('input[name^=pk_]').forEach(function(i){pk[i.name]=i.value;});
-  var inp=document.createElement('input'); inp.type='text'; inp.value=old;
-  inp.style.width='100%'; inp.style.font='inherit';
-  td.textContent=''; td.appendChild(inp); inp.focus();
-  function save(){
-    // Dirty check: leaving a cell unchanged (e.g. after double-clicking only to
-    // read it, including a NULL cell) must not overwrite the row with a blank.
-    if(inp.value===old){ td.textContent=old===''?'null':old; return; }
+  var pk=rowPK(tr);
+  var inp;
+  if(meta.enum&&meta.enum.length){inp=document.createElement('select');
+    meta.enum.forEach(function(v){var o=document.createElement('option');o.textContent=v;if(v===old)o.selected=true;inp.appendChild(o);});}
+  else if(meta.t==='boolean'){inp=document.createElement('select');
+    ['true','false'].forEach(function(v){var o=document.createElement('option');o.textContent=v;if(v===old)o.selected=true;inp.appendChild(o);});}
+  else{inp=document.createElement('input');
+    inp.type=meta.t==='date'?'date':(meta.t==='timestamp without time zone'?'datetime-local':(numType(meta.t)?'number':'text'));
+    if(inp.type==='number'||inp.type==='datetime-local')inp.step='any';
+    inp.value=inp.type==='datetime-local'?old.replace(' ','T'):old;}
+  // a currently-NULL cell gets a "(null)" first choice so an untouched select
+  // can never silently write the first enum value
+  if(inp.tagName==='SELECT'&&old===''){var o0=document.createElement('option');o0.value='';o0.textContent='(null)';o0.selected=true;inp.insertBefore(o0,inp.firstChild);}
+  inp.style.width='100%';inp.style.font='inherit';
+  td.textContent='';td.appendChild(inp);
+  if(meta.null){var nb=document.createElement('button');nb.type='button';nb.textContent='∅';
+    nb.title='Set to NULL';nb.className='copy';nb.style.marginLeft='.3rem';
+    nb.addEventListener('mousedown',function(e){e.preventDefault();post(true);});
+    td.appendChild(nb);}
+  inp.focus();
+  var done=false;
+  function restore(){td.textContent=old===''?'null':old;}
+  function post(toNull){
+    if(done)return;done=true;
+    var nv=toNull?'':inp.value;
+    if(inp.type==='datetime-local')nv=nv.replace('T',' ');
+    if(!toNull&&nv===old){restore();return;}
     var body=new URLSearchParams();
     body.set('__table', form.querySelector('input[name=__table]').value);
-    body.set('__col', meta); body.set('__val', inp.value);
+    body.set('__col', name); body.set('__val', nv);
+    if(toNull)body.set('__null','1');
     for(var k in pk){body.set(k, pk[k]);}
     fetch(location.pathname.replace(/\/tables.*/,'')+'/row-update',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body})
-      .then(function(r){ if(r.ok){td.textContent=inp.value===''?'null':inp.value;} else {td.textContent=old===''?'null':old; td.style.color='hsl(var(--destructive))';} });
+      .then(function(r){ if(r.ok){td.textContent=(toNull||nv==='')?'null':nv;} else {r.text().then(function(t){restore();td.style.color='hsl(var(--destructive))';td.title=t;});} });
   }
-  inp.addEventListener('blur',save);
-  inp.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();inp.blur();}if(e.key==='Escape'){td.textContent=old===''?'null':old;}});
+  inp.addEventListener('blur',function(){post(false);});
+  if(inp.tagName==='SELECT')inp.addEventListener('change',function(){post(false);});
+  inp.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();post(false);}if(e.key==='Escape'){done=true;restore();}});
+}
+function openJSONCell(td,name){
+  var tr=td.parentElement, form=tr.querySelector('form');
+  var pk=rowPK(tr), base=location.pathname.replace(/\/tables.*/,'');
+  var qp=new URLSearchParams(); qp.set('t', form.querySelector('input[name=__table]').value);
+  for(var k in pk)qp.set(k,pk[k]);
+  fetch(base+'/row-json?'+qp).then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(row){
+    var f=null;row.forEach(function(x){if(x.c===name)f=x});
+    var dlg=document.getElementById('jdlg'), ta=document.getElementById('jta');
+    document.getElementById('jcol').textContent=name;
+    var v=(f&&!f.null&&f.v)?f.v:'';
+    try{if(v)v=JSON.stringify(JSON.parse(v),null,2);}catch(e){}
+    ta.value=v; dlg.showModal();
+    document.getElementById('jsave').onclick=function(){
+      var nv=ta.value.trim();
+      if(nv!==''){try{JSON.parse(nv)}catch(e){alert('Not valid JSON: '+e.message);return;}}
+      var body=new URLSearchParams();
+      body.set('__table', form.querySelector('input[name=__table]').value);
+      body.set('__col', name); body.set('__val', nv);
+      if(nv==='')body.set('__null','1');
+      for(var k in pk){body.set(k, pk[k]);}
+      fetch(base+'/row-update',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body})
+        .then(function(r){if(r.ok){dlg.close();location.reload();}else{r.text().then(function(t){alert('Save failed: '+t)})}});
+    };
+  }).catch(function(){alert('Could not load the value.')});
+}
+function closeDrawer(){document.getElementById('drawer').classList.remove('open');}
+function openRow(btn){
+  var tr=btn.closest('tr'), form=tr.querySelector('form');
+  var pk=rowPK(tr), table=form.querySelector('input[name=__table]').value;
+  var base=location.pathname.replace(/\/tables.*/,'');
+  var qp=new URLSearchParams(); qp.set('t',table);
+  for(var k in pk)qp.set(k,pk[k]);
+  fetch(base+'/row-json?'+qp).then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(row){
+    var d=document.getElementById('drawer'); d.innerHTML='';
+    var h=document.createElement('div');h.className='drawerhead';
+    h.innerHTML='<b>Row</b> <span class="muted" style="font-size:12px">'+esc2(table)+'</span>';
+    var x=document.createElement('button');x.className='copy';x.innerHTML='&times;';x.style.fontSize='18px';x.style.marginLeft='auto';x.type='button';x.onclick=closeDrawer;
+    h.appendChild(x); d.appendChild(h);
+    var dirty={};
+    row.forEach(function(f){
+      var meta=cellMeta(f.c);
+      var wrap=document.createElement('label');wrap.className='fld';
+      var lt=document.createElement('span');lt.className='lt';
+      lt.innerHTML=esc2(f.c)+' <span class="muted">'+esc2(meta.t)+(meta.fkt?' &rarr; '+esc2(meta.fkt)+'.'+esc2(meta.fkc):'')+'</span>';
+      wrap.appendChild(lt);
+      var val=f.null?'':(f.v||''), inp, nul=null;
+      if(meta.enum&&meta.enum.length){inp=document.createElement('select');
+        var eo=document.createElement('option');eo.value='';eo.textContent='(null)';inp.appendChild(eo);
+        meta.enum.forEach(function(v){var o=document.createElement('option');o.textContent=v;if(!f.null&&v===val)o.selected=true;inp.appendChild(o);});}
+      else if(meta.t==='boolean'){inp=document.createElement('select');
+        [['','(null)'],['true','true'],['false','false']].forEach(function(p){var o=document.createElement('option');o.value=p[0];o.textContent=p[1];if(!f.null&&p[0]===val)o.selected=true;inp.appendChild(o);});}
+      else if(meta.t==='json'||meta.t==='jsonb'||meta.t==='text'||val.length>80||val.indexOf('\n')>=0){
+        inp=document.createElement('textarea');inp.rows=val.length>200?8:3;
+        var pv=val;if((meta.t==='json'||meta.t==='jsonb')&&pv){try{pv=JSON.stringify(JSON.parse(pv),null,2)}catch(e){}}
+        inp.value=pv;}
+      else{inp=document.createElement('input');inp.type='text';inp.value=val;}
+      inp.setAttribute('data-col',f.c);
+      wrap.appendChild(inp);
+      if(meta.fkt&&inp.tagName==='INPUT'){
+        var dl=document.createElement('datalist');dl.id='fk_'+f.c;inp.setAttribute('list',dl.id);wrap.appendChild(dl);
+        var loaded=false;
+        inp.addEventListener('focus',function(){if(loaded)return;loaded=true;
+          fetch(base+'/fk-options?t='+encodeURIComponent(meta.fkt)+'&c='+encodeURIComponent(meta.fkc))
+            .then(function(r){return r.json()}).then(function(os){
+              (os||[]).forEach(function(o){var op=document.createElement('option');op.value=o.v;if(o.l)op.label=o.l;dl.appendChild(op);});});});
+      }
+      if(meta.null){
+        nul=document.createElement('input');nul.type='checkbox';nul.checked=!!f.null;nul.setAttribute('data-nullfor',f.c);
+        nul.addEventListener('change',function(){dirty[f.c]=1;});
+        var nrow=document.createElement('span');nrow.className='muted';
+        nrow.style.cssText='font-size:11px;display:flex;align-items:center;gap:.3rem;margin-top:.15rem';
+        nrow.appendChild(nul);nrow.appendChild(document.createTextNode('null'));
+        wrap.appendChild(nrow);
+      }
+      inp.addEventListener('input',function(){dirty[f.c]=1;if(nul)nul.checked=false;});
+      inp.addEventListener('change',function(){dirty[f.c]=1;});
+      d.appendChild(wrap);
+    });
+    var save=document.createElement('button');save.className='btn btn-primary btn-sm';save.textContent='Save changes';save.type='button';
+    save.onclick=function(){
+      var cols=Object.keys(dirty);
+      if(!cols.length){closeDrawer();return;}
+      var body=new URLSearchParams();
+      body.set('__table',table);
+      for(var k in pk)body.set(k,pk[k]);
+      var bad=null;
+      cols.forEach(function(c){
+        body.append('__dirty',c);
+        var nu=d.querySelector('[data-nullfor="'+c+'"]');
+        if(nu&&nu.checked){body.set('n_'+c,'1');return;}
+        var v=d.querySelector('[data-col="'+c+'"]').value;
+        var meta=cellMeta(c);
+        if((meta.t==='json'||meta.t==='jsonb')&&v.trim()!==''){try{JSON.parse(v)}catch(e){bad=c+': not valid JSON - '+e.message;}}
+        body.set('c_'+c,v);
+      });
+      if(bad){alert(bad);return;}
+      fetch(base+'/row-update-full',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body})
+        .then(function(r){if(r.ok){location.reload();}else{r.text().then(function(t){alert('Save failed: '+t)})}});
+    };
+    d.appendChild(save);
+    d.classList.add('open');
+  }).catch(function(){alert('Could not load the row.')});
 }
 </script>`
