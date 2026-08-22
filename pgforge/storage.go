@@ -520,6 +520,18 @@ func (a *app) serveStorage(w http.ResponseWriter, r *http.Request, slug string) 
 		a.storageListAPI(w, r, slug, strings.TrimPrefix(p, "list/"))
 		return
 	}
+	if strings.HasPrefix(p, "upload/sign/") {
+		rest := strings.TrimPrefix(p, "upload/sign/")
+		switch r.Method {
+		case http.MethodPost:
+			a.storageSignUpload(w, r, slug, rest)
+		case http.MethodPut:
+			a.storageSignedUploadPut(w, r, slug, rest)
+		default:
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"message": "method not allowed"})
+		}
+		return
+	}
 	switch r.Method {
 	case http.MethodPost, http.MethodPut:
 		a.storageUploadAPI(w, r, slug, p)
@@ -620,6 +632,97 @@ func (a *app) storageListAPI(w http.ResponseWriter, r *http.Request, slug, bucke
 		all = []entry{}
 	}
 	writeJSON(w, http.StatusOK, all)
+}
+
+// storageSignUpload mints a time-limited token that authorizes ONE upload to a
+// fixed bucket/path without any JWT - supabase-js createSignedUploadUrl.
+func (a *app) storageSignUpload(w http.ResponseWriter, r *http.Request, slug, p string) {
+	role, ok := a.storageAuth(r, slug)
+	if !ok || (role != "authenticated" && role != "service_role") {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "authenticated key required"})
+		return
+	}
+	bucket, rel, okp := splitObjectPath(p)
+	if !okp || !a.bucketExists(slug, bucket) {
+		writeJSON(w, 404, map[string]string{"message": "unknown bucket or path"})
+		return
+	}
+	exp := strconv.FormatInt(time.Now().Add(2*time.Hour).Unix(), 10)
+	mac := hmac.New(sha256.New, a.cfg.secret)
+	mac.Write([]byte("upload|" + slug + "/" + bucket + "/" + rel + "|" + exp))
+	tok := exp + "." + hex.EncodeToString(mac.Sum(nil))[:32]
+	writeJSON(w, 200, map[string]string{
+		"token": tok,
+		"url": fmt.Sprintf("https://%s.%s/storage/v1/object/upload/sign/%s/%s?token=%s",
+			slug, a.cfg.domain, bucket, escapePath(rel), tok),
+		"path": rel,
+	})
+}
+
+// storageSignedUploadPut accepts the body for a previously signed upload slot.
+func (a *app) storageSignedUploadPut(w http.ResponseWriter, r *http.Request, slug, p string) {
+	bucket, rel, okp := splitObjectPath(p)
+	if !okp || !a.bucketExists(slug, bucket) {
+		writeJSON(w, 404, map[string]string{"message": "unknown bucket or path"})
+		return
+	}
+	tok := r.URL.Query().Get("token")
+	parts := strings.SplitN(tok, ".", 2)
+	valid := false
+	if len(parts) == 2 {
+		mac := hmac.New(sha256.New, a.cfg.secret)
+		mac.Write([]byte("upload|" + slug + "/" + bucket + "/" + rel + "|" + parts[0]))
+		want := hex.EncodeToString(mac.Sum(nil))[:32]
+		if exp, err := strconv.ParseInt(parts[0], 10, 64); err == nil && time.Now().Unix() <= exp &&
+			hmac.Equal([]byte(want), []byte(parts[1])) {
+			valid = true
+		}
+	}
+	if !valid {
+		writeJSON(w, http.StatusForbidden, map[string]string{"message": "invalid or expired upload token"})
+		return
+	}
+	mime := r.Header.Get("Content-Type")
+	if mime == "" {
+		mime = "application/octet-stream"
+	}
+	maxBytes, allowed := a.bucketLimits(slug, bucket)
+	if !mimeAllowed(mime, allowed) {
+		writeJSON(w, 415, map[string]string{"message": "file type not allowed in this bucket"})
+		return
+	}
+	dst := filepath.Join(storageRoot, slug, bucket, rel)
+	os.MkdirAll(filepath.Dir(dst), 0o755)
+	out, err := os.Create(dst)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"message": "could not write file"})
+		return
+	}
+	var src io.Reader = r.Body
+	if maxBytes > 0 {
+		src = io.LimitReader(r.Body, maxBytes+1)
+	}
+	n, cErr := io.Copy(out, src)
+	closeErr := out.Close()
+	if cErr != nil || closeErr != nil {
+		os.Remove(dst)
+		writeJSON(w, 500, map[string]string{"message": "write failed; nothing saved"})
+		return
+	}
+	if maxBytes > 0 && n > maxBytes {
+		os.Remove(dst)
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"message": "file exceeds the bucket size limit"})
+		return
+	}
+	if err := a.s3Push(dst, slug, bucket, rel); err != nil {
+		os.Remove(dst)
+		writeJSON(w, 502, map[string]string{"message": "object storage unreachable - nothing saved"})
+		return
+	}
+	a.db.Exec(`INSERT INTO storage_objects(slug,bucket,path,size,mime) VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (slug,bucket,path) DO UPDATE SET size=$4, mime=$5, created_at=now()`,
+		slug, bucket, rel, n, mime)
+	writeJSON(w, 200, map[string]string{"Key": bucket + "/" + rel, "path": rel})
 }
 
 // storageAuth verifies the caller's project JWT (apikey / Bearer) and returns

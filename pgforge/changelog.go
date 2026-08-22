@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.33"
+const appVersion = "1.3.34"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.34", Date: "2026-08-23",
+		Summary: "Signed upload URLs.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Signed upload URLs for Storage (supabase-js createSignedUploadUrl compatible): mint a time-limited token bound to one exact bucket and path, hand it to a browser or service, and it can upload that single object without holding any API key. Bucket size and type limits still apply, and off-box object storage stays in sync.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.33", Date: "2026-08-23",
 		Summary: "Branches that reset and expire.",

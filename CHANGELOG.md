@@ -13,6 +13,12 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.34] - 2026-08-23
+
+### Added
+- Signed upload URLs (path-bound, time-limited, keyless PUT; limits and S3
+  sync enforced).
+
 ## [1.3.33] - 2026-08-23
 
 ### Added
@@ -938,7 +944,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.33...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.34...HEAD
+[1.3.34]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.33...v1.3.34
 [1.3.33]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.32...v1.3.33
 [1.3.32]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.31...v1.3.32
 [1.3.31]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.30...v1.3.31
