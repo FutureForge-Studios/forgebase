@@ -1018,10 +1018,39 @@ const apiBody = `
       <td><code>{{.}}</code></td>
       <td><code id="ep-{{.}}" style="font-size:11px;color:hsl(var(--primary))">{{$.Base}}/{{.}}</code></td>
       <td class="muted" style="font-size:11px">GET · POST · PATCH · DELETE</td>
-      <td style="text-align:right"><button class="copy" onclick="cp('ep-{{.}}')">{{icon "copy"}}</button></td>
+      <td style="text-align:right;white-space:nowrap"><button class="copy" title="Code snippets" onclick="openSnips('{{.}}')">{{icon "terminal"}}</button><button class="copy" onclick="cp('ep-{{.}}')">{{icon "copy"}}</button></td>
     </tr>{{end}}</tbody>
   </table></div>{{end}}
 </div>
+<dialog id="snipdlg" style="border:1px solid hsl(var(--border));border-radius:1rem;padding:1.2rem;width:min(720px,94vw);background:hsl(var(--card));color:hsl(var(--fg))">
+  <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.6rem;flex-wrap:wrap"><b>Query <code id="sniptbl"></code></b>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost btn-sm" type="button" data-l="supabase-js" onclick="snipLang(this)">supabase-js</button>
+    <button class="btn btn-ghost btn-sm" type="button" data-l="fetch" onclick="snipLang(this)">fetch</button>
+    <button class="btn btn-ghost btn-sm" type="button" data-l="curl" onclick="snipLang(this)">cURL</button>
+    <button class="btn btn-ghost btn-sm" type="button" data-l="python" onclick="snipLang(this)">Python</button>
+    <button class="btn btn-ghost btn-sm" type="button" onclick="cp('snipout')">{{icon "copy"}} Copy</button>
+    <button class="btn btn-ghost btn-sm" type="button" onclick="document.getElementById('snipdlg').close()">Close</button>
+  </div>
+  <pre id="snipout" style="font-family:var(--mono);font-size:12px;line-height:1.6;overflow-x:auto;background:hsl(var(--bg));border:1px solid hsl(var(--border));border-radius:.6rem;padding:.8rem;white-space:pre"></pre>
+  <p class="muted" style="font-size:11px;margin:.4rem 0 0">Uses the anon key - swap in the service key server-side to bypass RLS.</p>
+</dialog>
+<script>
+var SB="{{.Base}}", SANON="{{.Anon}}", SCUR="supabase-js", STBL="";
+function snipFor(l,t){
+ var root=SB.replace(/\/rest\/v1\/?$/,'');
+ if(l==='supabase-js')return "import { createClient } from '@supabase/supabase-js'\nimport type { Database } from './database.types'\n\nconst supabase = createClient<Database>(\n  '"+root+"',\n  '"+SANON+"'\n)\n\n// read\nconst { data, error } = await supabase\n  .from('"+t+"')\n  .select('*')\n  .limit(50)\n\n// insert\nawait supabase.from('"+t+"').insert({ /* fields */ })\n\n// update\nawait supabase.from('"+t+"').update({ /* fields */ }).eq('id', 1)\n\n// delete\nawait supabase.from('"+t+"').delete().eq('id', 1)";
+ if(l==='fetch')return "const res = await fetch(\n  '"+SB+"/"+t+"?select=*&limit=50',\n  { headers: {\n      apikey: '"+SANON+"',\n      Authorization: 'Bearer "+SANON+"'\n  } }\n)\nconst rows = await res.json()";
+ if(l==='curl')return "curl '"+SB+"/"+t+"?select=*&limit=50' \\\n  -H 'apikey: "+SANON+"' \\\n  -H 'Authorization: Bearer "+SANON+"'";
+ return "import requests\n\nr = requests.get(\n    '"+SB+"/"+t+"',\n    params={'select': '*', 'limit': 50},\n    headers={\n        'apikey': '"+SANON+"',\n        'Authorization': 'Bearer "+SANON+"',\n    },\n)\nrows = r.json()";
+}
+function snipPaint(){document.getElementById('snipout').textContent=snipFor(SCUR,STBL);
+ document.querySelectorAll('#snipdlg [data-l]').forEach(function(b){
+  b.className='btn btn-sm '+(b.getAttribute('data-l')===SCUR?'btn-primary':'btn-ghost');});}
+function snipLang(b){SCUR=b.getAttribute('data-l');snipPaint();}
+function openSnips(t){STBL=t;document.getElementById('sniptbl').textContent=t;snipPaint();
+ document.getElementById('snipdlg').showModal();}
+</script>
 <div class="card" style="margin-bottom:1rem">
   <div style="display:flex;align-items:center;gap:.6rem"><h2>Row Level Security</h2>{{icon "shield"}}</div>
   <p class="muted" style="font-size:12.5px;margin:.3rem 0 .8rem">Restrict rows to the signed-in user. Enable RLS on a table (it then denies all access until a policy allows it), then add a policy. Policies use <code>auth.uid()</code> - the user id from the JWT. The <b>service key bypasses RLS</b>; the anon and authenticated keys obey it.{{if not $.CanAdmin}} Admin role required to change policies.{{end}}</p>

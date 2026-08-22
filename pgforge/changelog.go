@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.15"
+const appVersion = "1.3.16"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.16", Date: "2026-08-22",
+		Summary: "Copy-paste client code for every table.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Per-table code snippets on the Data API page: click the terminal icon next to any endpoint for ready-to-paste supabase-js, fetch, cURL and Python examples - reads, inserts, updates and deletes, pre-filled with your project URL and anon key (and the typed client import).",
+			}},
+		},
+	},
 	{
 		Version: "1.3.15", Date: "2026-08-22",
 		Summary: "Typed clients, straight from your schema.",
