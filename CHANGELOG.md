@@ -13,6 +13,22 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.20] - 2026-08-22
+
+### Added
+- Off-box archive browser: the Backups page can list your project's dumps
+  stored in off-box storage (where older backups live after local pruning) and
+  restore any of them into a NEW project - the original is never touched. Runs
+  in the background; the restored project appears as soon as it is ready, and
+  Discord is pinged on completion or failure.
+
+### Fixed
+- When an update was detected seconds after release, the "What's new" notes
+  could be missing (GitHub serves the release notes file a couple of minutes
+  later than the release itself). The panel now refetches the notes
+  automatically and, if they are genuinely still syncing, says so instead of
+  showing nothing.
+
 ## [1.2.19] - 2026-08-22
 
 ### Added
@@ -587,7 +603,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.19...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.20...HEAD
+[1.2.20]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.19...v1.2.20
 [1.2.19]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.18...v1.2.19
 [1.2.18]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.17...v1.2.18
 [1.2.17]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.16...v1.2.17

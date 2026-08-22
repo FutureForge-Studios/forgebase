@@ -483,6 +483,27 @@ const backupsBody = `
     <form method="post" action="/p/{{.Slug}}/backup-now" style="margin-top:.6rem"><button class="btn btn-primary btn-sm" type="submit">{{icon "archive"}} Back up now</button></form>
   </div>
 </div>
+{{if .Remote}}
+<div class="card" style="margin-bottom:1rem">
+  <h2>Off-box archive</h2>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .7rem">Older backups live in your off-box storage (<code>{{.Remote}}</code>) after local pruning. Restore any of them into a <b>new</b> project - the current project is never touched.</p>
+  {{if not .OffboxLoaded}}
+  <a class="btn btn-ghost btn-sm" href="?offbox=1">{{icon "archive"}} Browse off-box archive</a>
+  {{else if not .Offbox}}
+  <p class="muted" style="font-size:12.5px">No off-box dumps found for this project.</p>
+  {{else}}
+  <div class="tblwrap"><table class="data">
+    <thead><tr><th>Backup</th><th>Size</th><th>Uploaded</th><th></th></tr></thead>
+    <tbody>{{range .Offbox}}<tr>
+      <td><code style="font-size:12px">{{.Name}}</code></td><td>{{.Size}}</td><td class="muted">{{.Date}}</td>
+      <td><form method="post" action="/p/{{$.Slug}}/offbox-restore" onsubmit="return confirm('Restore {{.Name}} into a NEW project? The current project is not touched.')">
+        <input type="hidden" name="file" value="{{.Name}}">
+        <button class="btn btn-ghost btn-sm" type="submit">{{icon "restore"}} Restore as new</button></form></td>
+    </tr>{{end}}</tbody>
+  </table></div>
+  {{end}}
+</div>
+{{end}}
 <div class="card" style="margin-bottom:1rem">
   <h2>Restore to a point in time</h2>
   <p class="muted" style="font-size:12.5px;margin:.3rem 0 .8rem">Recover <b>{{.Slug}}</b> to any instant, down to the second, into a <b>new</b> project - the source is never touched. This replays the continuous WAL archive forward from a snapshot to the moment you pick.{{if .PITRFrom}} Restorable window: <b>{{.PITRFrom}} &rarr; now</b> (UTC). Older restores use the daily and weekly dumps above.{{end}}</p>
@@ -1415,6 +1436,8 @@ const systemBody = `
         {{range .Items}}<li>{{.}}</li>{{end}}
       </ul>
     {{end}}
+    {{else}}
+    <p class="muted" style="font-size:12px;margin:.4rem 0 .6rem">Release notes are still syncing from GitHub (takes a minute or two after a release) - <a href="/system?check=1" style="color:hsl(var(--primary))">check again</a>, or find them on the What's New page after updating.</p>
     {{end}}
     {{if .IsOwner}}
     <form method="post" action="/system/update" onsubmit="if(!confirm('Update ForgeBase to {{.Upd.Latest}}? The panel will rebuild and restart. It rolls back automatically if the new build is unhealthy.'))return false; var b=this.querySelector('button'); b.disabled=true; b.classList.add('is-loading'); b.innerHTML='<span class=&quot;spin&quot;></span> Updating&hellip;'; return true;">

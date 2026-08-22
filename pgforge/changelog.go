@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.2.19"
+const appVersion = "1.2.20"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,18 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.2.20", Date: "2026-08-22",
+		Summary: "Restore any off-box backup from the panel, in one click.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Off-box archive browser: the Backups page can list your project's dumps stored in off-box storage (where older backups live after local pruning) and restore any of them into a NEW project - the original is never touched. Runs in the background; the restored project appears as soon as it is ready, and Discord is pinged on completion or failure.",
+			}},
+			{"Fixed", []string{
+				"When an update was detected seconds after release, the \"What's new\" notes could be missing (GitHub serves the release notes file a couple of minutes later than the release itself). The panel now refetches the notes automatically and, if they are genuinely still syncing, says so instead of showing nothing.",
+			}},
+		},
+	},
 	{
 		Version: "1.2.19", Date: "2026-08-22",
 		Summary: "The platform now tells you when something needs attention - before it hurts.",

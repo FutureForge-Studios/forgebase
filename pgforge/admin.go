@@ -310,8 +310,15 @@ func (a *app) backupsPage(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// off-box listing is a network call - only on explicit request (?offbox=1)
+	var offbox []offboxFile
+	offboxLoaded := r.URL.Query().Get("offbox") == "1"
+	if offboxLoaded && remote != "" {
+		offbox = a.offboxList(slug)
+	}
 	content := renderContent(backupsBody, map[string]any{
 		"Slug": slug, "Files": files, "Retention": retention, "Remote": remote,
+		"Offbox": offbox, "OffboxLoaded": offboxLoaded,
 		"PITRFrom": pitrFrom, "Tiers": tiers,
 		"KeepDaily": setting("dump_keep_daily", "7"), "KeepWeekly": setting("dump_keep_weekly", "4"),
 		"KeepBase": setting("basebackup_keep", "2"),

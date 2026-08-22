@@ -236,6 +236,7 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/pitr", a.auth(admin(a.pitrRestore)))
 	mux.HandleFunc("POST /p/{slug}/retention", a.auth(admin(a.setRetention)))
 	mux.HandleFunc("POST /p/{slug}/retention-tiers", a.auth(admin(a.setRetentionTiers)))
+	mux.HandleFunc("POST /p/{slug}/offbox-restore", a.auth(admin(a.offboxRestore)))
 	mux.HandleFunc("POST /p/{slug}/keep-awake", a.auth(admin(a.setKeepAwake)))
 	mux.HandleFunc("POST /p/{slug}/public-status", a.auth(admin(a.setPublicStatus)))
 	mux.HandleFunc("POST /p/{slug}/suspend-hours", a.auth(admin(a.setSuspendHours)))

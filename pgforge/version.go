@@ -70,6 +70,15 @@ func (a *app) systemPage(w http.ResponseWriter, r *http.Request) {
 		// the background checker already knows an update exists - show it
 		// without requiring a manual "Check for updates" click
 		upd, checked = info, true
+		if len(upd.Changelog) == 0 {
+			// The tag was seen before the changelog file propagated (GitHub's
+			// raw copy lags a push by a couple of minutes). Refetch live -
+			// by the time someone looks at this page it is usually there.
+			if fresh := a.updateStatus(); fresh.Behind {
+				upd = fresh
+				refreshUpdateCache(fresh)
+			}
+		}
 	}
 
 	// If an update ran (or is running), show the tail of its log so the operator
