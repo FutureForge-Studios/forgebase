@@ -98,6 +98,7 @@ services:
     volumes:
       - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
       - /opt/pgforge/pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+      - /opt/pgforge/pgbouncer/tls:/tls:ro
     depends_on:
       db:
         condition: service_healthy

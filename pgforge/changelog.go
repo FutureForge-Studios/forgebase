@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.0"
+const appVersion = "1.4.1"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.1", Date: "2026-08-23",
+		Summary: "TLS on the pooled port.",
+		Sections: []changeSection{
+			{"Fixed", []string{
+				"The connection pooler (port 6543) now serves TLS, so sslmode=require - the default for most drivers - works there exactly like on the direct port. Previously the pooler only spoke plaintext, which both rejected SSL-requiring clients and would have sent credentials unencrypted.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.0", Date: "2026-08-23",
 		Summary: "The platform milestone: channels, queues, and deeper control everywhere.",
