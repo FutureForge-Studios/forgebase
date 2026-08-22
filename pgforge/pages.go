@@ -1006,6 +1006,15 @@ const branchesBody = `
   <input type="text" name="name" placeholder="branch name  ·  e.g. staging" pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,30}" required style="flex:1">
   <button class="btn btn-primary" type="submit">{{icon "branch"}} Create branch</button>
 </form>
+{{if .Branches}}
+<form method="get" action="/p/{{.Slug}}/branch-diff" class="card" style="display:flex;gap:.5rem;align-items:flex-end;margin-bottom:1.2rem;flex-wrap:wrap">
+  <label class="fld" style="margin:0"><span class="lt">Compare schema of</span><select name="from" style="width:auto"><option>{{.Slug}}</option>{{range .Branches}}<option>{{.Slug}}</option>{{end}}</select></label>
+  <span class="muted" style="padding-bottom:.55rem">against</span>
+  <label class="fld" style="margin:0"><span class="lt">&nbsp;</span><select name="to" style="width:auto">{{range .Branches}}<option>{{.Slug}}</option>{{end}}<option>{{.Slug}}</option></select></label>
+  <button class="btn btn-ghost btn-sm" type="submit">{{icon "branch"}} Show diff</button>
+  <span class="muted" style="font-size:11.5px">structure only - spot drift before promoting a branch</span>
+</form>
+{{end}}
 {{if not .Branches}}
 <div class="card" style="text-align:center;padding:2.5rem;color:hsl(var(--muted-fg))">No branches yet. A branch is a full copy of this database with its own connection string.</div>
 {{else}}

@@ -317,6 +317,7 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/oauth-save", a.auth(admin(a.saveOAuth)))
 	mux.HandleFunc("POST /p/{slug}/auth-smtp", a.auth(admin(a.saveAuthEmail)))
 	mux.HandleFunc("POST /p/{slug}/auth-anon", a.auth(admin(a.setAuthAnon)))
+	mux.HandleFunc("GET /p/{slug}/branch-diff", a.auth(proj(a.branchDiff)))
 	mux.HandleFunc("GET /p/{slug}/realtime", a.auth(proj(a.realtimePage)))
 	mux.HandleFunc("POST /p/{slug}/realtime-enable", a.auth(proj(a.enableRealtime)))
 	mux.HandleFunc("POST /p/{slug}/realtime-disable", a.auth(proj(a.disableRealtime)))

@@ -163,6 +163,11 @@ input[type=file]::file-selector-button:hover{background:hsl(var(--accent))}
   box-shadow:var(--shadow-soft); overflow:hidden}
 .ac .aci{padding:.35rem .7rem; font-family:var(--mono); font-size:12.5px; cursor:pointer}
 .ac .aci.on,.ac .aci:hover{background:hsl(var(--primary)/.12); color:hsl(var(--primary))}
+/* schema diff coloring */
+.d-add{color:hsl(150 45% 32%)}
+.d-del{color:hsl(var(--destructive))}
+.d-hunk{color:hsl(var(--primary)); font-weight:600}
+.d-ctx{color:hsl(var(--muted-fg))}
 /* row side panel */
 .drawer{position:fixed; top:0; right:0; bottom:0; width:min(440px,92vw); z-index:70;
   background:hsl(var(--card)); border-left:1px solid hsl(var(--border));
