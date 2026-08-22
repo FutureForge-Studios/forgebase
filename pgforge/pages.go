@@ -417,8 +417,8 @@ const sqlBody = `
 <script>
 var q=document.getElementById('q');
 q.addEventListener('keydown',function(e){if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){this.form.submit();}});
-function ins(t){var s=q.selectionStart,v=q.value;q.value=v.slice(0,s)+t+v.slice(q.selectionEnd);q.focus();q.selectionStart=q.selectionEnd=s+t.length;}
-function setq(t){q.value=t;q.focus();}
+function ins(t){var s=q.selectionStart,v=q.value;q.value=v.slice(0,s)+t+v.slice(q.selectionEnd);paint();q.focus();q.selectionStart=q.selectionEnd=s+t.length;}
+function setq(t){q.value=t;paint();q.focus();}
 function saveq(){var n=prompt('Save this query as:');if(!n)return;document.getElementById('savename').value=n;document.getElementById('savequery').value=q.value;document.getElementById('saveform').submit();}
 var HKEY='fb_sqlhist_'+"{{.Slug}}";
 function loadHist(){try{var h=JSON.parse(localStorage.getItem(HKEY)||'[]');var s=document.getElementById('histsel');h.forEach(function(x){var o=document.createElement('option');o.value=x;o.textContent=(x.length>55?x.slice(0,55)+'...':x).replace(/\s+/g,' ');s.appendChild(o);});}catch(e){}}
