@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.39"
+const appVersion = "1.4.0"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,19 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.0", Date: "2026-08-23",
+		Summary: "The platform milestone: channels, queues, and deeper control everywhere.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Realtime channels: clients join named channels for broadcast messaging (client-to-client or straight from SQL via forgebase.broadcast(channel, payload)), presence with join/leave events and a live member list, and private channels (private-* names refuse the anon key).",
+				"Message queues: durable at-least-once queues inside your database - forgebase.queue_send / queue_read (with visibility-timeout locking) / queue_delete_msg / queue_archive from any SQL client, plus a Queues page with depth, lock and archive counts, test-send, purge and delete.",
+				"Auth custom-claims hook: define auth.custom_claims(uuid) RETURNS jsonb in SQL and its result merges into every token's app_metadata at mint time - plans, roles and flags computed where your data lives.",
+				"Email template editor: customize the subject and body of all four auth emails with {{link}} / {{code}} placeholders.",
+				"Per-project IP allowlists covering the entire data plane (REST, Auth, Storage, Realtime, Functions).",
+			}},
+		},
+	},
 	{
 		Version: "1.3.39", Date: "2026-08-23",
 		Summary: "Storage quotas with a usage meter.",

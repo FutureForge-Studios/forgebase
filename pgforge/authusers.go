@@ -103,6 +103,22 @@ func (a *app) issueTokens(db *sql.DB, secret, slug, sub, email, familyID string)
 	isAnon := false
 	db.QueryRow(`SELECT raw_user_meta_data::text, raw_app_meta_data::text, coalesce(is_anonymous,false)
 		FROM auth.users WHERE id=$1`, sub).Scan(&userMeta, &appMeta, &isAnon)
+	// Auth hook: if the project defines auth.custom_claims(uuid) RETURNS jsonb,
+	// its result is merged into app_metadata at mint time - plans, roles,
+	// feature flags computed in SQL land in every token automatically.
+	var hook string
+	if db.QueryRow(`SELECT coalesce(auth.custom_claims($1::uuid)::text,'')`, sub).Scan(&hook) == nil &&
+		hook != "" && json.Valid([]byte(hook)) {
+		var base, extra map[string]any
+		if json.Unmarshal([]byte(appMeta), &base) == nil && json.Unmarshal([]byte(hook), &extra) == nil {
+			for k, v := range extra {
+				base[k] = v
+			}
+			if merged, err := json.Marshal(base); err == nil {
+				appMeta = string(merged)
+			}
+		}
+	}
 	ttlSec, _, _ := a.authPolicy(slug)
 	tok := signUserJWTTTL([]byte(secret), sub, email, userMeta, appMeta, ttlSec)
 	if isAnon {
@@ -990,6 +1006,16 @@ func (a *app) authPage(w http.ResponseWriter, r *http.Request) {
 		"Providers": providers,
 		"SMTPHost":  smtpHost, "SMTPPort": smtpPort, "SMTPUser": smtpUser, "SMTPFrom": smtpFrom,
 		"ConfirmEmail": confirmEmail, "AnonOn": a.authAnonEnabled(slug), "UserQuery": search,
+		"Tpls": func() map[string]string {
+			out := map[string]string{}
+			for _, k := range []string{"confirm", "magic", "recover", "otp"} {
+				var subj, body string
+				a.db.QueryRow(`SELECT coalesce(tpl_`+k+`_subject,''), coalesce(tpl_`+k+`_body,'')
+					FROM auth_config WHERE slug=$1`, slug).Scan(&subj, &body)
+				out["subj_"+k], out["body_"+k] = subj, body
+			}
+			return out
+		}(),
 		"TTLMin": func() int { t, _, _ := a.authPolicy(slug); return t / 60 }(),
 		"MinPw":  func() int { _, m, _ := a.authPolicy(slug); return m }(),
 		"Redirects": func() string {

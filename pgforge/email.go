@@ -98,30 +98,72 @@ func (a *app) saveAuthEmail(w http.ResponseWriter, r *http.Request) {
 	redirectMsg(w, r, "/p/"+slug+"/auth", "Email settings saved.")
 }
 
+// emailTemplate returns the operator-customized subject/body for one kind, or
+// the built-in defaults. Bodies substitute {{link}} and {{code}}.
+func (a *app) emailTemplate(slug, kind, defSubject, defBody string) (string, string) {
+	var subj, body string
+	a.db.QueryRow(`SELECT coalesce(tpl_`+kind+`_subject,''), coalesce(tpl_`+kind+`_body,'')
+		FROM auth_config WHERE slug=$1`, slug).Scan(&subj, &body)
+	if strings.TrimSpace(subj) == "" {
+		subj = defSubject
+	}
+	if strings.TrimSpace(body) == "" {
+		body = defBody
+	}
+	return subj, body
+}
+
+func renderEmailTpl(body, link, code string) string {
+	body = strings.ReplaceAll(body, "{{link}}", link)
+	body = strings.ReplaceAll(body, "{{code}}", code)
+	return body
+}
+
+// saveEmailTemplates stores per-kind subject/body overrides (empty = default).
+func (a *app) saveEmailTemplates(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	kinds := []string{"confirm", "magic", "recover", "otp"}
+	for _, k := range kinds {
+		subj := strings.TrimSpace(r.FormValue("subj_" + k))
+		body := strings.TrimSpace(r.FormValue("body_" + k))
+		if len(subj) > 200 || len(body) > 20000 {
+			redirectErr(w, r, "/p/"+slug+"/auth", "Template too long ("+k+").")
+			return
+		}
+		a.db.Exec(`UPDATE auth_config SET tpl_`+k+`_subject=$2, tpl_`+k+`_body=$3 WHERE slug=$1`,
+			slug, subj, body)
+	}
+	a.audit(r, "auth-email-templates", slug)
+	redirectMsg(w, r, "/p/"+slug+"/auth", "Email templates saved - empty fields fall back to the defaults.")
+}
+
 func (a *app) sendConfirmationEmail(slug, email string) error {
 	link := "https://" + slug + "." + a.cfg.domain + "/auth/v1/verify?token=" + a.signAuthToken("confirm", slug, email, 24*time.Hour)
-	body := fmt.Sprintf(`<p>Confirm your email to finish signing up.</p>
+	def := fmt.Sprintf(`<p>Confirm your email to finish signing up.</p>
 <p><a href="%s">Confirm my email</a></p>
 <p>Or paste this link into your browser:<br>%s</p>
 <p>This link expires in 24 hours.</p>`, link, link)
-	return a.sendEmail(slug, email, "Confirm your email", body)
+	subj, body := a.emailTemplate(slug, "confirm", "Confirm your email", def)
+	return a.sendEmail(slug, email, subj, renderEmailTpl(body, link, ""))
 }
 
 func (a *app) sendRecoveryEmail(slug, email string) error {
 	link := "https://" + slug + "." + a.cfg.domain + "/auth/v1/recover?token=" + a.signAuthToken("recover", slug, email, 1*time.Hour)
-	body := fmt.Sprintf(`<p>Reset your password:</p>
+	def := fmt.Sprintf(`<p>Reset your password:</p>
 <p><a href="%s">Choose a new password</a></p>
 <p>Or paste this link into your browser:<br>%s</p>
 <p>This link expires in 1 hour. If you didn't request it, ignore this email.</p>`, link, link)
-	return a.sendEmail(slug, email, "Reset your password", body)
+	subj, body := a.emailTemplate(slug, "recover", "Reset your password", def)
+	return a.sendEmail(slug, email, subj, renderEmailTpl(body, link, ""))
 }
 
 // sendOTPEmail delivers a short-lived numeric sign-in code.
 func (a *app) sendOTPEmail(slug, email, code string) error {
-	body := fmt.Sprintf(`<p>Your sign-in code:</p>
+	def := fmt.Sprintf(`<p>Your sign-in code:</p>
 <p style="font-size:28px;letter-spacing:.3em;font-family:monospace"><b>%s</b></p>
 <p>It expires in 10 minutes. If you did not request it, ignore this email.</p>`, code)
-	return a.sendEmail(slug, email, "Your sign-in code", body)
+	subj, body := a.emailTemplate(slug, "otp", "Your sign-in code", def)
+	return a.sendEmail(slug, email, subj, renderEmailTpl(body, "", code))
 }
 
 func (a *app) sendMagicLinkEmail(slug, email, redirectTo string) error {
@@ -129,9 +171,10 @@ func (a *app) sendMagicLinkEmail(slug, email, redirectTo string) error {
 	if redirectTo != "" {
 		link += "&redirect_to=" + url.QueryEscape(redirectTo)
 	}
-	body := fmt.Sprintf(`<p>Click to sign in:</p>
+	def := fmt.Sprintf(`<p>Click to sign in:</p>
 <p><a href="%s">Sign in</a></p>
 <p>Or paste this link into your browser:<br>%s</p>
 <p>This link expires in 1 hour.</p>`, link, link)
-	return a.sendEmail(slug, email, "Your sign-in link", body)
+	subj, body := a.emailTemplate(slug, "magic", "Your sign-in link", def)
+	return a.sendEmail(slug, email, subj, renderEmailTpl(body, link, ""))
 }

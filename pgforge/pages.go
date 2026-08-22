@@ -1072,6 +1072,12 @@ const apiBody = `
     <button class="btn btn-primary btn-sm" type="submit">Save API settings</button>
     <span class="muted" style="font-size:11px">0 rows = unlimited; a cap protects clients from accidental full-table fetches. Extra schemas become queryable via the Accept-Profile header.</span>
   </form>
+  <form method="post" action="/p/{{.Slug}}/api-ip-allowlist" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.6rem">
+    <label class="fld" style="margin:0;flex:1;min-width:280px"><span class="lt">IP allowlist (IPs or CIDRs, comma separated - empty = open)</span>
+      <input type="text" name="ips" value="{{.IPAllowlist}}" placeholder="203.0.113.7, 10.0.0.0/8"></label>
+    <button class="btn btn-primary btn-sm" type="submit">Save allowlist</button>
+    <span class="muted" style="font-size:11px">applies to REST, Auth, Storage, Realtime and Functions on this project's domain</span>
+  </form>
 </div>
 <div class="card" style="margin-bottom:1rem">
   <div style="display:flex;align-items:center"><h2>Endpoints</h2><div class="spacer"></div><span class="label">{{len .Tables}} table(s)</span></div>
@@ -1323,6 +1329,27 @@ const authPageBody = `
   <form method="post" action="/p/{{.Slug}}/auth-enable"><button class="btn btn-primary" type="submit">{{icon "shield"}} Enable Auth</button></form>
 </div>
 {{else}}
+<div class="card" style="margin-bottom:1rem">
+  <h2>Email templates</h2>
+  <p class="muted" style="font-size:12px;margin:.3rem 0 .6rem">Customize the four auth emails. Placeholders: <code>{{"{{link}}"}}</code> (confirm/magic/recover) and <code>{{"{{code}}"}}</code> (sign-in code). Empty fields keep the built-in wording. HTML allowed.</p>
+  <form method="post" action="/p/{{.Slug}}/auth-templates">
+    <div class="grid g2">
+      <div><div class="label">Confirm email</div>
+        <input type="text" name="subj_confirm" value="{{index .Tpls "subj_confirm"}}" placeholder="subject (default: Confirm your email)" style="margin:.3rem 0">
+        <textarea name="body_confirm" rows="3" placeholder="body html with {{"{{link}}"}}">{{index .Tpls "body_confirm"}}</textarea></div>
+      <div><div class="label">Magic link</div>
+        <input type="text" name="subj_magic" value="{{index .Tpls "subj_magic"}}" placeholder="subject (default: Your sign-in link)" style="margin:.3rem 0">
+        <textarea name="body_magic" rows="3" placeholder="body html with {{"{{link}}"}}">{{index .Tpls "body_magic"}}</textarea></div>
+      <div><div class="label">Password reset</div>
+        <input type="text" name="subj_recover" value="{{index .Tpls "subj_recover"}}" placeholder="subject (default: Reset your password)" style="margin:.3rem 0">
+        <textarea name="body_recover" rows="3" placeholder="body html with {{"{{link}}"}}">{{index .Tpls "body_recover"}}</textarea></div>
+      <div><div class="label">Sign-in code</div>
+        <input type="text" name="subj_otp" value="{{index .Tpls "subj_otp"}}" placeholder="subject (default: Your sign-in code)" style="margin:.3rem 0">
+        <textarea name="body_otp" rows="3" placeholder="body html with {{"{{code}}"}}">{{index .Tpls "body_otp"}}</textarea></div>
+    </div>
+    <button class="btn btn-primary btn-sm" type="submit" style="margin-top:.6rem">Save templates</button>
+  </form>
+</div>
 <div class="card" style="margin-bottom:1rem">
   <h2>Policies</h2>
   <form method="post" action="/p/{{.Slug}}/auth-policy" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.6rem">
@@ -2105,6 +2132,47 @@ const migrationsBody = `
   </details>
   {{end}}{{end}}
 </div>
+`
+
+const queuesBody = `
+<div class="pagehead"><h1>Queues</h1><p>Durable message queues inside your database - no broker. Producers and consumers are plain SQL, usable from apps, edge functions and cron jobs.</p></div>
+<div class="card" style="margin-bottom:1rem">
+  <h2>New queue</h2>
+  <form method="post" action="/p/{{.Slug}}/queue-create" style="display:flex;gap:.5rem;align-items:center;margin-top:.6rem">
+    <input type="text" name="name" placeholder="emails" pattern="[A-Za-z0-9_]{1,40}" required style="width:220px">
+    <button class="btn btn-primary btn-sm" type="submit">Create queue</button>
+    <span class="muted" style="font-size:11.5px">tables + SQL functions land in the <code>forgebase</code> schema, owned by your role</span>
+  </form>
+</div>
+{{if .Queues}}
+<div class="tblwrap"><table class="data">
+  <thead><tr><th>Queue</th><th>Ready</th><th>Locked</th><th>Archived</th><th>Oldest</th><th>Created</th><th></th></tr></thead>
+  <tbody>{{range .Queues}}<tr>
+    <td><code>{{.Name}}</code></td>
+    <td>{{.Depth}}</td><td class="muted">{{.InVT}}</td><td class="muted">{{.Archived}}</td>
+    <td class="muted">{{if .OldestSeconds}}{{.OldestSeconds}}s{{else}}-{{end}}</td>
+    <td class="muted" style="font-size:11.5px">{{.Created}}</td>
+    <td style="text-align:right;white-space:nowrap">
+      <form method="post" action="/p/{{$.Slug}}/queue-send-test" style="display:inline"><input type="hidden" name="name" value="{{.Name}}"><button class="copy" title="Send a test message">{{icon "play"}}</button></form>
+      <form method="post" action="/p/{{$.Slug}}/queue-purge" style="display:inline" onsubmit="return confirm('Purge every pending message on {{.Name}}?')"><input type="hidden" name="name" value="{{.Name}}"><button class="copy" title="Purge pending">{{icon "restore"}}</button></form>
+      <form method="post" action="/p/{{$.Slug}}/queue-delete" style="display:inline" onsubmit="return confirm('Delete queue {{.Name}} and its archive?')"><input type="hidden" name="name" value="{{.Name}}"><button class="copy" style="color:hsl(var(--destructive))" title="Delete queue">{{icon "trash"}}</button></form>
+    </td>
+  </tr>{{end}}</tbody>
+</table></div>
+<div class="card" style="margin-top:1rem">
+  <h2 style="font-size:15px">Using a queue</h2>
+  <pre style="font-family:var(--mono);font-size:12px;line-height:1.7;overflow-x:auto;margin-top:.5rem">-- produce
+SELECT forgebase.queue_send('emails', '{"to":"a@b.c","tpl":"welcome"}');
+
+-- consume (locks up to 10 messages for 30 seconds)
+SELECT * FROM forgebase.queue_read('emails', 30, 10);
+
+-- acknowledge (delete) or archive after processing
+SELECT forgebase.queue_delete_msg('emails', 42);
+SELECT forgebase.queue_archive('emails', 42);</pre>
+  <p class="muted" style="font-size:11.5px;margin-top:.4rem">Delivery is at-least-once: if a consumer dies, its locked messages reappear when the lock lapses (read_ct counts attempts).</p>
+</div>
+{{else}}<p class="muted">No queues yet.</p>{{end}}
 `
 
 const cronBody = `

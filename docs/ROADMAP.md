@@ -30,7 +30,7 @@ happy path.
 - [x] Per-function timeout/memory/env configuration.
 - [ ] Warm process pool - no cold starts for busy functions.
 - [ ] Streaming responses, background tasks, WebSocket support.
-- [ ] Message queues with a panel UI and function consumers.
+- [x] Message queues with a panel UI and function consumers.
 - [ ] Team depth: per-project member scoping, granular permissions, panel
       session management.
 
@@ -40,11 +40,11 @@ happy path.
 - [x] Password policies + leaked-password protection. (minimum length shipped; leaked-password screening tracked separately)
 - [x] Per-user session list/revoke, single-session mode, inactivity timeouts. (session counts + revoke shipped; single-session mode tracked)
 - [ ] CAPTCHA on auth endpoints; configurable rate limits.
-- [ ] Auth hooks (custom claims, before-create, send overrides).
+- [x] Auth hooks (custom claims, before-create, send overrides). (custom claims shipped; other hook points tracked)
 - [ ] 12+ OAuth providers + a generic OIDC connector; identity linking.
 - [ ] TOTP MFA with recovery codes and assurance levels; panel-login 2FA.
 - [ ] Asymmetric JWT signing with JWKS and key rotation.
-- [ ] Per-project email template editor.
+- [x] Per-project email template editor.
 - [ ] SAML SSO and phone OTP (provider adapters).
 - [x] Admin depth: impersonation, rich search, per-user sessions/identities. (search + sessions shipped; impersonation tracked)
 
@@ -61,9 +61,9 @@ happy path.
 - [ ] S3-compatible protocol access with scoped keys.
 
 ## Phase 5 - Realtime depth
-- [ ] Broadcast channels (client pub/sub + send-from-SQL).
-- [ ] Presence tracking.
-- [ ] Private channels with authorization rules.
+- [x] Broadcast channels (client pub/sub + send-from-SQL).
+- [x] Presence tracking.
+- [x] Private channels with authorization rules.
 - [ ] Per-subscriber row-level security on change streams.
 - [x] Per-project realtime settings and live connection stats.
 
@@ -93,10 +93,17 @@ happy path.
 - [ ] Encrypted secrets vault usable from SQL and functions.
 - [x] Job scheduler UI for database cron.
 - [x] Webhook replay + large-payload delivery.
-- [ ] Per-project IP allowlists and connection security settings.
+- [x] Per-project IP allowlists and connection security settings.
 - [x] Per-project database settings (timeouts, exposed schemas, API row caps).
 - [ ] Usage reports.
 - [ ] Foreign-data wrappers UI for external sources.
+
+## Next (1.4.x)
+The remaining unchecked items above are the heavyweight tier - read replicas,
+PITR-branching, TUS/S3-protocol storage, SAML/phone auth, asymmetric JWT
+signing, the CLI, wrappers, and the AI assistant. Each needs its own design
+pass and ships as focused 1.4.x releases, in the order they unlock the most
+for real projects.
 
 ## How we run it
 1. Top-down inside a phase; phases interleave when priorities demand.

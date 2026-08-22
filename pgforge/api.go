@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -444,8 +445,66 @@ func (a *app) serveGraphQL(w http.ResponseWriter, r *http.Request, slug string) 
 	w.Write([]byte(out))
 }
 
+// ipAllowed enforces a project's optional IP allowlist over the whole data
+// plane (REST, Auth, Storage, Realtime, Functions, GraphQL). Empty = open.
+func (a *app) ipAllowed(slug, ip string) bool {
+	var raw string
+	a.db.QueryRow(`SELECT coalesce(ip_allowlist,'') FROM api_config WHERE slug=$1`, slug).Scan(&raw)
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return true
+	}
+	addr := net.ParseIP(ip)
+	if addr == nil {
+		return false
+	}
+	for _, e := range strings.Split(raw, ",") {
+		e = strings.TrimSpace(e)
+		if e == "" {
+			continue
+		}
+		if strings.Contains(e, "/") {
+			if _, cidr, err := net.ParseCIDR(e); err == nil && cidr.Contains(addr) {
+				return true
+			}
+		} else if one := net.ParseIP(e); one != nil && one.Equal(addr) {
+			return true
+		}
+	}
+	return false
+}
+
+// setIPAllowlist stores the per-project data-plane allowlist.
+func (a *app) setIPAllowlist(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	back := "/p/" + slug + "/api"
+	raw := strings.TrimSpace(r.FormValue("ips"))
+	for _, e := range strings.Split(raw, ",") {
+		e = strings.TrimSpace(e)
+		if e == "" {
+			continue
+		}
+		if strings.Contains(e, "/") {
+			if _, _, err := net.ParseCIDR(e); err != nil {
+				redirectErr(w, r, back, "Bad CIDR: "+e)
+				return
+			}
+		} else if net.ParseIP(e) == nil {
+			redirectErr(w, r, back, "Bad IP: "+e)
+			return
+		}
+	}
+	a.db.Exec(`UPDATE api_config SET ip_allowlist=$2 WHERE slug=$1`, slug, raw)
+	a.audit(r, "api-ip-allowlist", slug)
+	redirectMsg(w, r, back, "IP allowlist saved - empty means open to the world.")
+}
+
 // serveAPI handles requests to <slug>.<domain> (public, no panel session).
 func (a *app) serveAPI(w http.ResponseWriter, r *http.Request, slug string) {
+	if !a.ipAllowed(slug, clientIP(r)) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"message": "this project's API is restricted to an IP allowlist"})
+		return
+	}
 	a.touchAndResume(slug) // any request keeps the project alive / wakes it
 	if strings.HasPrefix(r.URL.Path, "/graphql/v1") {
 		a.serveGraphQL(w, r, slug)
@@ -597,10 +656,11 @@ func (a *app) apiPage(w http.ResponseWriter, r *http.Request) {
 		rls = a.rlsData(slug)
 	}
 	var maxRows int
-	var extraSchemas string
-	a.db.QueryRow(`SELECT coalesce(max_rows,0), coalesce(extra_schemas,'')
-		FROM api_config WHERE slug=$1`, slug).Scan(&maxRows, &extraSchemas)
+	var extraSchemas, ipAllow string
+	a.db.QueryRow(`SELECT coalesce(max_rows,0), coalesce(extra_schemas,''), coalesce(ip_allowlist,'')
+		FROM api_config WHERE slug=$1`, slug).Scan(&maxRows, &extraSchemas, &ipAllow)
 	content := renderContent(apiBody, map[string]any{
+		"IPAllowlist": ipAllow,
 		"Slug": slug, "Enabled": enabled, "Base": base,
 		"MaxRows": maxRows, "ExtraSchemas": extraSchemas,
 		"Anon": anon, "Service": service, "Domain": a.cfg.domain, "Tables": tables,

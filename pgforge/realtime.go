@@ -31,6 +31,11 @@ type rtSub struct {
 	Event  string // INSERT / UPDATE / DELETE
 	Column string // optional equality filter column (?filter=id=eq.5)
 	Value  string
+	// Channel subscribes this client to broadcast + presence messages on one
+	// named channel (channels are independent of table change streams).
+	Channel string
+	// PresenceKey announces this client on the channel's presence list.
+	PresenceKey string
 }
 
 type rtHub struct {
@@ -216,6 +221,14 @@ func (a *app) ensureChangeTriggers(slug string) error {
 		}
 		db.Exec(fmt.Sprintf(`CREATE TRIGGER forgebase_rt AFTER %s ON public.%s FOR EACH ROW EXECUTE FUNCTION forgebase_notify()`, events, q))
 	}
+	db.Exec(`CREATE SCHEMA IF NOT EXISTS forgebase`)
+	db.Exec(`CREATE OR REPLACE FUNCTION forgebase.broadcast(channel text, payload jsonb DEFAULT 'null')
+		RETURNS void AS $fb$
+		BEGIN
+			PERFORM pg_notify('forgebase_realtime',
+				json_build_object('type','broadcast','channel',channel,'payload',payload)::text);
+		END
+		$fb$ LANGUAGE plpgsql`)
 	db.Exec(rtEventTriggerFn)
 	db.Exec(`DROP EVENT TRIGGER IF EXISTS forgebase_rt_ddl`)
 	db.Exec(`CREATE EVENT TRIGGER forgebase_rt_ddl ON ddl_command_end WHEN TAG IN ('CREATE TABLE') EXECUTE FUNCTION forgebase_rt_autoattach()`)
@@ -323,13 +336,29 @@ func (a *app) reconcileChangeTriggers(slug string) {
 
 func (h *rtHub) broadcast(msg []byte) {
 	var ev struct {
-		Type, Table string
-		Record      map[string]any
+		Type, Table, Channel string
+		Record               map[string]any
 	}
 	json.Unmarshal(msg, &ev)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for c, sub := range h.clients {
+		// channel traffic (broadcast/presence) goes only to that channel's
+		// subscribers; change events skip channel-only subscribers entirely
+		if ev.Type == "broadcast" || ev.Type == "presence" {
+			if sub.Channel == "" || sub.Channel != ev.Channel {
+				continue
+			}
+			c.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			if err := c.WriteMessage(websocket.TextMessage, msg); err != nil {
+				c.Close()
+				delete(h.clients, c)
+				if len(h.clients) == 0 {
+					h.emptySince = time.Now()
+				}
+			}
+			continue
+		}
 		if sub.Table != "" && sub.Table != ev.Table {
 			continue
 		}
@@ -388,10 +417,21 @@ func (a *app) serveRealtime(w http.ResponseWriter, r *http.Request, slug string)
 		return
 	}
 	// Optional subscription filter: ?table=<name>&event=<INSERT|UPDATE|DELETE>
-	// and a column-equality filter ?filter=<column>=eq.<value>.
+	// and a column-equality filter ?filter=<column>=eq.<value>. Channels:
+	// ?channel=<name> joins broadcast/presence traffic on that name;
+	// ?presence_key=<id> announces this client on the channel.
 	sub := rtSub{
-		Table: r.URL.Query().Get("table"),
-		Event: strings.ToUpper(r.URL.Query().Get("event")),
+		Table:       r.URL.Query().Get("table"),
+		Event:       strings.ToUpper(r.URL.Query().Get("event")),
+		Channel:     r.URL.Query().Get("channel"),
+		PresenceKey: r.URL.Query().Get("presence_key"),
+	}
+	// private channels: names starting with "private-" refuse the anon role
+	if strings.HasPrefix(sub.Channel, "private-") {
+		if role, _ := claims["role"].(string); role == "anon" {
+			writeJSON(w, http.StatusForbidden, map[string]string{"message": "private channels need an authenticated key"})
+			return
+		}
 	}
 	if f := r.URL.Query().Get("filter"); f != "" {
 		if i := strings.Index(f, "=eq."); i > 0 {
@@ -424,19 +464,70 @@ func (a *app) serveRealtime(w http.ResponseWriter, r *http.Request, slug string)
 	h.emptySince = time.Time{} // has clients again
 	h.mu.Unlock()
 	conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"connected","project":"`+slug+`"}`))
-	// read loop: we don't expect client messages, just detect disconnect
+	if sub.Channel != "" && sub.PresenceKey != "" {
+		h.channelSend(sub.Channel, map[string]any{"type": "presence", "event": "join",
+			"channel": sub.Channel, "key": sub.PresenceKey})
+	}
+	// read loop: channel subscribers may send broadcast and presence-state
+	// requests; everything else just detects disconnect
 	for {
-		if _, _, err := conn.ReadMessage(); err != nil {
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
 			h.mu.Lock()
 			delete(h.clients, conn)
 			if len(h.clients) == 0 {
 				h.emptySince = time.Now()
 			}
 			h.mu.Unlock()
+			if sub.Channel != "" && sub.PresenceKey != "" {
+				h.channelSend(sub.Channel, map[string]any{"type": "presence", "event": "leave",
+					"channel": sub.Channel, "key": sub.PresenceKey})
+			}
 			conn.Close()
 			return
 		}
+		if sub.Channel == "" || len(raw) > 16*1024 {
+			continue
+		}
+		var m struct {
+			Type    string          `json:"type"`
+			Payload json.RawMessage `json:"payload"`
+		}
+		if json.Unmarshal(raw, &m) != nil {
+			continue
+		}
+		switch m.Type {
+		case "broadcast":
+			pl := "null"
+			if len(m.Payload) > 0 && json.Valid(m.Payload) {
+				pl = string(m.Payload)
+			}
+			h.channelSend(sub.Channel, map[string]any{"type": "broadcast",
+				"channel": sub.Channel, "payload": json.RawMessage(pl)})
+		case "presence_state":
+			h.mu.Lock()
+			var keys []string
+			for _, cs := range h.clients {
+				if cs.Channel == sub.Channel && cs.PresenceKey != "" {
+					keys = append(keys, cs.PresenceKey)
+				}
+			}
+			h.mu.Unlock()
+			resp, _ := json.Marshal(map[string]any{"type": "presence_state",
+				"channel": sub.Channel, "keys": keys})
+			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			conn.WriteMessage(websocket.TextMessage, resp)
+		}
 	}
+}
+
+// channelSend fans a message out to every subscriber of one channel.
+func (h *rtHub) channelSend(channel string, msg map[string]any) {
+	b, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	h.broadcast(b)
 }
 
 // ----------------------------------------------------------------- enable + page

@@ -320,6 +320,13 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/auth-policy", a.auth(admin(a.saveAuthPolicy)))
 	mux.HandleFunc("POST /p/{slug}/auth-user-revoke", a.auth(admin(a.revokeUserSessions)))
 	mux.HandleFunc("POST /p/{slug}/storage/quota", a.auth(admin(a.setStorageQuota)))
+	mux.HandleFunc("GET /p/{slug}/queues", a.auth(proj(a.queuesPage)))
+	mux.HandleFunc("POST /p/{slug}/queue-create", a.auth(proj(a.queueCreate)))
+	mux.HandleFunc("POST /p/{slug}/queue-purge", a.auth(proj(a.queuePurge)))
+	mux.HandleFunc("POST /p/{slug}/queue-delete", a.auth(proj(a.queueDelete)))
+	mux.HandleFunc("POST /p/{slug}/queue-send-test", a.auth(proj(a.queueSendTest)))
+	mux.HandleFunc("POST /p/{slug}/api-ip-allowlist", a.auth(admin(a.setIPAllowlist)))
+	mux.HandleFunc("POST /p/{slug}/auth-templates", a.auth(admin(a.saveEmailTemplates)))
 	mux.HandleFunc("GET /p/{slug}/branch-diff", a.auth(proj(a.branchDiff)))
 	mux.HandleFunc("POST /p/{slug}/branch-reset", a.auth(admin(a.branchReset)))
 	mux.HandleFunc("GET /p/{slug}/realtime", a.auth(proj(a.realtimePage)))
@@ -479,6 +486,15 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS min_pw_len integer NOT NULL DEFAULT 6`,
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS redirect_allowlist text NOT NULL DEFAULT ''`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS storage_quota_mb integer NOT NULL DEFAULT 1024`,
+		`ALTER TABLE api_config ADD COLUMN IF NOT EXISTS ip_allowlist text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS tpl_confirm_subject text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS tpl_confirm_body text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS tpl_magic_subject text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS tpl_magic_body text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS tpl_recover_subject text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS tpl_recover_body text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS tpl_otp_subject text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS tpl_otp_body text NOT NULL DEFAULT ''`,
 		`ALTER TABLE edge_functions ADD COLUMN IF NOT EXISTS mem_mb integer NOT NULL DEFAULT 128`,
 		`ALTER TABLE saved_queries ADD COLUMN IF NOT EXISTS is_private boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled boolean NOT NULL DEFAULT false`,
