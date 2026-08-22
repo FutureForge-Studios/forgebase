@@ -93,6 +93,7 @@ func (a *app) sampleOnce(full bool) {
 		a.pruneStorageCache()
 	}
 	a.syncInstanceStatus()
+	a.expireBranches()
 
 	a.autoSuspend()
 	// "Keep awake" projects are also kept WARM: their API sidecar and realtime

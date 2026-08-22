@@ -269,18 +269,19 @@ func (a *app) branchesPage(w http.ResponseWriter, r *http.Request) {
 	}
 	// branches are projects whose name starts with "<slug>-"
 	type br struct {
-		Slug, Created, Size, Conn string
+		Slug, Created, Size, Conn, Expires string
 	}
 	var branches []br
 	rows, _ := a.db.Query(`SELECT slug, to_char(created_at,'Mon DD, YYYY'),
 		coalesce(pg_size_pretty(pg_database_size(slug)),'-'),
-		pgp_sym_decrypt(password_enc,$2)
+		pgp_sym_decrypt(password_enc,$2),
+		coalesce(to_char(expires_at,'Mon DD, HH24:MI'),'')
 		FROM projects WHERE parent=$1 ORDER BY created_at`, slug, string(a.cfg.secret))
 	if rows != nil {
 		for rows.Next() {
 			var b br
 			var pw string
-			rows.Scan(&b.Slug, &b.Created, &b.Size, &pw)
+			rows.Scan(&b.Slug, &b.Created, &b.Size, &pw, &b.Expires)
 			b.Conn = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=require", b.Slug, pw, a.cfg.domain, b.Slug)
 			branches = append(branches, b)
 		}
@@ -311,6 +312,15 @@ func (a *app) branchCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	branch := slug + "-" + name
+	var expires any // NULL = never
+	switch r.FormValue("expires") {
+	case "1d":
+		expires = time.Now().Add(24 * time.Hour)
+	case "7d":
+		expires = time.Now().Add(7 * 24 * time.Hour)
+	case "30d":
+		expires = time.Now().Add(30 * 24 * time.Hour)
+	}
 	if len(branch) > 63 { // Postgres identifier limit; silently truncated names become undeletable
 		redirectErr(w, r, "/p/"+slug+"/branches", "Combined branch name is too long; use a shorter branch name.")
 		return
@@ -328,9 +338,9 @@ func (a *app) branchCreate(w http.ResponseWriter, r *http.Request) {
 			redirectErr(w, r, "/p/"+slug+"/branches", "Instant branch failed: "+err.Error())
 			return
 		}
-		if _, err := a.db.Exec(`INSERT INTO projects(slug, role_name, password_enc, parent, mode)
-			VALUES ($1,$1,pgp_sym_encrypt($2,$3),$4,'instance')`,
-			branch, bpw, string(a.cfg.secret), slug); err != nil {
+		if _, err := a.db.Exec(`INSERT INTO projects(slug, role_name, password_enc, parent, mode, expires_at)
+			VALUES ($1,$1,pgp_sym_encrypt($2,$3),$4,'instance',$5)`,
+			branch, bpw, string(a.cfg.secret), slug, expires); err != nil {
 			pgInstance(time.Minute, "delete", branch)
 			redirectErr(w, r, "/p/"+slug+"/branches", "Branch record failed: "+err.Error())
 			return
@@ -364,11 +374,97 @@ func (a *app) branchCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.db.Exec(fmt.Sprintf(`REVOKE CONNECT ON DATABASE %s FROM PUBLIC`, bq))
-	a.db.Exec(`INSERT INTO projects(slug, role_name, password_enc, parent) VALUES ($1,$1,pgp_sym_encrypt($2,$3),$4)`,
-		branch, pw, string(a.cfg.secret), slug)
+	a.db.Exec(`INSERT INTO projects(slug, role_name, password_enc, parent, expires_at) VALUES ($1,$1,pgp_sym_encrypt($2,$3),$4,$5)`,
+		branch, pw, string(a.cfg.secret), slug, expires)
 	a.rewriteUserlist()
 	a.audit(r, "branch", branch)
 	redirectMsg(w, r, "/p/"+branch, "Branch "+branch+" created from "+slug+".")
+}
+
+// branchReset throws away a branch's current state and recreates it from its
+// parent - same name, same role, same password, same connection string.
+func (a *app) branchReset(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	branch := r.FormValue("branch")
+	back := "/p/" + slug + "/branches"
+	var parent string
+	a.db.QueryRow(`SELECT coalesce(parent,'') FROM projects WHERE slug=$1`, branch).Scan(&parent)
+	if parent != slug {
+		redirectErr(w, r, back, "That is not a branch of this project.")
+		return
+	}
+	if a.projectMode(branch) == "instance" {
+		_, pw := a.projectCred(branch)
+		if _, err := pgInstance(time.Minute, "delete", branch); err != nil {
+			redirectErr(w, r, back, "Reset failed: "+err.Error())
+			return
+		}
+		if _, err := pgInstance(3*time.Minute, "branch", slug, branch, pw); err != nil {
+			redirectErr(w, r, back, "Reset failed mid-way (branch removed): "+err.Error())
+			return
+		}
+		a.audit(r, "branch-reset", branch)
+		redirectMsg(w, r, back, branch+" reset from "+slug+" (copy-on-write).")
+		return
+	}
+	bq := pq.QuoteIdentifier(branch)
+	src := pq.QuoteIdentifier(slug)
+	// stop everything holding the branch, drop its database (role + record stay)
+	a.stopPostgREST(branch)
+	a.stopRealtimeHub(branch)
+	closeConn(branch)
+	a.db.Exec(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1`, branch)
+	if _, err := a.db.Exec(fmt.Sprintf(`DROP DATABASE IF EXISTS %s`, bq)); err != nil {
+		redirectErr(w, r, back, "Reset failed: "+err.Error())
+		return
+	}
+	// quiesce the parent exactly like branch creation does
+	closeConn(slug)
+	a.db.Exec(fmt.Sprintf(`ALTER DATABASE %s WITH ALLOW_CONNECTIONS false`, src))
+	defer a.db.Exec(fmt.Sprintf(`ALTER DATABASE %s WITH ALLOW_CONNECTIONS true`, src))
+	a.db.Exec(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1 AND pid<>pg_backend_pid()`, slug)
+	if _, err := a.db.Exec(fmt.Sprintf(`CREATE DATABASE %s TEMPLATE %s OWNER %s`, bq, src, bq)); err != nil {
+		redirectErr(w, r, back, "Reset failed after drop - recreate the branch manually: "+err.Error())
+		return
+	}
+	a.db.Exec(fmt.Sprintf(`REVOKE CONNECT ON DATABASE %s FROM PUBLIC`, bq))
+	a.db.Exec(`UPDATE projects SET status='active' WHERE slug=$1`, branch)
+	a.audit(r, "branch-reset", branch)
+	redirectMsg(w, r, back, branch+" reset to match "+slug+".")
+}
+
+// expireBranches pauses branches past their expiry - data is kept, connections
+// stop, and the owner decides deletion. Called from the sampler.
+func (a *app) expireBranches() {
+	rows, err := a.db.Query(`SELECT slug, mode FROM projects
+		WHERE parent IS NOT NULL AND expires_at IS NOT NULL AND expires_at < now()
+		  AND status IN ('active','suspended')`)
+	if err != nil {
+		return
+	}
+	type b struct{ slug, mode string }
+	var list []b
+	for rows.Next() {
+		var x b
+		rows.Scan(&x.slug, &x.mode)
+		list = append(list, x)
+	}
+	rows.Close()
+	for _, x := range list {
+		if x.mode == "instance" {
+			os.WriteFile(instancesRoot+"/.paused-"+x.slug, []byte("expired"), 0o644)
+			pgInstance(time.Minute, "stop", x.slug)
+		} else {
+			a.db.Exec(fmt.Sprintf(`ALTER ROLE %s NOLOGIN`, pq.QuoteIdentifier(x.slug)))
+			a.db.Exec(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1`, x.slug)
+		}
+		a.stopPostgREST(x.slug)
+		a.stopRealtimeHub(x.slug)
+		closeConn(x.slug)
+		a.db.Exec(`UPDATE projects SET status='paused' WHERE slug=$1`, x.slug)
+		a.auditRaw("system", "-", "branch-expired", x.slug)
+		a.notifyDiscord("Branch " + x.slug + " reached its expiry and was paused (data kept). Delete or resume it from the panel.")
+	}
 }
 
 func pctInt(n, d int) int {

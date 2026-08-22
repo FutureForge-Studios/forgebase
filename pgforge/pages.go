@@ -1004,6 +1004,9 @@ const branchesBody = `
 <form class="card" method="post" action="/p/{{.Slug}}/branch-create" style="display:flex;gap:.6rem;align-items:center;margin-bottom:1.2rem">
   <span class="mono muted" style="font-size:13px">{{.Slug}}-</span>
   <input type="text" name="name" placeholder="branch name  ·  e.g. staging" pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,30}" required style="flex:1">
+  <label class="fld" style="margin:0"><span class="lt">Expires</span><select name="expires" style="width:auto">
+    <option value="">never</option><option value="1d">in 1 day</option><option value="7d" selected>in 7 days</option><option value="30d">in 30 days</option>
+  </select></label>
   <button class="btn btn-primary" type="submit">{{icon "branch"}} Create branch</button>
 </form>
 {{if .Branches}}
@@ -1026,9 +1029,15 @@ const branchesBody = `
       <a href="/p/{{.Slug}}" style="font-family:var(--serif);font-size:16px;font-weight:600;flex:1">{{.Slug}}</a>
       <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}">Open</a>
     </div>
-    <div class="muted" style="font-size:12px;margin:.5rem 0 .2rem">created {{.Created}} · {{.Size}} · branch of {{$.Slug}}</div>
+    <div class="muted" style="font-size:12px;margin:.5rem 0 .2rem">created {{.Created}} · {{.Size}} · branch of {{$.Slug}}{{if .Expires}} · <span title="The branch pauses at expiry - data is kept until you delete it">expires {{.Expires}}</span>{{end}}</div>
     <div class="cs"><span class="tag">Direct TLS</span><code id="b-{{.Slug}}">{{.Conn}}</code><button class="copy" onclick="cp('b-{{.Slug}}')">{{icon "copy"}}</button></div>
-    <div style="margin-top:.7rem"><button class="btn btn-danger btn-sm" onclick="askDel('{{.Slug}}')">{{icon "trash"}} Delete branch</button></div>
+    <div style="margin-top:.7rem;display:flex;gap:.5rem;flex-wrap:wrap">
+      <form method="post" action="/p/{{$.Slug}}/branch-reset" style="display:inline" onsubmit="return confirm('Reset {{.Slug}} from {{$.Slug}}? Its current data is REPLACED by a fresh copy of the parent.')">
+        <input type="hidden" name="branch" value="{{.Slug}}">
+        <button class="btn btn-ghost btn-sm">{{icon "restore"}} Reset from parent</button>
+      </form>
+      <button class="btn btn-danger btn-sm" onclick="askDel('{{.Slug}}')">{{icon "trash"}} Delete branch</button>
+    </div>
   </div>
 {{end}}
 </div>{{end}}

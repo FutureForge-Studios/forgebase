@@ -318,6 +318,7 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/auth-smtp", a.auth(admin(a.saveAuthEmail)))
 	mux.HandleFunc("POST /p/{slug}/auth-anon", a.auth(admin(a.setAuthAnon)))
 	mux.HandleFunc("GET /p/{slug}/branch-diff", a.auth(proj(a.branchDiff)))
+	mux.HandleFunc("POST /p/{slug}/branch-reset", a.auth(admin(a.branchReset)))
 	mux.HandleFunc("GET /p/{slug}/realtime", a.auth(proj(a.realtimePage)))
 	mux.HandleFunc("POST /p/{slug}/realtime-enable", a.auth(proj(a.enableRealtime)))
 	mux.HandleFunc("POST /p/{slug}/realtime-disable", a.auth(proj(a.disableRealtime)))
@@ -469,6 +470,7 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret text NOT NULL DEFAULT ''`,
 		`ALTER TABLE saved_queries ADD COLUMN IF NOT EXISTS owner text NOT NULL DEFAULT ''`,
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS anon_signins boolean NOT NULL DEFAULT false`,
+		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS expires_at timestamptz`,
 		`ALTER TABLE saved_queries ADD COLUMN IF NOT EXISTS is_private boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE edge_functions ADD COLUMN IF NOT EXISTS last_cron timestamptz`,
