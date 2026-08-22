@@ -13,6 +13,12 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.39] - 2026-08-23
+
+### Added
+- Per-project storage quotas with a usage meter; enforced on every upload
+  path.
+
 ## [1.3.38] - 2026-08-23
 
 ### Added
@@ -967,7 +973,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.38...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.39...HEAD
+[1.3.39]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.38...v1.3.39
 [1.3.38]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.37...v1.3.38
 [1.3.37]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.36...v1.3.37
 [1.3.36]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.35...v1.3.36

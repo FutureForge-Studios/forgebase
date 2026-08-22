@@ -107,11 +107,21 @@ func (a *app) storagePage(w http.ResponseWriter, r *http.Request) {
 		rows.Close()
 	}
 
-	// usage summary across all buckets
+	// usage summary across all buckets + quota
 	var totObjects int
 	var totSize string
 	a.db.QueryRow(`SELECT count(*), coalesce(pg_size_pretty(sum(size))::text,'0 B')
 		FROM storage_objects WHERE slug=$1`, slug).Scan(&totObjects, &totSize)
+	usedB := a.storageUsageBytes(slug)
+	quotaB := a.storageQuotaBytes(slug)
+	quotaMB := int(quotaB >> 20)
+	usedPct := 0
+	if quotaB > 0 {
+		usedPct = int(usedB * 100 / quotaB)
+		if usedPct > 100 {
+			usedPct = 100
+		}
+	}
 
 	sel := r.URL.Query().Get("b")
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
@@ -182,9 +192,47 @@ func (a *app) storagePage(w http.ResponseWriter, r *http.Request) {
 		"SelMaxMB": selMaxMB, "SelMime": selMime, "Folders": folders,
 		"Pfx": strings.TrimSuffix(pfx, "/"), "Parent": parent, "InFolder": pfx != "", "Query": query,
 		"NBuckets": len(buckets), "TotObjects": totObjects, "TotSize": totSize,
+		"QuotaMB": quotaMB, "UsedPct": usedPct, "HasQuota": quotaB > 0,
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Storage", Nav: "storage", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Storage"}}}, content)
+}
+
+// storageQuotaBytes returns the project's storage quota (0 = unlimited).
+func (a *app) storageQuotaBytes(slug string) int64 {
+	var mb int64
+	a.db.QueryRow(`SELECT coalesce(storage_quota_mb,1024) FROM projects WHERE slug=$1`, slug).Scan(&mb)
+	if mb <= 0 {
+		return 0
+	}
+	return mb << 20
+}
+
+// storageUsageBytes sums the recorded object sizes for a project.
+func (a *app) storageUsageBytes(slug string) int64 {
+	var n int64
+	a.db.QueryRow(`SELECT coalesce(sum(size),0) FROM storage_objects WHERE slug=$1`, slug).Scan(&n)
+	return n
+}
+
+// quotaExceeded reports whether a project is at/over its storage quota.
+func (a *app) quotaExceeded(slug string) bool {
+	q := a.storageQuotaBytes(slug)
+	return q > 0 && a.storageUsageBytes(slug) >= q
+}
+
+// setStorageQuota stores a per-project quota (panel, admin).
+func (a *app) setStorageQuota(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	back := "/p/" + slug + "/storage"
+	mb, err := strconv.Atoi(r.FormValue("quota_mb"))
+	if err != nil || mb < 0 || mb > 1024*1024 {
+		redirectErr(w, r, back, "Quota 0 (unlimited) to 1048576 MB.")
+		return
+	}
+	a.db.Exec(`UPDATE projects SET storage_quota_mb=$2 WHERE slug=$1`, slug, mb)
+	a.audit(r, "storage-quota", fmt.Sprintf("%s=%dMB", slug, mb))
+	redirectMsg(w, r, back, "Storage quota saved.")
 }
 
 // bucketLimits returns a bucket's max object size in bytes (0 = unlimited) and
@@ -278,6 +326,10 @@ func (a *app) uploadObject(w http.ResponseWriter, r *http.Request) {
 	maxBytes, allowed := a.bucketLimits(slug, bucket)
 	if !mimeAllowed(mime, allowed) {
 		redirectErr(w, r, "/p/"+slug+"/storage?b="+bucket, "File type "+mime+" is not allowed in this bucket.")
+		return
+	}
+	if a.quotaExceeded(slug) {
+		redirectErr(w, r, "/p/"+slug+"/storage?b="+bucket, "Storage quota reached - delete objects or raise the quota below.")
 		return
 	}
 	dst := filepath.Join(storageRoot, slug, bucket, rel)
@@ -691,6 +743,10 @@ func (a *app) storageSignedUploadPut(w http.ResponseWriter, r *http.Request, slu
 		writeJSON(w, 415, map[string]string{"message": "file type not allowed in this bucket"})
 		return
 	}
+	if a.quotaExceeded(slug) {
+		writeJSON(w, http.StatusInsufficientStorage, map[string]string{"message": "storage quota reached"})
+		return
+	}
 	dst := filepath.Join(storageRoot, slug, bucket, rel)
 	os.MkdirAll(filepath.Dir(dst), 0o755)
 	out, err := os.Create(dst)
@@ -834,6 +890,10 @@ func (a *app) storageUploadAPI(w http.ResponseWriter, r *http.Request, slug, p s
 	maxBytes, allowed := a.bucketLimits(slug, bucket)
 	if !mimeAllowed(mime, allowed) {
 		writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"message": "file type not allowed in this bucket"})
+		return
+	}
+	if a.quotaExceeded(slug) {
+		writeJSON(w, http.StatusInsufficientStorage, map[string]string{"message": "storage quota reached"})
 		return
 	}
 	dst := filepath.Join(storageRoot, slug, bucket, rel)

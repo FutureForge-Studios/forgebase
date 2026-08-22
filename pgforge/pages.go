@@ -1212,6 +1212,13 @@ const storageBody = `
 <div class="grid g3" style="margin-bottom:1rem">
   <div class="card stat"><div class="k">Buckets</div><div class="v">{{.NBuckets}}</div></div>
   <div class="card stat"><div class="k">Objects</div><div class="v">{{.TotObjects}}</div></div>
+  <div class="card stat"><div class="k">Quota</div><div class="v" style="font-size:18px">{{if .HasQuota}}{{.UsedPct}}% of {{.QuotaMB}} MB{{else}}unlimited{{end}}</div>
+    {{if .HasQuota}}<div style="height:6px;background:hsl(var(--bg));border-radius:99px;margin-top:.4rem;overflow:hidden"><div style="height:100%;width:{{.UsedPct}}%;background:hsl(var(--primary));border-radius:99px"></div></div>{{end}}
+    <form method="post" action="/p/{{.Slug}}/storage/quota" style="display:flex;gap:.3rem;margin-top:.5rem;align-items:center">
+      <input type="number" name="quota_mb" value="{{.QuotaMB}}" min="0" max="1048576" style="width:90px;padding:.25rem .4rem;font-size:12px">
+      <button class="btn btn-ghost btn-sm" type="submit">Set MB</button>
+    </form>
+  </div>
   <div class="card stat"><div class="k">Total size</div><div class="v">{{.TotSize}}</div></div>
 </div>
 <div class="split" style="display:flex;gap:1rem;align-items:flex-start">

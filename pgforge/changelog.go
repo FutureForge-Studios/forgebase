@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.38"
+const appVersion = "1.3.39"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.39", Date: "2026-08-23",
+		Summary: "Storage quotas with a usage meter.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Per-project storage quotas (default 1 GB, adjustable or unlimited): a usage bar on the Storage page shows how full you are, and every upload path - panel, API, signed URLs - refuses politely once the quota is reached.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.38", Date: "2026-08-23",
 		Summary: "User sessions, visible and revocable.",

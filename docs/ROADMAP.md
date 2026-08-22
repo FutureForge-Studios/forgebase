@@ -57,7 +57,7 @@ happy path.
 - [ ] Resumable (TUS) uploads.
 - [ ] Smart caching (Cache-Control, ETags, conditional requests).
 - [ ] A real storage explorer UI: folders, drag-drop, previews.
-- [ ] Per-project storage quotas with usage meters.
+- [x] Per-project storage quotas with usage meters.
 - [ ] S3-compatible protocol access with scoped keys.
 
 ## Phase 5 - Realtime depth
