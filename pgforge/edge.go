@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -117,9 +118,11 @@ func (a *app) edgePage(w http.ResponseWriter, r *http.Request) {
 	code := defaultFunc
 	verifyJWT := true // new functions require a JWT by default
 	schedule := ""
+	timeoutS, memMB := 30, 128
 	if edit != "" {
-		a.db.QueryRow(`SELECT code, verify_jwt, coalesce(schedule,'') FROM edge_functions WHERE slug=$1 AND name=$2`,
-			slug, edit).Scan(&code, &verifyJWT, &schedule)
+		a.db.QueryRow(`SELECT code, verify_jwt, coalesce(schedule,''), coalesce(timeout_s,30), coalesce(mem_mb,128)
+			FROM edge_functions WHERE slug=$1 AND name=$2`,
+			slug, edit).Scan(&code, &verifyJWT, &schedule, &timeoutS, &memMB)
 	}
 	var secrets []string
 	if rows, _ := a.db.Query(`SELECT name FROM edge_secrets WHERE slug=$1 ORDER BY name`, slug); rows != nil {
@@ -148,7 +151,7 @@ func (a *app) edgePage(w http.ResponseWriter, r *http.Request) {
 	}
 	content := renderContent(edgeBody, map[string]any{
 		"Slug": slug, "Fns": fns, "Edit": edit, "Code": code, "Secrets": secrets, "Logs": logs,
-		"VerifyJWT": verifyJWT, "Schedule": schedule,
+		"VerifyJWT": verifyJWT, "Schedule": schedule, "TimeoutS": timeoutS, "MemMB": memMB,
 		"Base": "https://" + slug + "." + a.cfg.domain + "/functions/v1",
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Functions", Nav: "edge", Slug: slug,
@@ -161,6 +164,18 @@ func (a *app) saveFunction(w http.ResponseWriter, r *http.Request) {
 	code := r.FormValue("code")
 	verifyJWT := r.FormValue("verify_jwt") == "on"
 	schedule := strings.TrimSpace(r.FormValue("schedule"))
+	timeoutS, _ := strconv.Atoi(r.FormValue("timeout_s"))
+	if timeoutS == 0 {
+		timeoutS = 30
+	}
+	memMB, _ := strconv.Atoi(r.FormValue("mem_mb"))
+	if memMB == 0 {
+		memMB = 128
+	}
+	if timeoutS < 5 || timeoutS > 120 || memMB < 64 || memMB > 256 {
+		redirectErr(w, r, "/p/"+slug+"/functions?fn="+name, "Timeout 5-120s, memory 64-256MB.")
+		return
+	}
 	if schedule != "" && !cronExprValid(schedule) {
 		redirectErr(w, r, "/p/"+slug+"/functions?fn="+name, "Schedule must be a 5-field cron expression (minute hour day month weekday), or empty.")
 		return
@@ -179,8 +194,9 @@ func (a *app) saveFunction(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/functions", "Could not write function: "+err.Error())
 		return
 	}
-	a.db.Exec(`INSERT INTO edge_functions(slug,name,code,verify_jwt,schedule) VALUES ($1,$2,$3,$4,$5)
-		ON CONFLICT (slug,name) DO UPDATE SET code=$3, verify_jwt=$4, schedule=$5`, slug, name, code, verifyJWT, schedule)
+	a.db.Exec(`INSERT INTO edge_functions(slug,name,code,verify_jwt,schedule,timeout_s,mem_mb) VALUES ($1,$2,$3,$4,$5,$6,$7)
+		ON CONFLICT (slug,name) DO UPDATE SET code=$3, verify_jwt=$4, schedule=$5, timeout_s=$6, mem_mb=$7`,
+		slug, name, code, verifyJWT, schedule, timeoutS, memMB)
 	a.audit(r, "function-save", slug+"/"+name)
 	redirectMsg(w, r, "/p/"+slug+"/functions?fn="+name, "Function "+name+" deployed.")
 }
@@ -239,7 +255,15 @@ func (a *app) serveFunction(w http.ResponseWriter, r *http.Request, slug string)
 	// safe default for new functions: without it, a public function that uses the
 	// injected service-role key is reachable by anonymous callers.
 	var verifyJWT bool
-	a.db.QueryRow(`SELECT verify_jwt FROM edge_functions WHERE slug=$1 AND name=$2`, slug, name).Scan(&verifyJWT)
+	timeoutS, memMB := 30, 128
+	a.db.QueryRow(`SELECT verify_jwt, coalesce(timeout_s,30), coalesce(mem_mb,128)
+		FROM edge_functions WHERE slug=$1 AND name=$2`, slug, name).Scan(&verifyJWT, &timeoutS, &memMB)
+	if timeoutS < 5 || timeoutS > 120 {
+		timeoutS = 30
+	}
+	if memMB < 64 || memMB > 256 {
+		memMB = 128
+	}
 	if verifyJWT {
 		secret, _ := a.apiConfig(slug)
 		key := r.Header.Get("apikey")
@@ -297,7 +321,7 @@ func (a *app) serveFunction(w http.ResponseWriter, r *http.Request, slug string)
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(timeoutS)*time.Second)
 	defer cancel()
 	// Scoped env: NEVER inherit os.Environ() (it holds PANEL_PASS, SESSION_SECRET
 	// and the control-plane DSN). The function gets only its project context, the
@@ -323,7 +347,7 @@ func (a *app) serveFunction(w http.ResponseWriter, r *http.Request, slug string)
 		rows.Close()
 	}
 	cmd := exec.CommandContext(ctx, "/usr/local/bin/deno", "run", "--quiet",
-		"--v8-flags=--max-old-space-size=128", // cap each invocation's JS heap
+		fmt.Sprintf("--v8-flags=--max-old-space-size=%d", memMB), // per-function JS heap cap
 		"--allow-net", "--allow-env="+allow, "--allow-read="+funcRoot, edgeRunner, file)
 	cmd.Stdin = bytes.NewReader(input)
 	cmd.Env = env

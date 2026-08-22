@@ -27,7 +27,7 @@ happy path.
 ## Phase 2 - Edge Functions + Team
 - [x] Scheduled (cron) functions with run history.
 - [x] Full invocation logs and per-function metrics.
-- [ ] Per-function timeout/memory/env configuration.
+- [x] Per-function timeout/memory/env configuration.
 - [ ] Warm process pool - no cold starts for busy functions.
 - [ ] Streaming responses, background tasks, WebSocket support.
 - [ ] Message queues with a panel UI and function consumers.

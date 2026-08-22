@@ -1749,6 +1749,10 @@ const edgeBody = `
         Require a valid JWT (apikey or Bearer) to invoke <span class="muted">- recommended; unchecked makes the function public to anyone</span>
       </label>
       <div style="display:flex;gap:.5rem;align-items:flex-end;margin-top:.7rem;flex-wrap:wrap">
+        <label class="fld" style="margin:0"><span class="lt">Timeout (s)</span>
+          <input type="number" name="timeout_s" value="{{.TimeoutS}}" min="5" max="120" style="width:80px"></label>
+        <label class="fld" style="margin:0"><span class="lt">Memory (MB)</span>
+          <input type="number" name="mem_mb" value="{{.MemMB}}" min="64" max="256" step="64" style="width:90px"></label>
         <label class="fld" style="margin:0"><span class="lt">Schedule (cron, UTC - empty = HTTP only)</span>
           <input type="text" name="schedule" value="{{.Schedule}}" placeholder="e.g. */15 * * * *" list="cronpre" style="width:200px;font-family:var(--mono);font-size:12px"></label>
         <datalist id="cronpre"><option value="* * * * *"><option value="*/5 * * * *"><option value="*/15 * * * *"><option value="0 * * * *"><option value="0 0 * * *"><option value="0 0 * * 0"></datalist>

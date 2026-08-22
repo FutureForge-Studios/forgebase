@@ -471,6 +471,8 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE saved_queries ADD COLUMN IF NOT EXISTS owner text NOT NULL DEFAULT ''`,
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS anon_signins boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS expires_at timestamptz`,
+		`ALTER TABLE edge_functions ADD COLUMN IF NOT EXISTS timeout_s integer NOT NULL DEFAULT 30`,
+		`ALTER TABLE edge_functions ADD COLUMN IF NOT EXISTS mem_mb integer NOT NULL DEFAULT 128`,
 		`ALTER TABLE saved_queries ADD COLUMN IF NOT EXISTS is_private boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE edge_functions ADD COLUMN IF NOT EXISTS last_cron timestamptz`,
