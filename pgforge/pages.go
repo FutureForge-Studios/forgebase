@@ -1849,6 +1849,30 @@ const syncBody = `
 
 // ----- shared JS snippets -----
 
+const advisorsBody = `
+<div class="pagehead"><h1>Advisors</h1><p>Automated review of this database - security holes and performance drags, each with a concrete fix. Runs live against the catalogs on every visit.</p></div>
+<div style="display:flex;gap:.7rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
+  {{if .Errors}}<span class="badge paused" style="text-transform:none">{{.Errors}} error(s)</span>{{end}}
+  {{if .Warns}}<span class="badge paused" style="text-transform:none">{{.Warns}} warning(s)</span>{{end}}
+  {{if .Infos}}<span class="badge active" style="text-transform:none">{{.Infos}} note(s)</span>{{end}}
+  {{if not .Items}}<span class="badge active" style="text-transform:none">all clear</span>{{end}}
+</div>
+{{if not .Items}}
+<div class="card" style="text-align:center;padding:2.5rem"><p class="muted" style="margin:0">Nothing to flag. Every check passed against the live database.</p></div>
+{{end}}
+{{range .Items}}
+<div class="card" style="margin-bottom:.7rem;border-left:3px solid {{if eq .Level "ERROR"}}hsl(var(--destructive)){{else if eq .Level "WARN"}}hsl(var(--warn)){{else}}hsl(var(--border)){{end}}">
+  <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+    <b>{{.Title}}</b>
+    <span class="badge {{if eq .Level "INFO"}}active{{else}}paused{{end}}" style="text-transform:none">{{.Level}}</span>
+    <span class="muted" style="font-size:11.5px">{{.Area}}</span>
+  </div>
+  <p class="muted" style="font-size:12.5px;margin:.5rem 0 0">{{.Detail}}</p>
+  <p style="font-size:12.5px;margin:.4rem 0 0"><b>Fix:</b> {{.Fix}}</p>
+</div>
+{{end}}
+`
+
 const cronBody = `
 <div class="pagehead"><h1>Cron Jobs</h1><p>Scheduled SQL against this project's database - cleanups, rollups, refreshes. Powered by pg_cron.</p></div>
 {{if .Unavailable}}

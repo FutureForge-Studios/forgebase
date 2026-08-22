@@ -13,6 +13,14 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.14] - 2026-08-22
+
+### Added
+- Advisors page: live security review (RLS gaps, blanket write policies,
+  SECURITY DEFINER, exposed credential columns) and performance review
+  (missing PKs, unindexed FKs, unused/duplicate indexes, seq-scan-heavy
+  tables, bloat), each finding with a concrete fix.
+
 ## [1.3.13] - 2026-08-22
 
 ### Added
@@ -807,7 +815,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.13...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.14...HEAD
+[1.3.14]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.13...v1.3.14
 [1.3.13]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.12...v1.3.13
 [1.3.12]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.11...v1.3.12
 [1.3.11]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.10...v1.3.11
