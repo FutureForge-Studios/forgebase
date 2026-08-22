@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/hmac"
+	crand "crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
@@ -9,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"strings"
 	"time"
@@ -157,6 +159,15 @@ func verifyUserJWT(secret []byte, token string) (map[string]any, bool) {
 	return claims, true
 }
 
+// randInt returns a uniform random int in [0, max) from crypto/rand.
+func randInt(max int64) (int64, error) {
+	n, err := crand.Int(crand.Reader, big.NewInt(max))
+	if err != nil {
+		return 0, err
+	}
+	return n.Int64(), nil
+}
+
 // migrateAuthProjects re-runs the idempotent auth setup for every already-enabled
 // project on boot, so schema additions (metadata, family_id, banned_until, ...)
 // land on existing projects after a self-update, not only on re-enable.
@@ -216,6 +227,15 @@ func (a *app) ensureAuth(slug string) (string, error) {
 		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email_confirmed_at timestamptz`,
 		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS is_anonymous boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE auth.users ALTER COLUMN email DROP NOT NULL`,
+		`CREATE TABLE IF NOT EXISTS auth.one_time_tokens (
+			id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+			email text NOT NULL,
+			code_hash text NOT NULL,
+			attempts integer NOT NULL DEFAULT 0,
+			expires_at timestamptz NOT NULL,
+			created_at timestamptz NOT NULL DEFAULT now()
+		)`,
+		`CREATE INDEX IF NOT EXISTS one_time_tokens_email ON auth.one_time_tokens(email)`,
 		`DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN NOINHERIT; END IF; END $$`,
 		`GRANT USAGE ON SCHEMA public TO authenticated`,
 		`GRANT SELECT ON ALL TABLES IN SCHEMA public TO authenticated`,
@@ -511,6 +531,75 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(400)
 		w.Write([]byte("<h2>Invalid or expired link</h2>"))
+
+	case path == "/otp" && r.Method == http.MethodPost:
+		// Email a 6-digit sign-in code (supabase-js signInWithOtp email flow).
+		if a.authRateLimited(clientIP(r)) {
+			writeJSON(w, 429, map[string]string{"message": "too many requests"})
+			return
+		}
+		var body struct {
+			Email string `json:"email"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+		if strings.Contains(body.Email, "@") {
+			var recent int
+			db.QueryRow(`SELECT count(*) FROM auth.one_time_tokens
+				WHERE email=$1 AND created_at > now() - interval '1 hour'`, body.Email).Scan(&recent)
+			if recent < 4 {
+				n, _ := randInt(1000000)
+				code := fmt.Sprintf("%06d", n)
+				sum := sha256.Sum256([]byte(code))
+				db.Exec(`DELETE FROM auth.one_time_tokens WHERE email=$1`, body.Email)
+				db.Exec(`INSERT INTO auth.one_time_tokens(email, code_hash, expires_at)
+					VALUES ($1,$2, now() + interval '10 minutes')`, body.Email, hex.EncodeToString(sum[:]))
+				a.sendOTPEmail(slug, body.Email, code) // best-effort; never reveal existence
+			}
+		}
+		writeJSON(w, 200, map[string]string{"message": "if that email can sign in, a code is on its way"})
+
+	case path == "/verify" && r.Method == http.MethodPost:
+		// Verify an emailed OTP code and issue a session (verifyOtp type:email).
+		if a.authRateLimited(clientIP(r)) {
+			writeJSON(w, 429, map[string]string{"message": "too many requests"})
+			return
+		}
+		var body struct {
+			Email string `json:"email"`
+			Token string `json:"token"`
+			Type  string `json:"type"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+		body.Token = strings.TrimSpace(body.Token)
+		sum := sha256.Sum256([]byte(body.Token))
+		var otpID string
+		err := db.QueryRow(`SELECT id FROM auth.one_time_tokens
+			WHERE email=$1 AND code_hash=$2 AND expires_at > now() AND attempts < 5`,
+			body.Email, hex.EncodeToString(sum[:])).Scan(&otpID)
+		if err != nil {
+			db.Exec(`UPDATE auth.one_time_tokens SET attempts=attempts+1 WHERE email=$1`, body.Email)
+			writeJSON(w, 401, map[string]string{"message": "invalid or expired code"})
+			return
+		}
+		db.Exec(`DELETE FROM auth.one_time_tokens WHERE id=$1`, otpID)
+		var uid string
+		if db.QueryRow(`SELECT id FROM auth.users WHERE email=$1`, body.Email).Scan(&uid) != nil {
+			db.QueryRow(`INSERT INTO auth.users(email, encrypted_password, email_confirmed_at)
+				VALUES ($1,'otp',now()) RETURNING id`, body.Email).Scan(&uid)
+		} else {
+			db.Exec(`UPDATE auth.users SET email_confirmed_at=coalesce(email_confirmed_at,now()), last_sign_in_at=now() WHERE id=$1`, uid)
+		}
+		acc, ref, terr := a.issueTokens(db, secret, uid, body.Email, "")
+		if terr != nil {
+			writeJSON(w, 500, map[string]string{"message": terr.Error()})
+			return
+		}
+		a.auditRaw(body.Email, clientIP(r), "user-otp-login", slug)
+		writeJSON(w, 200, map[string]any{"access_token": acc, "refresh_token": ref,
+			"token_type": "bearer", "expires_in": accessTokenTTL,
+			"user": map[string]string{"id": uid, "email": body.Email}})
 
 	case path == "/magiclink" && r.Method == http.MethodPost:
 		if a.authRateLimited(clientIP(r)) {

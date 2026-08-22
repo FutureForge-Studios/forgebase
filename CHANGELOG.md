@@ -13,6 +13,12 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.35] - 2026-08-23
+
+### Added
+- Email OTP sign-in (signInWithOtp/verifyOtp compatible): hashed codes,
+  10-minute expiry, attempt caps, per-email send limits.
+
 ## [1.3.34] - 2026-08-23
 
 ### Added
@@ -944,7 +950,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.34...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.35...HEAD
+[1.3.35]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.34...v1.3.35
 [1.3.34]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.33...v1.3.34
 [1.3.33]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.32...v1.3.33
 [1.3.32]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.31...v1.3.32

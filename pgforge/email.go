@@ -116,6 +116,14 @@ func (a *app) sendRecoveryEmail(slug, email string) error {
 	return a.sendEmail(slug, email, "Reset your password", body)
 }
 
+// sendOTPEmail delivers a short-lived numeric sign-in code.
+func (a *app) sendOTPEmail(slug, email, code string) error {
+	body := fmt.Sprintf(`<p>Your sign-in code:</p>
+<p style="font-size:28px;letter-spacing:.3em;font-family:monospace"><b>%s</b></p>
+<p>It expires in 10 minutes. If you did not request it, ignore this email.</p>`, code)
+	return a.sendEmail(slug, email, "Your sign-in code", body)
+}
+
 func (a *app) sendMagicLinkEmail(slug, email, redirectTo string) error {
 	link := "https://" + slug + "." + a.cfg.domain + "/auth/v1/verify?token=" + a.signAuthToken("magiclink", slug, email, 1*time.Hour)
 	if redirectTo != "" {

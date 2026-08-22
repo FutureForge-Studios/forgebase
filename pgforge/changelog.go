@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.34"
+const appVersion = "1.3.35"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.35", Date: "2026-08-23",
+		Summary: "Sign in with an emailed code.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Email OTP sign-in: request a 6-digit code (rate-limited, hashed at rest, 10-minute expiry, 5 attempts) and verify it for a session - the supabase-js signInWithOtp / verifyOtp email flow. First-time emails get a confirmed account automatically, like magic links.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.34", Date: "2026-08-23",
 		Summary: "Signed upload URLs.",
