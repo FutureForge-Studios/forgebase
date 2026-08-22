@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -134,7 +136,25 @@ func (a *app) monitoringPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// storage meter vs disk (rough): show DB size against total disk
+	// per-database activity attribution: what THIS project costs the cluster
+	type attrRow struct {
+		Xacts, TupWrites, TempMB, Deadlocks int64
+		CacheHitPct                         int
+		Backends                            int
+	}
+	var attr attrRow
+	if db, err := a.dbFor(slug); err == nil {
+		db.QueryRow(`SELECT xact_commit + xact_rollback,
+				tup_inserted + tup_updated + tup_deleted,
+				temp_bytes/1024/1024, deadlocks,
+				CASE WHEN blks_hit + blks_read = 0 THEN 100
+					ELSE (blks_hit * 100 / (blks_hit + blks_read)) END,
+				numbackends
+			FROM pg_stat_database WHERE datname = current_database()`).
+			Scan(&attr.Xacts, &attr.TupWrites, &attr.TempMB, &attr.Deadlocks, &attr.CacheHitPct, &attr.Backends)
+	}
 	content := renderContent(monitoringBody, map[string]any{
+		"Attr": attr,
 		"Slug": slug, "Size": sizePretty, "Conns": conns, "MaxConns": maxConns,
 		"ConnPct": pctInt(conns, maxConns), "Hit": fmt.Sprintf("%.1f", hit*100),
 		"HitPct": int(hit * 100), "Tables": tbars, "Top": tqs, "PSS": pssOK,
@@ -226,8 +246,20 @@ func (a *app) logsPage(w http.ResponseWriter, r *http.Request) {
 		}
 		srows.Close()
 	}
+	type logView struct{ ID, Name, Rng, Act, Q string }
+	var views []logView
+	if vrows, err := a.db.Query(`SELECT id, name, rng, act, q FROM log_views WHERE slug=$1 ORDER BY name`, slug); err == nil {
+		for vrows.Next() {
+			var v logView
+			vrows.Scan(&v.ID, &v.Name, &v.Rng, &v.Act, &v.Q)
+			views = append(views, v)
+		}
+		vrows.Close()
+	}
+	var shipURL string
+	a.db.QueryRow(`SELECT coalesce(log_ship_url,'') FROM projects WHERE slug=$1`, slug).Scan(&shipURL)
 	content := renderContent(logsBody, map[string]any{"Slug": slug, "Events": events, "Acts": acts,
-		"Rng": rng, "Act": act, "Query": search, "Slow": slow})
+		"Rng": rng, "Act": act, "Query": search, "Slow": slow, "Views": views, "ShipURL": shipURL})
 	a.renderShell(w, r, shellData{Title: slug + " · Logs", Nav: "logs", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Logs"}}}, content)
 }
@@ -376,9 +408,152 @@ func (a *app) branchCreate(w http.ResponseWriter, r *http.Request) {
 	a.db.Exec(fmt.Sprintf(`REVOKE CONNECT ON DATABASE %s FROM PUBLIC`, bq))
 	a.db.Exec(`INSERT INTO projects(slug, role_name, password_enc, parent, expires_at) VALUES ($1,$1,pgp_sym_encrypt($2,$3),$4,$5)`,
 		branch, pw, string(a.cfg.secret), slug, expires)
+	if warn := a.scrubBranch(branch, r.FormValue("anonymize")); warn != "" {
+		a.rewriteUserlist()
+		a.audit(r, "branch", branch+" (anonymized, with warnings)")
+		redirectMsg(w, r, "/p/"+branch, "Branch "+branch+" created; anonymization notes: "+warn)
+		return
+	}
 	a.rewriteUserlist()
 	a.audit(r, "branch", branch)
 	redirectMsg(w, r, "/p/"+branch, "Branch "+branch+" created from "+slug+".")
+}
+
+// saveLogView stores the current log filters as a named quick view.
+func (a *app) saveLogView(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		redirectErr(w, r, "/p/"+slug+"/logs", "Give the view a name.")
+		return
+	}
+	a.db.Exec(`INSERT INTO log_views(slug, name, rng, act, q) VALUES ($1,$2,$3,$4,$5)`,
+		slug, name, r.FormValue("rng"), r.FormValue("act"), r.FormValue("q"))
+	redirectMsg(w, r, "/p/"+slug+"/logs?rng="+r.FormValue("rng")+"&act="+r.FormValue("act")+"&q="+r.FormValue("q"), "View saved.")
+}
+
+func (a *app) deleteLogView(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	a.db.Exec(`DELETE FROM log_views WHERE id=$1 AND slug=$2`, r.FormValue("id"), slug)
+	redirectMsg(w, r, "/p/"+slug+"/logs", "View removed.")
+}
+
+// setLogShip stores a webhook URL that receives this project's last-day logs
+// nightly as JSON (empty disables shipping).
+func (a *app) setLogShip(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	u := strings.TrimSpace(r.FormValue("url"))
+	if u != "" && !strings.HasPrefix(u, "https://") {
+		redirectErr(w, r, "/p/"+slug+"/logs", "Ship URL must be https.")
+		return
+	}
+	a.db.Exec(`UPDATE projects SET log_ship_url=$2 WHERE slug=$1`, slug, u)
+	a.audit(r, "log-ship", slug)
+	redirectMsg(w, r, "/p/"+slug+"/logs", "Log shipping saved - a JSON bundle posts nightly after the backup run.")
+}
+
+// shipLogs posts each opted-in project's last-24h audit + edge logs to its
+// webhook. Called once per day from the sampler.
+func (a *app) shipLogs() {
+	rows, err := a.db.Query(`SELECT slug, log_ship_url FROM projects
+		WHERE coalesce(log_ship_url,'') <> ''
+		  AND (log_shipped_at IS NULL OR log_shipped_at < now() - interval '23 hours')`)
+	if err != nil {
+		return
+	}
+	type tgt struct{ slug, url string }
+	var tgts []tgt
+	for rows.Next() {
+		var t tgt
+		rows.Scan(&t.slug, &t.url)
+		tgts = append(tgts, t)
+	}
+	rows.Close()
+	for _, t := range tgts {
+		payload := map[string]any{"project": t.slug, "audit": []map[string]any{}, "edge": []map[string]any{}}
+		if ar, err := a.db.Query(`SELECT to_char(at,'YYYY-MM-DD"T"HH24:MI:SS"Z"'), actor, action, coalesce(detail->>'target','')
+			FROM audit_log WHERE at > now() - interval '24 hours'
+			  AND (detail->>'target' = $1 OR detail->>'target' LIKE $1 || '/%') ORDER BY at`, t.slug); err == nil {
+			var list []map[string]any
+			for ar.Next() {
+				var at, actor, action, target string
+				ar.Scan(&at, &actor, &action, &target)
+				list = append(list, map[string]any{"at": at, "actor": actor, "action": action, "target": target})
+			}
+			ar.Close()
+			payload["audit"] = list
+		}
+		if er, err := a.db.Query(`SELECT to_char(at,'YYYY-MM-DD"T"HH24:MI:SS"Z"'), name, coalesce(status,0), coalesce(ms,0), coalesce(ok,false), coalesce(error,'')
+			FROM edge_logs WHERE slug=$1 AND at > now() - interval '24 hours' ORDER BY at`, t.slug); err == nil {
+			var list []map[string]any
+			for er.Next() {
+				var at, name, errmsg string
+				var status, ms int
+				var ok bool
+				er.Scan(&at, &name, &status, &ms, &ok, &errmsg)
+				list = append(list, map[string]any{"at": at, "fn": name, "status": status, "ms": ms, "ok": ok, "error": errmsg})
+			}
+			er.Close()
+			payload["edge"] = list
+		}
+		body, _ := json.Marshal(payload)
+		req, _ := http.NewRequest(http.MethodPost, t.url, bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", "ForgeBase-LogShip/1")
+		if resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req); err == nil {
+			resp.Body.Close()
+		}
+		a.db.Exec(`UPDATE projects SET log_shipped_at=now() WHERE slug=$1`, t.slug)
+	}
+}
+
+// scrubBranch anonymizes columns on a fresh branch: one "table.column" per
+// line or comma. Text-ish columns become deterministic anon_<md5> tokens
+// (joins keep working); anything else is nulled. Returns warnings, "" = clean.
+func (a *app) scrubBranch(branch, rules string) string {
+	rules = strings.TrimSpace(rules)
+	if rules == "" {
+		return ""
+	}
+	db, err := a.dbFor(branch)
+	if err != nil {
+		return "could not connect: " + err.Error()
+	}
+	var warns []string
+	for _, raw := range strings.FieldsFunc(rules, func(r rune) bool { return r == ',' || r == '\n' }) {
+		spec := strings.TrimSpace(raw)
+		if spec == "" {
+			continue
+		}
+		i := strings.IndexByte(spec, '.')
+		if i <= 0 {
+			warns = append(warns, spec+" (use table.column)")
+			continue
+		}
+		table, col := spec[:i], spec[i+1:]
+		colType := ""
+		for _, c := range a.tableCols(db, "public", table) {
+			if c.Name == col {
+				colType = c.Type
+			}
+		}
+		if colType == "" {
+			warns = append(warns, spec+" (not found)")
+			continue
+		}
+		qt, qc := qrel("public", table), pq.QuoteIdentifier(col)
+		var stmt string
+		switch colType {
+		case "text", "character varying", "citext":
+			stmt = fmt.Sprintf(`UPDATE %s SET %s = 'anon_' || md5(%s) WHERE %s IS NOT NULL`, qt, qc, qc, qc)
+		default:
+			stmt = fmt.Sprintf(`UPDATE %s SET %s = NULL`, qt, qc)
+		}
+		if _, err := db.Exec(stmt); err != nil {
+			warns = append(warns, spec+" ("+err.Error()+")")
+		}
+	}
+	return strings.Join(warns, "; ")
 }
 
 // branchReset throws away a branch's current state and recreates it from its

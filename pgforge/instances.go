@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -127,4 +128,59 @@ func (a *app) syncInstanceStatus() {
 				WHERE slug=$1 AND status='active'`, s)
 		}
 	}
+}
+
+// migrateToInstance moves a shared-cluster project onto its own dedicated
+// Postgres container: create the instance, copy every byte with
+// pg_dump | pg_restore, then flip the panel over. The shared database is
+// RENAMED (slug_premig), never dropped - a failed migration leaves the
+// project exactly as it was, and a finished one keeps the old copy around
+// until the owner deletes it by hand.
+func (a *app) migrateToInstance(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	back := "/p/" + slug + "/settings"
+	if !a.projectExists(slug) {
+		http.NotFound(w, r)
+		return
+	}
+	if !instanceModeAvailable() {
+		redirectErr(w, r, back, "This server has no dedicated-instance store (run setup-instances.sh first).")
+		return
+	}
+	if a.projectMode(slug) != "shared" {
+		redirectErr(w, r, back, "Already running as a dedicated instance.")
+		return
+	}
+	_, pw := a.projectCred(slug)
+	if pw == "" {
+		redirectErr(w, r, back, "Could not read the project credential.")
+		return
+	}
+	if _, err := pgInstance(3*time.Minute, "create", slug, pw); err != nil {
+		redirectErr(w, r, back, "Instance create failed: "+err.Error())
+		return
+	}
+	// copy the data: shared cluster -> new instance (both containers local)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	pipe := fmt.Sprintf(
+		`set -o pipefail; docker exec pgforge-db pg_dump -U postgres -Fc -d %q | docker exec -i pgi-%s pg_restore -U %q -d %q --no-owner --role %q`,
+		slug, slug, slug, slug, slug)
+	if out, err := exec.CommandContext(ctx, "bash", "-c", pipe).CombinedOutput(); err != nil {
+		pgInstance(time.Minute, "delete", slug)
+		redirectErr(w, r, back, "Data copy failed (shared copy untouched): "+tail(string(out), 300))
+		return
+	}
+	// flip: park the shared copy, point everything at the instance
+	a.stopPostgREST(slug)
+	a.stopRealtimeHub(slug)
+	closeConn(slug)
+	a.db.Exec(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1`, slug)
+	if _, err := a.db.Exec(fmt.Sprintf(`ALTER DATABASE %q RENAME TO %q`, slug, slug+"_premig")); err != nil {
+		redirectErr(w, r, back, "Copy done but could not park the shared database: "+err.Error())
+		return
+	}
+	a.db.Exec(`UPDATE projects SET mode='instance', status='active', last_active=now() WHERE slug=$1`, slug)
+	a.audit(r, "migrate-instance", slug)
+	redirectMsg(w, r, back, "Migrated to a dedicated instance. The old shared copy is parked as "+slug+"_premig; delete it from the Database page when you are confident.")
 }

@@ -13,6 +13,36 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.2] - 2026-08-23
+
+### Added
+- Secrets vault: encrypted-at-rest secrets readable from SQL, functions and
+  cron via forgebase.secret_set / secret_get / secret_list / secret_delete,
+  guarded by SECURITY DEFINER functions. Enable from Settings.
+- End-user two-factor auth: TOTP enrollment with otpauth URI, verify-to-
+  activate, ten single-use recovery codes, and MFA-gated password logins
+  (/auth/v1/factors/enroll|verify|disable).
+- Bot protection: optional Cloudflare Turnstile verification on signup/login.
+- API Explorer: run REST requests as any role from the panel and inspect
+  status, headers, body and the equivalent curl.
+- AI SQL assistant (bring your own key): any Anthropic- or OpenAI-compatible
+  endpoint; the SQL editor's Ask AI button writes queries against your live
+  schema. Keys encrypted at rest.
+- Image transformations (?width= / ?height= on storage URLs) with cached
+  renditions, plus ETag/304 caching on all storage serving.
+- Logical replication: create/drop publications from the Database page.
+- Saved log views and daily log shipping to any HTTPS endpoint.
+- Anonymized branches: table.column rules turn text into deterministic anon_
+  tokens and null everything else.
+- Per-database activity card on Monitoring (transactions, writes, cache hit,
+  temp spill, backends, deadlocks).
+- One-button migration from the shared cluster to a dedicated instance; the
+  shared copy stays parked until deleted by hand.
+- Eight more OAuth providers: Microsoft, Facebook, Twitch, Slack, Spotify,
+  LinkedIn, Bitbucket, Notion.
+- A POSIX CLI (scripts/forgebase) using personal API keys, now accepted as
+  Bearer tokens by the panel API.
+
 ## [1.4.1] - 2026-08-23
 
 ### Fixed

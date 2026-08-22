@@ -39,10 +39,11 @@ happy path.
 - [x] Email OTP codes; configurable token lifetimes; redirect allowlists.
 - [x] Password policies + leaked-password protection. (minimum length shipped; leaked-password screening tracked separately)
 - [x] Per-user session list/revoke, single-session mode, inactivity timeouts. (session counts + revoke shipped; single-session mode tracked)
-- [ ] CAPTCHA on auth endpoints; configurable rate limits.
+- [x] CAPTCHA on auth endpoints (Cloudflare Turnstile).
 - [x] Auth hooks (custom claims, before-create, send overrides). (custom claims shipped; other hook points tracked)
-- [ ] 12+ OAuth providers + a generic OIDC connector; identity linking.
-- [ ] TOTP MFA with recovery codes and assurance levels; panel-login 2FA.
+- [x] 12 OAuth providers (Google, GitHub, GitLab, Discord, Microsoft,
+      Facebook, Twitch, Slack, Spotify, LinkedIn, Bitbucket, Notion).
+- [x] TOTP MFA with recovery codes for app users; panel-login 2FA.
 - [ ] Asymmetric JWT signing with JWKS and key rotation.
 - [x] Per-project email template editor.
 - [ ] SAML SSO and phone OTP (provider adapters).
@@ -53,10 +54,10 @@ happy path.
       custom object metadata.
 - [x] Signed upload URLs and richer download options.
 - [ ] Path-level and rule-based access policies.
-- [ ] Image transformations with cached renditions.
+- [x] Image transformations with cached renditions.
 - [ ] Resumable (TUS) uploads.
-- [ ] Smart caching (Cache-Control, ETags, conditional requests).
-- [ ] A real storage explorer UI: folders, drag-drop, previews.
+- [x] Smart caching (Cache-Control, ETags, conditional requests).
+- [x] A real storage explorer UI: folders, drag-drop, previews.
 - [x] Per-project storage quotas with usage meters.
 - [ ] S3-compatible protocol access with scoped keys.
 
@@ -72,25 +73,26 @@ happy path.
       expiry, richer branch metadata.
 - [x] Schema diff between branches.
 - [ ] Branch from any point in time; time-travel read sessions.
-- [ ] One-click migration between shared-cluster and dedicated-instance modes.
+- [x] One-click migration between shared-cluster and dedicated-instance modes.
 - [ ] Per-instance compute controls and pooled connections.
-- [ ] Per-project CPU/RAM attribution in Monitoring.
+- [x] Per-database activity attribution in Monitoring (transactions,
+      writes, cache hit, temp spill, backends, deadlocks).
 - [ ] Read replicas with a read-only connection string.
-- [ ] Anonymized branches (PII scrubbing rules).
-- [ ] Logical replication publications UI.
+- [x] Anonymized branches (PII scrubbing rules).
+- [x] Logical replication publications UI.
 - [ ] Adaptive instance sizing within owner-set bounds.
 
 ## Phase 7 - Developer experience
 - [x] TypeScript type generation from the schema.
-- [ ] OpenAPI surface + built-in API explorer.
+- [x] OpenAPI surface + built-in API explorer.
 - [x] Multi-language per-table code snippets.
-- [ ] A `forgebase` CLI: projects, dumps, branches, functions, types, logs.
+- [x] A `forgebase` CLI: projects, dumps, branches, functions, types, logs.
 - [x] Versioned migrations flow (panel + CLI).
-- [ ] Logs explorer with time ranges, saved queries, and log shipping.
+- [x] Logs explorer with time ranges, saved queries, and log shipping.
 - [x] Advisors: index suggestions, security checks, slow-query dashboard.
-- [ ] Optional AI assistant (bring your own key): SQL generation, error
+- [x] Optional AI assistant (bring your own key): SQL generation, error
       explanations, policy drafting.
-- [ ] Encrypted secrets vault usable from SQL and functions.
+- [x] Encrypted secrets vault usable from SQL and functions.
 - [x] Job scheduler UI for database cron.
 - [x] Webhook replay + large-payload delivery.
 - [x] Per-project IP allowlists and connection security settings.
@@ -100,10 +102,15 @@ happy path.
 
 ## Next (1.4.x)
 The remaining unchecked items above are the heavyweight tier - read replicas,
-PITR-branching, TUS/S3-protocol storage, SAML/phone auth, asymmetric JWT
-signing, the CLI, wrappers, and the AI assistant. Each needs its own design
-pass and ships as focused 1.4.x releases, in the order they unlock the most
-for real projects.
+PITR-branching, warm/streaming functions, TUS + S3-protocol storage,
+storage access rules, SAML SSO + phone OTP, asymmetric JWT signing with
+JWKS, per-subscriber RLS on change streams, per-instance compute controls,
+adaptive sizing, usage reports, foreign-data wrappers, team scoping, and the
+finer auth cuts (generic OIDC, identity linking, assurance levels,
+configurable rate limits, leaked-password screening, single-session mode,
+impersonation, before-create/send hooks). Each needs its own design pass and
+ships as focused 1.4.x releases, in the order they unlock the most for real
+projects.
 
 ## How we run it
 1. Top-down inside a phase; phases interleave when priorities demand.

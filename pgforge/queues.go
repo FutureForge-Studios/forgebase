@@ -77,10 +77,10 @@ func (a *app) ensureQueueFns(slug string) error {
 }
 
 type queueRow struct {
-	Name, Created  string
-	Depth, InVT    int64
-	Archived       int64
-	OldestSeconds  int64
+	Name, Created string
+	Depth, InVT   int64
+	Archived      int64
+	OldestSeconds int64
 }
 
 func (a *app) listQueues(slug string) []queueRow {

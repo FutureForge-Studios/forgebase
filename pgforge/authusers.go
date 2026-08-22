@@ -12,6 +12,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -205,6 +206,31 @@ func verifyUserJWT(secret []byte, token string) (map[string]any, bool) {
 	return claims, true
 }
 
+// captchaOK verifies a Cloudflare Turnstile token when the project has a
+// captcha secret configured; unset secret means the check is off.
+func (a *app) captchaOK(slug, token, ip string) bool {
+	var secret string
+	a.db.QueryRow(`SELECT coalesce(captcha_secret,'') FROM auth_config WHERE slug=$1`, slug).Scan(&secret)
+	if secret == "" {
+		return true
+	}
+	if token == "" {
+		return false
+	}
+	form := url.Values{"secret": {secret}, "response": {token}, "remoteip": {ip}}
+	resp, err := (&http.Client{Timeout: 8 * time.Second}).PostForm(
+		"https://challenges.cloudflare.com/turnstile/v0/siteverify", form)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Success bool `json:"success"`
+	}
+	json.NewDecoder(resp.Body).Decode(&out)
+	return out.Success
+}
+
 // randInt returns a uniform random int in [0, max) from crypto/rand.
 func randInt(max int64) (int64, error) {
 	n, err := crand.Int(crand.Reader, big.NewInt(max))
@@ -273,6 +299,15 @@ func (a *app) ensureAuth(slug string) (string, error) {
 		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email_confirmed_at timestamptz`,
 		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS is_anonymous boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE auth.users ALTER COLUMN email DROP NOT NULL`,
+		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS totp_secret text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS totp_enabled boolean NOT NULL DEFAULT false`,
+		`CREATE TABLE IF NOT EXISTS auth.recovery_codes (
+			user_id uuid NOT NULL,
+			code_hash text NOT NULL,
+			used_at timestamptz,
+			created_at timestamptz NOT NULL DEFAULT now()
+		)`,
+		`CREATE INDEX IF NOT EXISTS recovery_codes_user ON auth.recovery_codes(user_id)`,
 		`CREATE TABLE IF NOT EXISTS auth.one_time_tokens (
 			id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 			email text NOT NULL,
@@ -344,9 +379,14 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		var body struct {
 			Email, Password string
 			Data            json.RawMessage `json:"data"` // optional user_metadata
+			CaptchaToken    string          `json:"captcha_token"`
 		}
 		json.NewDecoder(r.Body).Decode(&body)
 		body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+		if !a.captchaOK(slug, body.CaptchaToken, clientIP(r)) {
+			writeJSON(w, 400, map[string]string{"message": "captcha verification failed"})
+			return
+		}
 		if body.Email == "" && body.Password == "" {
 			// Anonymous sign-in: a real user row without credentials; later
 			// upgradeable to permanent via PUT /user with email+password.
@@ -426,9 +466,18 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 			writeJSON(w, 429, map[string]string{"message": "too many requests"})
 			return
 		}
-		var body struct{ Email, Password string }
+		var body struct {
+			Email, Password string
+			TOTPCode        string `json:"totp_code"`
+			RecoveryCode    string `json:"recovery_code"`
+			CaptchaToken    string `json:"captcha_token"`
+		}
 		json.NewDecoder(r.Body).Decode(&body)
 		body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+		if !a.captchaOK(slug, body.CaptchaToken, clientIP(r)) {
+			writeJSON(w, 400, map[string]string{"message": "captcha verification failed"})
+			return
+		}
 		var id, hash string
 		var bannedUntil, emailConfirmed sql.NullTime
 		err := db.QueryRow(`SELECT id, encrypted_password, banned_until, email_confirmed_at FROM auth.users WHERE email=$1`, body.Email).Scan(&id, &hash, &bannedUntil, &emailConfirmed)
@@ -443,6 +492,13 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 		if a.authConfirmEmail(slug) && !emailConfirmed.Valid {
 			writeJSON(w, http.StatusForbidden, map[string]string{"message": "email not confirmed"})
 			return
+		}
+		if sec, on := mfaState(db, id); on && sec != "" {
+			if !totpVerify(sec, body.TOTPCode, time.Now()) && !tryRecoveryCode(db, id, body.RecoveryCode) {
+				writeJSON(w, 401, map[string]any{"mfa_required": true,
+					"message": "two-factor code required - resend with totp_code (or recovery_code)"})
+				return
+			}
 		}
 		db.Exec(`UPDATE auth.users SET last_sign_in_at=now() WHERE id=$1`, id)
 		acc, ref, terr := a.issueTokens(db, secret, slug, id, body.Email, "")
@@ -473,6 +529,9 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 			}
 		}
 		writeJSON(w, 200, map[string]string{"message": "signed out"})
+
+	case strings.HasPrefix(path, "/factors/") && r.Method == http.MethodPost:
+		a.serveAuthMFA(w, r, db, secret, slug, strings.TrimPrefix(path, "/factors/"))
 
 	case path == "/user" && r.Method == http.MethodGet:
 		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -915,6 +974,8 @@ func (a *app) saveAuthPolicy(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, back, "Token lifetime 5-1440 minutes, password minimum 6-72 chars.")
 		return
 	}
+	capSite := strings.TrimSpace(r.FormValue("captcha_site"))
+	capSecret := strings.TrimSpace(r.FormValue("captcha_secret"))
 	allow := strings.TrimSpace(r.FormValue("redirects"))
 	for _, e := range strings.Split(allow, ",") {
 		e = strings.TrimSpace(e)
@@ -923,8 +984,9 @@ func (a *app) saveAuthPolicy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	a.db.Exec(`UPDATE auth_config SET access_ttl_min=$2, min_pw_len=$3, redirect_allowlist=$4 WHERE slug=$1`,
-		slug, ttlMin, minPw, allow)
+	a.db.Exec(`UPDATE auth_config SET access_ttl_min=$2, min_pw_len=$3, redirect_allowlist=$4,
+		captcha_site=$5, captcha_secret=$6 WHERE slug=$1`,
+		slug, ttlMin, minPw, allow, capSite, capSecret)
 	a.audit(r, "auth-policy", fmt.Sprintf("%s ttl=%dm pw>=%d", slug, ttlMin, minPw))
 	redirectMsg(w, r, back, "Auth policies saved.")
 }
@@ -987,7 +1049,7 @@ func (a *app) authPage(w http.ResponseWriter, r *http.Request) {
 		Enabled        bool
 	}
 	var providers []provCfg
-	for _, p := range []string{"google", "github", "gitlab", "discord"} {
+	for _, p := range []string{"google", "github", "gitlab", "discord", "microsoft", "facebook", "twitch", "slack", "spotify", "linkedin", "bitbucket", "notion"} {
 		id, _, en := a.oauthConfig(slug, p)
 		providers = append(providers, provCfg{Name: p, ClientID: id, Enabled: en})
 	}
@@ -1015,6 +1077,16 @@ func (a *app) authPage(w http.ResponseWriter, r *http.Request) {
 				out["subj_"+k], out["body_"+k] = subj, body
 			}
 			return out
+		}(),
+		"CaptchaSite": func() string {
+			var v string
+			a.db.QueryRow(`SELECT coalesce(captcha_site,'') FROM auth_config WHERE slug=$1`, slug).Scan(&v)
+			return v
+		}(),
+		"CaptchaSecret": func() string {
+			var v string
+			a.db.QueryRow(`SELECT coalesce(captcha_secret,'') FROM auth_config WHERE slug=$1`, slug).Scan(&v)
+			return v
 		}(),
 		"TTLMin": func() int { t, _, _ := a.authPolicy(slug); return t / 60 }(),
 		"MinPw":  func() int { _, m, _ := a.authPolicy(slug); return m }(),

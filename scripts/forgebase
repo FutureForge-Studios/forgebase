@@ -1,0 +1,55 @@
+#!/bin/sh
+# ForgeBase CLI - a thin, dependency-free client for the panel API.
+#
+# Setup:
+#   export FORGEBASE_URL=https://your-panel-domain
+#   export FORGEBASE_TOKEN=pgf_...       (Account page -> Personal API keys)
+#
+# Commands:
+#   forgebase projects                       list projects (JSON)
+#   forgebase types <slug> [out.ts]          download database.types.ts
+#   forgebase openapi <slug> [out.json]      download the OpenAPI spec
+#   forgebase migrations <slug> [out.sql]    download the migration history
+#   forgebase migrate <slug> <name> <file>   apply a SQL migration
+#   forgebase csv <slug> <table> [out.csv]   export a table as CSV
+set -eu
+
+: "${FORGEBASE_URL:?set FORGEBASE_URL to your panel URL}"
+: "${FORGEBASE_TOKEN:?set FORGEBASE_TOKEN to a personal API key (pgf_...)}"
+
+req() { # METHOD PATH [curl args...]
+  m="$1"; p="$2"; shift 2
+  curl -fsS -X "$m" "$FORGEBASE_URL$p" -H "Authorization: Bearer $FORGEBASE_TOKEN" "$@"
+}
+
+cmd="${1:-help}"
+case "$cmd" in
+  projects)
+    req GET /api/cli/projects ;;
+  types)
+    slug="${2:?usage: forgebase types <slug> [out.ts]}"
+    out="${3:-database.types.ts}"
+    req GET "/p/$slug/types.ts" -o "$out" && echo "wrote $out" ;;
+  openapi)
+    slug="${2:?usage: forgebase openapi <slug> [out.json]}"
+    out="${3:-$slug-openapi.json}"
+    req GET "/p/$slug/openapi.json" -o "$out" && echo "wrote $out" ;;
+  migrations)
+    slug="${2:?usage: forgebase migrations <slug> [out.sql]}"
+    out="${3:-$slug-migrations.sql}"
+    req GET "/p/$slug/migrations.sql" -o "$out" && echo "wrote $out" ;;
+  migrate)
+    slug="${2:?usage: forgebase migrate <slug> <name> <file.sql>}"
+    name="${3:?migration name required}"
+    file="${4:?sql file required}"
+    req POST "/p/$slug/migration-apply" \
+      --data-urlencode "name=$name" \
+      --data-urlencode "sql@$file" -o /dev/null -w "%{http_code}\n" ;;
+  csv)
+    slug="${2:?usage: forgebase csv <slug> <table> [out.csv]}"
+    table="${3:?table required}"
+    out="${4:-$table.csv}"
+    req GET "/p/$slug/export?t=$table" -o "$out" && echo "wrote $out" ;;
+  *)
+    sed -n '2,15p' "$0" ;;
+esac

@@ -451,6 +451,7 @@ const sqlBody = `
         <button class="btn btn-primary" type="submit">{{icon "play"}} Run</button>
         <button class="btn btn-ghost btn-sm" type="button" onclick="runExplain()" title="Visual query plan (never executes writes)">Explain</button>
         <button class="btn btn-ghost btn-sm" type="button" onclick="fmtSQL()" title="Format SQL">Format</button>
+        <button class="btn btn-ghost btn-sm" type="button" onclick="askAI()" title="Turn a plain-language request into SQL (uses the AI key from Account settings)">{{icon "sparkle"}} Ask AI</button>
         <label class="muted" style="font-size:12px;display:flex;align-items:center;gap:.3rem">rows
           <select name="limit" style="padding:.25rem .4rem;font-size:12px">
             <option value="100" {{if eq .Limit 100}}selected{{end}}>100</option>
@@ -585,6 +586,13 @@ document.getElementById('sqlform').addEventListener('submit',function(){
  TS.tabs[TS.a].q=document.getElementById('buf').value||q.value;tsave();});
 trender();
 tsave();
+function askAI(){var p=prompt('Describe the query you want:');if(!p)return;
+ var btns=document.querySelectorAll('button');
+ fetch(location.pathname.replace(/\/sql.*/,'')+'/ai-sql',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:p})})
+  .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j}})})
+  .then(function(x){if(!x.ok){alert(x.j.message||'AI request failed');return;}
+   q.value=x.j.sql;paint();q.focus();})
+  .catch(function(){alert('AI request failed')});}
 function fmtSQL(){var v=q.value;
  v=v.replace(KW,function(m){return m.toUpperCase()});
  v=v.replace(/[ \t]+(FROM|WHERE|ORDER BY|GROUP BY|HAVING|LIMIT|LEFT JOIN|RIGHT JOIN|INNER JOIN|JOIN|UNION|VALUES|SET|RETURNING)\b/g,'\n$1');
@@ -611,6 +619,26 @@ const databaseBody = `
       <div><div class="label">Postgres</div><div style="font-family:var(--serif);font-size:22px">{{.Version}}</div></div>
     </div>
   </div>
+</div>
+<div class="card" style="margin-top:1rem">
+  <div style="display:flex;align-items:center;gap:.6rem"><h2>Logical replication</h2><span class="label">{{len .Pubs}} publication(s)</span></div>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .6rem">Publications let external subscribers replicate this database's changes (CDC pipelines, warehouses, your own replicas).</p>
+  {{if .Pubs}}
+  <div class="tblwrap"><table class="data">
+    <thead><tr><th>Publication</th><th>Scope</th><th>Events</th><th></th></tr></thead>
+    <tbody>{{range .Pubs}}<tr>
+      <td><code>{{.Name}}</code></td>
+      <td class="muted" style="font-size:11.5px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{if .AllTables}}ALL TABLES{{else}}{{.Tables}}{{end}}</td>
+      <td class="muted" style="font-size:11.5px">{{if .Ins}}ins {{end}}{{if .Upd}}upd {{end}}{{if .Del}}del{{end}}</td>
+      <td style="text-align:right"><form method="post" action="/p/{{$.Slug}}/publication-drop" onsubmit="return confirm('Drop publication {{.Name}}?')" style="display:inline"><input type="hidden" name="name" value="{{.Name}}"><button class="copy" style="color:hsl(var(--destructive))">{{icon "trash"}}</button></form></td>
+    </tr>{{end}}</tbody>
+  </table></div>{{end}}
+  <form method="post" action="/p/{{.Slug}}/publication-create" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.7rem">
+    <label class="fld" style="margin:0"><span class="lt">Name</span><input type="text" name="name" placeholder="cdc_out" required style="width:140px"></label>
+    <label class="fld" style="margin:0"><span class="lt">Scope</span><select name="scope" style="width:auto" onchange="document.getElementById('pubtbls').style.display=this.value==='all'?'none':''"><option value="all">all tables</option><option value="some">specific tables</option></select></label>
+    <label class="fld" style="margin:0;display:none" id="pubtbls"><span class="lt">Tables (comma separated)</span><input type="text" name="tables" placeholder="orders, users" style="width:200px"></label>
+    <button class="btn btn-primary btn-sm" type="submit">Create publication</button>
+  </form>
 </div>
 <div class="card" style="margin-top:1rem">
   <h2>Connection &amp; pooling</h2>
@@ -788,6 +816,21 @@ const backupsBody = `
 const settingsBody = `
 <div class="pagehead"><h1>Settings</h1><p>Manage the <b>{{.Slug}}</b> project.</p></div>
 <div class="card" style="margin-bottom:1rem">
+  <div style="display:flex;align-items:center;gap:.6rem"><h2>Secrets vault</h2><div class="spacer"></div>
+    <form method="post" action="/p/{{.Slug}}/vault-enable"><button class="btn btn-primary btn-sm">{{icon "key"}} Enable / repair vault</button></form></div>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 0">Encrypted secrets usable from SQL, cron jobs and functions: <code>forgebase.secret_set('name','value')</code>, <code>secret_get</code>, <code>secret_list()</code>, <code>secret_delete</code>. Values are encrypted at rest; only definer functions can reach them - never API roles.</p>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <div style="display:flex;align-items:center;gap:.6rem"><h2>Dedicated instance</h2>
+    {{if eq .Mode "instance"}}<span class="badge active">running dedicated</span>{{end}}<div class="spacer"></div>
+    {{if and .CanInstance (eq .Mode "shared")}}<form method="post" action="/p/{{.Slug}}/migrate-instance" onsubmit="return confirm('Copy this project onto its own Postgres container? The shared copy is kept (parked) and the panel switches over when the copy finishes.')">
+      <button class="btn btn-primary btn-sm">{{icon "database"}} Migrate to dedicated instance</button></form>{{end}}</div>
+  {{if eq .Mode "instance"}}<p class="muted" style="font-size:12.5px;margin:0">This project runs on its own Postgres container: instant branches, true scale-to-zero, its own crash domain.</p>
+  {{else if .CanInstance}}<p class="muted" style="font-size:12.5px;margin:0">Move this project out of the shared cluster onto its own Postgres container. Zero data loss: the shared copy stays parked until you delete it.</p>
+  {{else}}<p class="muted" style="font-size:12.5px;margin:0">Not available on this server: the dedicated-instance store is not set up (setup-instances.sh).</p>{{end}}
+</div>
+<div class="card" style="margin-bottom:1rem">
   <h2>Project details</h2>
   <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));margin-top:.8rem;gap:1rem">
     <div><div class="label">Project ID</div><code style="font-size:13px">{{.Slug}}</code></div>
@@ -858,6 +901,14 @@ const settingsBody = `
 
 const monitoringBody = `
 <div class="pagehead"><h1>Monitoring</h1><p>Live health and usage for <b>{{.Slug}}</b>. Counters are cumulative since the last stats reset.</p></div>
+<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.8rem;margin-bottom:1rem">
+  <div class="card stat"><div class="k">Transactions</div><div class="v" style="font-size:18px">{{.Attr.Xacts}}</div></div>
+  <div class="card stat"><div class="k">Row writes</div><div class="v" style="font-size:18px">{{.Attr.TupWrites}}</div></div>
+  <div class="card stat"><div class="k">Cache hit</div><div class="v" style="font-size:18px">{{.Attr.CacheHitPct}}%</div></div>
+  <div class="card stat"><div class="k">Temp spill</div><div class="v" style="font-size:18px">{{.Attr.TempMB}} MB</div></div>
+  <div class="card stat"><div class="k">Backends</div><div class="v" style="font-size:18px">{{.Attr.Backends}}</div></div>
+  <div class="card stat"><div class="k">Deadlocks</div><div class="v" style="font-size:18px">{{.Attr.Deadlocks}}</div></div>
+</div>
 <div style="display:flex;gap:.4rem;margin-bottom:1rem">
   <a class="btn btn-sm {{if eq .Range "24h"}}btn-primary{{else}}btn-ghost{{end}}" href="?range=24h">24h</a>
   <a class="btn btn-sm {{if eq .Range "7d"}}btn-primary{{else}}btn-ghost{{end}}" href="?range=7d">7 days</a>
@@ -953,7 +1004,23 @@ const logsBody = `
   <label class="fld" style="margin:0"><span class="lt">Target contains</span><input type="text" name="q" value="{{.Query}}" placeholder="table, column..." style="width:150px"></label>
   <button class="btn btn-ghost btn-sm" type="submit">Filter</button>
   {{if or .Act .Query}}<a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/logs">Clear</a>{{end}}
+  <button class="btn btn-ghost btn-sm" type="submit" formaction="/p/{{.Slug}}/log-view-save" formmethod="post" onclick="var n=prompt('Save this filter as:');if(!n)return false;this.form.insertAdjacentHTML('beforeend','<input type=hidden name=name value=''+n.replace(/'/g,'')+''>');return true">Save view</button>
 </form>
+{{if .Views}}
+<div style="display:flex;gap:.35rem;flex-wrap:wrap;margin:-.4rem 0 1rem">
+  {{range .Views}}<span style="display:inline-flex;align-items:center;gap:.2rem;background:hsl(var(--bg));border:1px solid hsl(var(--border));border-radius:99px;padding:.15rem .3rem .15rem .6rem;font-size:12px">
+    <a href="/p/{{$.Slug}}/logs?rng={{.Rng}}&act={{.Act}}&q={{.Q}}">{{.Name}}</a>
+    <form method="post" action="/p/{{$.Slug}}/log-view-delete" style="margin:0;display:flex"><input type="hidden" name="id" value="{{.ID}}"><button class="copy" style="padding:.1rem;color:hsl(var(--destructive))">&times;</button></form>
+  </span>{{end}}
+</div>{{end}}
+<div class="card" style="margin-bottom:1rem">
+  <form method="post" action="/p/{{.Slug}}/log-ship" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end">
+    <label class="fld" style="margin:0;flex:1;min-width:280px"><span class="lt">Ship logs nightly to (https webhook, empty = off)</span>
+      <input type="text" name="url" value="{{.ShipURL}}" placeholder="https://logs.example.com/ingest"></label>
+    <button class="btn btn-ghost btn-sm" type="submit">Save shipping</button>
+    <span class="muted" style="font-size:11px">posts a JSON bundle of the last 24h of activity + function logs once a day</span>
+  </form>
+</div>
 <div class="card" style="margin-bottom:1rem">
   <div style="display:flex;align-items:center"><h2>Slow statements</h2><div class="spacer"></div><span class="label">by mean time</span></div>
   {{if not .Slow}}<p class="muted" style="margin-top:.5rem">No statement statistics for this database yet.</p>{{else}}
@@ -1007,6 +1074,8 @@ const branchesBody = `
   <label class="fld" style="margin:0"><span class="lt">Expires</span><select name="expires" style="width:auto">
     <option value="">never</option><option value="1d">in 1 day</option><option value="7d" selected>in 7 days</option><option value="30d">in 30 days</option>
   </select></label>
+  <label class="fld" style="margin:0"><span class="lt">Anonymize (optional: table.column, comma separated)</span>
+    <input type="text" name="anonymize" placeholder="users.email, users.phone" style="width:230px;font-family:var(--mono);font-size:12px" title="Text columns become anon_<hash> tokens; other types become NULL - safe test data from real shape"></label>
   <button class="btn btn-primary" type="submit">{{icon "branch"}} Create branch</button>
 </form>
 {{if .Branches}}
@@ -1064,6 +1133,7 @@ const apiBody = `
     <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/types.ts?dl=1">{{icon "archive"}} Download database.types.ts</a>
     <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/openapi.json" target="_blank">{{icon "api"}} OpenAPI spec</a>
     <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/openapi.json?dl=1">{{icon "archive"}} Download spec</a>
+    <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/api-explorer">{{icon "play"}} API Explorer</a>
     <span class="muted" style="font-size:11.5px">generated live from your schema (tables, views, enums, relationships) - typed JS clients autocomplete against it</span>
   </div>
   <form method="post" action="/p/{{.Slug}}/api-settings" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.8rem;padding-top:.8rem;border-top:1px solid hsl(var(--border))">
@@ -1281,7 +1351,7 @@ const storageBody = `
         <thead><tr><th style="width:26px"><input type="checkbox" onclick="soTickAll(this)" style="width:auto"></th><th>Path</th><th>Size</th><th>Type</th><th>Uploaded</th><th></th></tr></thead>
         <tbody>{{range .Objects}}<tr>
           <td><input type="checkbox" class="sock" style="width:auto" data-path="{{.Path}}"></td>
-          <td><a href="{{.URL}}" target="_blank" style="color:hsl(var(--primary))">{{if $.Query}}{{.Path}}{{else}}{{.Rel}}{{end}}</a></td>
+          <td>{{if and $.SelPublic (or (eq .Mime "image/jpeg") (eq .Mime "image/png"))}}<img src="{{.URL}}{{if not $.SelPublic}}&{{else}}?{{end}}width=36&height=36" loading="lazy" style="width:22px;height:22px;object-fit:cover;border-radius:4px;vertical-align:-5px;margin-right:.35rem" alt="">{{end}}<a href="{{.URL}}" target="_blank" style="color:hsl(var(--primary))">{{if $.Query}}{{.Path}}{{else}}{{.Rel}}{{end}}</a></td>
           <td class="muted">{{.Size}}</td><td class="muted">{{.Mime}}</td><td class="muted">{{.Created}}</td>
           <td style="text-align:right;white-space:nowrap">
             <button class="copy" title="copy URL" onclick="navigator.clipboard.writeText('{{.URL}}');this.style.color='hsl(var(--primary))'">{{icon "copy"}}</button>
@@ -1305,6 +1375,22 @@ const storageBody = `
   </div>
 </div>
 <script>
+// drag-drop upload: drop files anywhere on the objects card
+(function(){var card=document.getElementById('sobulk');if(!card)return;
+ var zone=document.body;
+ zone.addEventListener('dragover',function(e){if(location.search.indexOf('b=')>=0){e.preventDefault();}});
+ zone.addEventListener('drop',function(e){
+  var b=new URLSearchParams(location.search).get('b');if(!b)return;
+  e.preventDefault();
+  var files=e.dataTransfer&&e.dataTransfer.files;if(!files||!files.length)return;
+  var done=0,fail=0,total=files.length;
+  Array.prototype.forEach.call(files,function(f){
+   var fd=new FormData();fd.append('bucket',b);fd.append('file',f,f.name);
+   fetch('/p/'+location.pathname.split('/')[2]+'/storage/upload',{method:'POST',body:fd})
+    .then(function(r){r.ok?done++:fail++;}).catch(function(){fail++;})
+    .then(function(){if(done+fail===total)location.reload();});
+  });});
+})();
 function soTickAll(cb){document.querySelectorAll('.sock').forEach(function(x){x.checked=cb.checked});soCount();}
 function soCount(){var n=document.querySelectorAll('.sock:checked').length;
  var b=document.getElementById('sobtn');if(!b)return;
@@ -1359,6 +1445,10 @@ const authPageBody = `
       <input type="number" name="min_pw" value="{{.MinPw}}" min="6" max="72" style="width:100px"></label>
     <label class="fld" style="margin:0;flex:1;min-width:260px"><span class="lt">Redirect allowlist (https URLs, comma separated)</span>
       <input type="text" name="redirects" value="{{.Redirects}}" placeholder="https://app.example.com/auth"></label>
+    <label class="fld" style="margin:0"><span class="lt">Turnstile site key (optional)</span>
+      <input type="text" name="captcha_site" value="{{.CaptchaSite}}" placeholder="0x4AAA..." style="width:170px"></label>
+    <label class="fld" style="margin:0"><span class="lt">Turnstile secret</span>
+      <input type="password" name="captcha_secret" value="{{.CaptchaSecret}}" placeholder="keeps captcha off if empty" style="width:170px"></label>
     <button class="btn btn-primary btn-sm" type="submit">Save policies</button>
     <span class="muted" style="font-size:11px">allowlist extends where magic links and OAuth may redirect beyond this project's own domain</span>
   </form>

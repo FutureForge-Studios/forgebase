@@ -31,6 +31,97 @@ func projectDumpOK(slug, file string) bool {
 
 // ----------------------------------------------------------------- database
 
+// listPublications returns logical-replication publications with their scope.
+type pubRow struct {
+	Name, Tables  string
+	AllTables     bool
+	Ins, Upd, Del bool
+}
+
+func (a *app) listPublications(slug string) []pubRow {
+	db, err := a.dbFor(slug)
+	if err != nil {
+		return nil
+	}
+	rows, err := db.Query(`SELECT p.pubname, p.puballtables, p.pubinsert, p.pubupdate, p.pubdelete,
+			coalesce((SELECT string_agg(schemaname||'.'||tablename, ', ' ORDER BY tablename)
+				FROM pg_publication_tables t WHERE t.pubname = p.pubname), '')
+		FROM pg_publication p ORDER BY p.pubname`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []pubRow
+	for rows.Next() {
+		var p pubRow
+		rows.Scan(&p.Name, &p.AllTables, &p.Ins, &p.Upd, &p.Del, &p.Tables)
+		out = append(out, p)
+	}
+	return out
+}
+
+func (a *app) publicationCreate(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	back := "/p/" + slug + "/database"
+	name := sanitizeIdent(r.FormValue("name"))
+	db, err := a.dbFor(slug)
+	if err != nil || name == "" {
+		redirectErr(w, r, back, "Give the publication a name.")
+		return
+	}
+	stmt := "CREATE PUBLICATION " + pq.QuoteIdentifier(name)
+	if r.FormValue("scope") == "all" {
+		stmt += " FOR ALL TABLES"
+	} else {
+		var qts []string
+		for _, t := range strings.Split(r.FormValue("tables"), ",") {
+			t = strings.TrimSpace(t)
+			if t == "" {
+				continue
+			}
+			if !tableIn(db, "public", t) {
+				redirectErr(w, r, back, "Unknown table "+t+".")
+				return
+			}
+			qts = append(qts, qrel("public", t))
+		}
+		if len(qts) == 0 {
+			redirectErr(w, r, back, "List at least one table (or pick all tables).")
+			return
+		}
+		stmt += " FOR TABLE " + strings.Join(qts, ", ")
+	}
+	if _, err := db.Exec(stmt); err != nil {
+		redirectErr(w, r, back, "Create failed: "+err.Error())
+		return
+	}
+	a.audit(r, "publication-create", slug+"/"+name)
+	redirectMsg(w, r, back, "Publication "+name+" created - point a logical-replication subscriber at this database.")
+}
+
+func (a *app) publicationDrop(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	back := "/p/" + slug + "/database"
+	name := r.FormValue("name")
+	found := false
+	for _, p := range a.listPublications(slug) {
+		if p.Name == name {
+			found = true
+		}
+	}
+	if !found {
+		redirectErr(w, r, back, "Unknown publication.")
+		return
+	}
+	db, _ := a.dbFor(slug)
+	if _, err := db.Exec("DROP PUBLICATION " + pq.QuoteIdentifier(name)); err != nil {
+		redirectErr(w, r, back, "Drop failed: "+err.Error())
+		return
+	}
+	a.audit(r, "publication-drop", slug+"/"+name)
+	redirectMsg(w, r, back, "Publication "+name+" dropped.")
+}
+
 // setDbTimeouts applies per-role statement/idle timeouts for a project. New
 // connections pick them up immediately; existing sessions keep their values.
 func (a *app) setDbTimeouts(w http.ResponseWriter, r *http.Request) {
@@ -145,6 +236,7 @@ func (a *app) databasePage(w http.ResponseWriter, r *http.Request) {
 	content := renderContent(databaseBody, map[string]any{
 		"Slug": slug, "Exts": exts, "Size": size, "Conns": conns,
 		"StmtTimeout": stmtT, "IdleTimeout": idleT,
+		"Pubs":       a.listPublications(slug),
 		"NInstalled": nInstalled, "NAvail": len(exts),
 		"MaxConns": maxConns, "ConnLimit": connLimit, "Version": version,
 		"Roles": dbRoles, "Domain": a.cfg.domain, "CanAdmin": a.atLeast(r, "admin"),
@@ -570,6 +662,7 @@ func (a *app) settingsPage(w http.ResponseWriter, r *http.Request) {
 		"Version": version, "LastActive": lastActive, "Domain": a.cfg.domain,
 		"API": feat("api_config"), "Auth": feat("auth_config"), "Realtime": feat("realtime_config"),
 		"KeepAwake": keepAwake, "SuspendHours": suspendHours, "PublicStatus": publicStatus,
+		"Mode": a.projectMode(slug), "CanInstance": instanceModeAvailable(),
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Settings", Nav: "settings", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Settings"}}}, content)

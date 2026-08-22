@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.1"
+const appVersion = "1.4.2"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,27 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.2", Date: "2026-08-23",
+		Summary: "Everything on the near-term roadmap, shipped in one release.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Secrets vault: encrypted-at-rest secrets you read from SQL, functions and cron - forgebase.secret_set / secret_get / secret_list / secret_delete, guarded by SECURITY DEFINER functions so API roles can never read the key table. Enable it from Settings.",
+				"Two-factor auth for YOUR app's users: TOTP enrollment (QR-compatible otpauth URI), verify-to-activate, ten single-use recovery codes, and password logins that require the code once enrolled - all via /auth/v1/factors/enroll|verify|disable.",
+				"Bot protection: plug in Cloudflare Turnstile keys on the Auth page and signup/login verify captcha_token server-side. No keys, no change.",
+				"API Explorer: build REST requests in the panel, run them as anon / authenticated / service_role against your live API, and inspect status, headers, body and the equivalent curl.",
+				"AI SQL assistant (bring your own key): point Account settings at any Anthropic- or OpenAI-compatible endpoint and the SQL editor's Ask AI button writes queries against your real schema. Keys are encrypted at rest and only ever sent to the endpoint you chose.",
+				"Image transformations: append ?width= / ?height= to any storage URL and get a resized rendition, computed once and cached - plus ETag/304 caching on all storage serving.",
+				"Logical replication controls: create and drop publications (all tables or a chosen list) from the Database page, ready for external consumers to subscribe.",
+				"Logs, upgraded: saved log views (store a filter set by name), and daily log shipping to any HTTPS endpoint you configure.",
+				"Anonymized branches: list table.column rules when creating a branch and text becomes deterministic anon_ tokens (joins keep working), everything else is nulled - production-shaped data without production secrets.",
+				"Per-database activity card on Monitoring: transactions, row writes, cache hit ratio, temp spill, backends and deadlocks for this project alone.",
+				"Migrate to a dedicated instance: one button moves a shared-cluster project onto its own Postgres container (instant branches, true scale-to-zero, its own crash domain). The shared copy stays parked until you delete it yourself.",
+				"Eight more OAuth providers: Microsoft, Facebook, Twitch, Slack, Spotify, LinkedIn, Bitbucket and Notion join Google, GitHub, GitLab and Discord.",
+				"A CLI (scripts/forgebase): projects, types, openapi, migrations, migrate, csv - plain POSIX sh + curl, authenticated with a personal API key, which the panel API now accepts as a Bearer token.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.1", Date: "2026-08-23",
 		Summary: "TLS on the pooled port.",

@@ -23,10 +23,18 @@ import (
 type oauthMeta struct{ AuthURL, TokenURL, UserURL, Scope string }
 
 var oauthProviders = map[string]oauthMeta{
-	"google":  {"https://accounts.google.com/o/oauth2/v2/auth", "https://oauth2.googleapis.com/token", "https://www.googleapis.com/oauth2/v2/userinfo", "openid email profile"},
-	"github":  {"https://github.com/login/oauth/authorize", "https://github.com/login/oauth/access_token", "https://api.github.com/user", "read:user user:email"},
-	"gitlab":  {"https://gitlab.com/oauth/authorize", "https://gitlab.com/oauth/token", "https://gitlab.com/oauth/userinfo", "openid email"},
-	"discord": {"https://discord.com/api/oauth2/authorize", "https://discord.com/api/oauth2/token", "https://discord.com/api/users/@me", "identify email"},
+	"google":    {"https://accounts.google.com/o/oauth2/v2/auth", "https://oauth2.googleapis.com/token", "https://www.googleapis.com/oauth2/v2/userinfo", "openid email profile"},
+	"github":    {"https://github.com/login/oauth/authorize", "https://github.com/login/oauth/access_token", "https://api.github.com/user", "read:user user:email"},
+	"gitlab":    {"https://gitlab.com/oauth/authorize", "https://gitlab.com/oauth/token", "https://gitlab.com/oauth/userinfo", "openid email"},
+	"discord":   {"https://discord.com/api/oauth2/authorize", "https://discord.com/api/oauth2/token", "https://discord.com/api/users/@me", "identify email"},
+	"microsoft": {"https://login.microsoftonline.com/common/oauth2/v2.0/authorize", "https://login.microsoftonline.com/common/oauth2/v2.0/token", "https://graph.microsoft.com/oidc/userinfo", "openid email profile"},
+	"facebook":  {"https://www.facebook.com/v18.0/dialog/oauth", "https://graph.facebook.com/v18.0/oauth/access_token", "https://graph.facebook.com/me?fields=id,name,email", "email public_profile"},
+	"twitch":    {"https://id.twitch.tv/oauth2/authorize", "https://id.twitch.tv/oauth2/token", "https://id.twitch.tv/oauth2/userinfo", "openid user:read:email"},
+	"slack":     {"https://slack.com/openid/connect/authorize", "https://slack.com/api/openid.connect.token", "https://slack.com/api/openid.connect.userInfo", "openid email profile"},
+	"spotify":   {"https://accounts.spotify.com/authorize", "https://accounts.spotify.com/api/token", "https://api.spotify.com/v1/me", "user-read-email"},
+	"linkedin":  {"https://www.linkedin.com/oauth/v2/authorization", "https://www.linkedin.com/oauth/v2/accessToken", "https://api.linkedin.com/v2/userinfo", "openid email profile"},
+	"bitbucket": {"https://bitbucket.org/site/oauth2/authorize", "https://bitbucket.org/site/oauth2/access_token", "https://api.bitbucket.org/2.0/user", "account email"},
+	"notion":    {"https://api.notion.com/v1/oauth/authorize", "https://api.notion.com/v1/oauth/token", "https://api.notion.com/v1/users/me", ""},
 }
 
 func (a *app) oauthConfig(slug, provider string) (id, secret string, enabled bool) {

@@ -99,6 +99,24 @@ func (a *app) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name, ok := a.sessionName(r)
 		if !ok {
+			// Personal API keys authenticate programmatic callers (the CLI):
+			// Authorization: Bearer fbk_<token>, matched by stored hash.
+			if tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "); strings.HasPrefix(tok, "pgf_") {
+				sum := sha256.Sum256([]byte(tok))
+				var email string
+				if a.db.QueryRow(`SELECT owner_email FROM user_api_keys WHERE token_hash=$1`,
+					hex.EncodeToString(sum[:])).Scan(&email) == nil {
+					a.db.Exec(`UPDATE user_api_keys SET last_used=now() WHERE token_hash=$1`, hex.EncodeToString(sum[:]))
+					var uname string
+					if a.db.QueryRow(`SELECT name FROM users WHERE email=$1`, email).Scan(&uname) == nil {
+						r = r.WithContext(ctxWith(r, userKey, uname))
+						next(w, r)
+						return
+					}
+				}
+				writeJSON(w, 401, map[string]string{"message": "invalid API key"})
+				return
+			}
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
@@ -421,6 +439,9 @@ func (a *app) accountPage(w http.ResponseWriter, r *http.Request) {
 			rows.Close()
 		}
 	}
+	aiBase, _, aiModel := a.aiConfigFor(name)
+	var aiHasKey bool
+	a.db.QueryRow(`SELECT ai_key_enc IS NOT NULL FROM users WHERE name=$1`, name).Scan(&aiHasKey)
 	totpSec, totpOn := a.userTOTP(name)
 	// authenticator label: the EMAIL identifies the account (owner request);
 	// the display name only as a fallback when no email is set
@@ -432,6 +453,7 @@ func (a *app) accountPage(w http.ResponseWriter, r *http.Request) {
 		"User": name, "Email": email, "First": first, "Last": last,
 		"HasRow": hasRow, "Keys": keys, "NewKey": r.URL.Query().Get("k"),
 		"TOTPSecret": totpSec, "TOTPOn": totpOn,
+		"AIBase": aiBase, "AIModel": aiModel, "AIHasKey": aiHasKey,
 		"TOTPUri": "otpauth://totp/ForgeBase:" + url.PathEscape(totpLabel) + "?secret=" + totpSec + "&issuer=ForgeBase",
 	})
 	a.renderShell(w, r, shellData{Title: "Account", Nav: "account",

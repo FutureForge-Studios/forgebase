@@ -94,6 +94,7 @@ func (a *app) sampleOnce(full bool) {
 	}
 	a.syncInstanceStatus()
 	a.expireBranches()
+	a.shipLogs()
 
 	a.autoSuspend()
 	// "Keep awake" projects are also kept WARM: their API sidecar and realtime

@@ -327,6 +327,18 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/queue-send-test", a.auth(proj(a.queueSendTest)))
 	mux.HandleFunc("POST /p/{slug}/api-ip-allowlist", a.auth(admin(a.setIPAllowlist)))
 	mux.HandleFunc("POST /p/{slug}/auth-templates", a.auth(admin(a.saveEmailTemplates)))
+	mux.HandleFunc("POST /p/{slug}/vault-enable", a.auth(admin(a.vaultEnable)))
+	mux.HandleFunc("POST /p/{slug}/migrate-instance", a.auth(admin(a.migrateToInstance)))
+	mux.HandleFunc("POST /p/{slug}/publication-create", a.auth(admin(a.publicationCreate)))
+	mux.HandleFunc("POST /p/{slug}/publication-drop", a.auth(admin(a.publicationDrop)))
+	mux.HandleFunc("GET /p/{slug}/api-explorer", a.auth(proj(a.apiExplorerPage)))
+	mux.HandleFunc("POST /p/{slug}/api-explorer", a.auth(proj(a.apiExplorerPage)))
+	mux.HandleFunc("POST /p/{slug}/log-view-save", a.auth(proj(a.saveLogView)))
+	mux.HandleFunc("POST /p/{slug}/log-view-delete", a.auth(proj(a.deleteLogView)))
+	mux.HandleFunc("POST /p/{slug}/log-ship", a.auth(admin(a.setLogShip)))
+	mux.HandleFunc("POST /account/ai", a.auth(a.saveAIConfig))
+	mux.HandleFunc("POST /p/{slug}/ai-sql", a.auth(proj(a.aiSQL)))
+	mux.HandleFunc("GET /api/cli/projects", a.auth(a.cliProjects))
 	mux.HandleFunc("GET /p/{slug}/branch-diff", a.auth(proj(a.branchDiff)))
 	mux.HandleFunc("POST /p/{slug}/branch-reset", a.auth(admin(a.branchReset)))
 	mux.HandleFunc("GET /p/{slug}/realtime", a.auth(proj(a.realtimePage)))
@@ -478,6 +490,9 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE edge_logs ADD COLUMN IF NOT EXISTS status integer NOT NULL DEFAULT 0`,
 		`ALTER TABLE edge_functions ADD COLUMN IF NOT EXISTS schedule text NOT NULL DEFAULT ''`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret text NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_base text NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_key_enc bytea`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_model text NOT NULL DEFAULT ''`,
 		`ALTER TABLE saved_queries ADD COLUMN IF NOT EXISTS owner text NOT NULL DEFAULT ''`,
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS anon_signins boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS expires_at timestamptz`,
@@ -487,6 +502,18 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS redirect_allowlist text NOT NULL DEFAULT ''`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS storage_quota_mb integer NOT NULL DEFAULT 1024`,
 		`ALTER TABLE api_config ADD COLUMN IF NOT EXISTS ip_allowlist text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS captcha_site text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS captcha_secret text NOT NULL DEFAULT ''`,
+		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS log_ship_url text NOT NULL DEFAULT ''`,
+		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS log_shipped_at timestamptz`,
+		`CREATE TABLE IF NOT EXISTS log_views (
+			id bigserial PRIMARY KEY,
+			slug text NOT NULL,
+			name text NOT NULL,
+			rng text NOT NULL DEFAULT '7d',
+			act text NOT NULL DEFAULT '',
+			q text NOT NULL DEFAULT ''
+		)`,
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS tpl_confirm_subject text NOT NULL DEFAULT ''`,
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS tpl_confirm_body text NOT NULL DEFAULT ''`,
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS tpl_magic_subject text NOT NULL DEFAULT ''`,

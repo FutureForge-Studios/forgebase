@@ -661,7 +661,7 @@ func (a *app) apiPage(w http.ResponseWriter, r *http.Request) {
 		FROM api_config WHERE slug=$1`, slug).Scan(&maxRows, &extraSchemas, &ipAllow)
 	content := renderContent(apiBody, map[string]any{
 		"IPAllowlist": ipAllow,
-		"Slug": slug, "Enabled": enabled, "Base": base,
+		"Slug":        slug, "Enabled": enabled, "Base": base,
 		"MaxRows": maxRows, "ExtraSchemas": extraSchemas,
 		"Anon": anon, "Service": service, "Domain": a.cfg.domain, "Tables": tables,
 		"GraphQL": "https://" + slug + "." + a.cfg.domain + "/graphql/v1",

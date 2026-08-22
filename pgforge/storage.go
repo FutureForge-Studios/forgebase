@@ -827,7 +827,20 @@ func (a *app) serveStorageFile(w http.ResponseWriter, r *http.Request, slug, buc
 	if !inlineSafeMime(mime) {
 		w.Header().Set("Content-Disposition", "attachment")
 	}
+	// smart caching: a strong-enough ETag from size+mtime lets browsers and
+	// CDNs revalidate with 304s instead of refetching bodies
+	if st, err := os.Stat(full); err == nil {
+		etag := fmt.Sprintf(`"%x-%x"`, st.Size(), st.ModTime().UnixNano())
+		w.Header().Set("ETag", etag)
+		if match := r.Header.Get("If-None-Match"); match != "" && match == etag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
 	w.Header().Set("Cache-Control", "public, max-age=3600")
+	if a.serveTransformed(w, r, slug, bucket, path, full, mime) {
+		return
+	}
 	http.ServeFile(w, r, full)
 }
 

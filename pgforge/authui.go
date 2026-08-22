@@ -99,6 +99,16 @@ const accountBody = `
     </form>
   </div>
   <div class="card">
+    <h2>AI assistant (bring your own key)</h2>
+    <p class="muted" style="font-size:12.5px;margin:.4rem 0 .8rem">Powers "Ask AI" in the SQL editor. Works with Anthropic or any OpenAI-compatible endpoint; your key is encrypted at rest and only ever sent to the endpoint below.</p>
+    <form method="post" action="/account/ai">
+      <label class="fld"><span class="lt">Endpoint base URL</span><input type="text" name="ai_base" value="{{.AIBase}}" placeholder="https://api.anthropic.com"></label>
+      <label class="fld"><span class="lt">Model</span><input type="text" name="ai_model" value="{{.AIModel}}" placeholder="claude-sonnet-5"></label>
+      <label class="fld"><span class="lt">API key</span><input type="password" name="ai_key" placeholder="{{if .AIHasKey}}saved - leave blank to keep{{else}}sk-...{{end}}"></label>
+      <button class="btn btn-primary btn-sm" type="submit">Save AI settings</button>
+    </form>
+  </div>
+  <div class="card">
     <h2>Two-factor authentication</h2>
     {{if not .HasRow}}
     <p class="muted" style="font-size:12.5px;margin:.4rem 0 0">Available on registered accounts (not the built-in admin login).</p>
