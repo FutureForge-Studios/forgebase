@@ -142,11 +142,15 @@ input[type=file]::file-selector-button:hover{background:hsl(var(--accent))}
 .badge.active{background:hsl(var(--primary) / .12); color:hsl(var(--primary)); border-color:hsl(var(--primary) / .25)}
 .badge.paused,.badge.suspended,.badge.cloning{background:hsl(var(--warn) / .14); color:hsl(var(--warn)); border-color:hsl(var(--warn) / .3)}
 .badge svg{width:11px; height:11px}
-/* SQL editor: highlighted overlay behind a transparent-text textarea */
+/* SQL editor: highlighted overlay behind the textarea. The textarea keeps its
+   normal text color until the highlighter's first successful paint adds .hlon -
+   if the script ever fails, typing stays plainly visible instead of vanishing. */
 .edwrap{position:relative}
-.edwrap textarea#q{position:relative; z-index:2; background:transparent; color:transparent;
+.edwrap textarea#q{position:relative; z-index:2; background:transparent; color:inherit;
   caret-color:hsl(var(--fg)); font-family:var(--mono); font-size:13px; line-height:1.6;
   white-space:pre; overflow-wrap:normal; overflow-x:auto; resize:vertical; width:100%}
+.edwrap.hlon textarea#q{color:transparent}
+.edwrap:not(.hlon) #hl{visibility:hidden}
 #hl{position:absolute; inset:0; z-index:1; margin:0; pointer-events:none; overflow:hidden;
   border:1px solid transparent; border-radius:.6rem; padding:.6rem .8rem;
   font-family:var(--mono); font-size:13px; line-height:1.6; white-space:pre; color:hsl(var(--fg))}

@@ -434,15 +434,16 @@ document.addEventListener('click',function(e){var td=e.target.closest('#resultta
 var KWS='select|from|where|insert|into|values|update|set|delete|create|table|drop|alter|add|column|index|view|join|left|right|inner|outer|full|on|as|and|or|not|null|is|in|like|ilike|between|order|by|group|having|limit|offset|distinct|union|all|case|when|then|else|end|with|returning|primary|key|foreign|references|unique|default|constraint|check|cascade|begin|commit|rollback|grant|revoke|explain|analyze|exists|using|policy|enable|row|level|security|function|trigger|replace';
 var KW=new RegExp('\\b('+KWS+')\\b','gi');
 var TOK=new RegExp("('(?:[^']|'')*')|(--[^\\n]*)|\\b(?:"+KWS+')\\b','gi');
-var hl=document.getElementById('hl');
+var hl=document.getElementById('hl'),ew=hl.parentElement;
 function esc(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;')}
-function paint(){var v=q.value,out='',last=0,m;TOK.lastIndex=0;
+function paint(){try{var v=q.value,out='',last=0,m;TOK.lastIndex=0;
  while((m=TOK.exec(v))){out+=esc(v.slice(last,m.index));
   if(m[1])out+='<i class="hs">'+esc(m[1])+'</i>';
   else if(m[2])out+='<i class="hc">'+esc(m[2])+'</i>';
   else out+='<i class="hk">'+esc(m[0])+'</i>';
   last=TOK.lastIndex;}
- out+=esc(v.slice(last));hl.innerHTML=out+'\n';}
+ out+=esc(v.slice(last));hl.innerHTML=out+'\n';ew.classList.add('hlon');
+ }catch(e){ew.classList.remove('hlon');}}
 q.addEventListener('input',paint);
 q.addEventListener('scroll',function(){hl.scrollTop=q.scrollTop;hl.scrollLeft=q.scrollLeft;});
 paint();
