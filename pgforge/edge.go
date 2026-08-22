@@ -116,8 +116,10 @@ func (a *app) edgePage(w http.ResponseWriter, r *http.Request) {
 	edit := r.URL.Query().Get("fn")
 	code := defaultFunc
 	verifyJWT := true // new functions require a JWT by default
+	schedule := ""
 	if edit != "" {
-		a.db.QueryRow(`SELECT code, verify_jwt FROM edge_functions WHERE slug=$1 AND name=$2`, slug, edit).Scan(&code, &verifyJWT)
+		a.db.QueryRow(`SELECT code, verify_jwt, coalesce(schedule,'') FROM edge_functions WHERE slug=$1 AND name=$2`,
+			slug, edit).Scan(&code, &verifyJWT, &schedule)
 	}
 	var secrets []string
 	if rows, _ := a.db.Query(`SELECT name FROM edge_secrets WHERE slug=$1 ORDER BY name`, slug); rows != nil {
@@ -146,8 +148,8 @@ func (a *app) edgePage(w http.ResponseWriter, r *http.Request) {
 	}
 	content := renderContent(edgeBody, map[string]any{
 		"Slug": slug, "Fns": fns, "Edit": edit, "Code": code, "Secrets": secrets, "Logs": logs,
-		"VerifyJWT": verifyJWT,
-		"Base":      "https://" + slug + "." + a.cfg.domain + "/functions/v1",
+		"VerifyJWT": verifyJWT, "Schedule": schedule,
+		"Base": "https://" + slug + "." + a.cfg.domain + "/functions/v1",
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Functions", Nav: "edge", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Edge Functions"}}}, content)
@@ -158,6 +160,11 @@ func (a *app) saveFunction(w http.ResponseWriter, r *http.Request) {
 	name := strings.ToLower(strings.TrimSpace(r.FormValue("name")))
 	code := r.FormValue("code")
 	verifyJWT := r.FormValue("verify_jwt") == "on"
+	schedule := strings.TrimSpace(r.FormValue("schedule"))
+	if schedule != "" && !cronExprValid(schedule) {
+		redirectErr(w, r, "/p/"+slug+"/functions?fn="+name, "Schedule must be a 5-field cron expression (minute hour day month weekday), or empty.")
+		return
+	}
 	if !funcNameRe.MatchString(name) {
 		redirectErr(w, r, "/p/"+slug+"/functions", "Function name: 2-41 chars, a-z 0-9 _ -.")
 		return
@@ -172,8 +179,8 @@ func (a *app) saveFunction(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/functions", "Could not write function: "+err.Error())
 		return
 	}
-	a.db.Exec(`INSERT INTO edge_functions(slug,name,code,verify_jwt) VALUES ($1,$2,$3,$4)
-		ON CONFLICT (slug,name) DO UPDATE SET code=$3, verify_jwt=$4`, slug, name, code, verifyJWT)
+	a.db.Exec(`INSERT INTO edge_functions(slug,name,code,verify_jwt,schedule) VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (slug,name) DO UPDATE SET code=$3, verify_jwt=$4, schedule=$5`, slug, name, code, verifyJWT, schedule)
 	a.audit(r, "function-save", slug+"/"+name)
 	redirectMsg(w, r, "/p/"+slug+"/functions?fn="+name, "Function "+name+" deployed.")
 }

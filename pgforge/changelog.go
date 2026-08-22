@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.25"
+const appVersion = "1.3.26"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.26", Date: "2026-08-22",
+		Summary: "Edge functions on a schedule.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Scheduled edge functions: give any function a cron schedule (presets or custom, UTC) and the platform invokes it every matching minute with your service key - through the exact same path as an HTTP call, so concurrency limits, timeouts, logs and metrics all apply. The invocation log doubles as the run history.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.25", Date: "2026-08-22",
 		Summary: "Edge functions, fully observable.",

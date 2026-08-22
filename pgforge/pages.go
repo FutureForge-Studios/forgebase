@@ -1719,6 +1719,12 @@ const edgeBody = `
         <input type="checkbox" name="verify_jwt" {{if .VerifyJWT}}checked{{end}}>
         Require a valid JWT (apikey or Bearer) to invoke <span class="muted">- recommended; unchecked makes the function public to anyone</span>
       </label>
+      <div style="display:flex;gap:.5rem;align-items:flex-end;margin-top:.7rem;flex-wrap:wrap">
+        <label class="fld" style="margin:0"><span class="lt">Schedule (cron, UTC - empty = HTTP only)</span>
+          <input type="text" name="schedule" value="{{.Schedule}}" placeholder="e.g. */15 * * * *" list="cronpre" style="width:200px;font-family:var(--mono);font-size:12px"></label>
+        <datalist id="cronpre"><option value="* * * * *"><option value="*/5 * * * *"><option value="*/15 * * * *"><option value="0 * * * *"><option value="0 0 * * *"><option value="0 0 * * 0"></datalist>
+        <span class="muted" style="font-size:11.5px;max-width:300px">Scheduled runs call the function with your service key and appear in the invocation log below.</span>
+      </div>
       <button class="btn btn-primary" type="submit" style="margin-top:.7rem">{{icon "bolt"}} Deploy</button>
     </form>
     <div class="card" style="margin-top:1rem">
