@@ -81,6 +81,7 @@ func (a *app) sampleOnce(full bool) {
 		       ON s.datname = p.slug ` + filter)
 	if full {
 		a.db.Exec(`DELETE FROM metrics_samples WHERE at < now() - interval '30 days'`)
+		a.db.Exec(`DELETE FROM panel_sessions WHERE expires_at < now()`)
 		// Bounded control-plane tables (same idea as webhook_deliveries' 500-row
 		// cap): age limit AND a hard row cap, hourly. Nothing here grows forever.
 		a.db.Exec(`DELETE FROM audit_log WHERE at < now() - interval '90 days'`)

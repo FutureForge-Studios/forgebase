@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.4"
+const appVersion = "1.4.5"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,17 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.5", Date: "2026-08-23",
+		Summary: "Team depth: project scoping and real session control.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Per-project member scoping: give a member a list of projects on the Team page and the panel shows them ONLY those (branches included) - other projects 404 as if they did not exist. Owners always see everything.",
+				"Panel session management: every sign-in is now a listed device on the Account page - IP, browser, signed-in and last-seen times. Sign out any single device, or everywhere else in one click; revocation is immediate, even for a stolen cookie.",
+				"Owners can sign any member out of every device from the Team page.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.4", Date: "2026-08-23",
 		Summary: "Usage reports, foreign databases, and the last auth hooks.",

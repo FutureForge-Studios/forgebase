@@ -338,6 +338,9 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/log-ship", a.auth(admin(a.setLogShip)))
 	mux.HandleFunc("POST /account/ai", a.auth(a.saveAIConfig))
 	mux.HandleFunc("POST /account/ai-models", a.auth(a.aiModels))
+	mux.HandleFunc("POST /account/session-revoke", a.auth(a.revokePanelSession))
+	mux.HandleFunc("POST /people/scope", a.auth(a.requireRole("owner", a.setMemberScope)))
+	mux.HandleFunc("POST /people/signout", a.auth(a.requireRole("owner", a.signOutMember)))
 	mux.HandleFunc("POST /p/{slug}/auth-impersonate", a.auth(admin(a.impersonateUser)))
 	mux.HandleFunc("POST /p/{slug}/ai-sql", a.auth(proj(a.aiSQL)))
 	mux.HandleFunc("GET /api/cli/projects", a.auth(a.cliProjects))
@@ -517,6 +520,16 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE oauth_providers ADD COLUMN IF NOT EXISTS issuer text NOT NULL DEFAULT ''`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS instance_mem_mb integer NOT NULL DEFAULT 0`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS instance_cpus real NOT NULL DEFAULT 0`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS project_scope text NOT NULL DEFAULT ''`,
+		`CREATE TABLE IF NOT EXISTS panel_sessions (
+			id text PRIMARY KEY,
+			user_name text NOT NULL,
+			ip text NOT NULL DEFAULT '',
+			ua text NOT NULL DEFAULT '',
+			created_at timestamptz NOT NULL DEFAULT now(),
+			last_seen timestamptz NOT NULL DEFAULT now(),
+			expires_at timestamptz NOT NULL
+		)`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS log_ship_url text NOT NULL DEFAULT ''`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS log_shipped_at timestamptz`,
 		`CREATE TABLE IF NOT EXISTS log_views (

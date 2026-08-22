@@ -78,6 +78,14 @@ func (a *app) dashboard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	// scoped members see only their projects on the dashboard too
+	visible := projects[:0]
+	for _, p := range projects {
+		if a.canSeeProject(r, p.Slug) {
+			visible = append(visible, p)
+		}
+	}
+	projects = visible
 	anyCloning := false
 	for _, p := range projects {
 		if p.Status == "cloning" {

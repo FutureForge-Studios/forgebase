@@ -155,6 +155,24 @@ const accountBody = `
     </script>
   </div>
   <div class="card">
+    <div style="display:flex;align-items:center;gap:.6rem"><h2>Devices &amp; sessions</h2><div class="spacer"></div>
+      {{if .Sessions}}<form method="post" action="/account/session-revoke"><input type="hidden" name="others" value="1">
+        <button class="btn btn-ghost btn-sm" type="submit">Sign out everywhere else</button></form>{{end}}</div>
+    {{if not .Sessions}}<p class="muted" style="font-size:12.5px;margin:.4rem 0 0">Sessions appear here after your next sign-in.</p>
+    {{else}}
+    <div class="tblwrap" style="margin-top:.7rem"><table class="data">
+      <thead><tr><th>Device</th><th>IP</th><th>Signed in</th><th>Last seen</th><th></th></tr></thead>
+      <tbody>{{range .Sessions}}<tr>
+        <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px">{{if .Current}}<span class="badge active">this device</span> {{end}}{{.UA}}</td>
+        <td class="muted" style="font-size:11.5px">{{.IP}}</td>
+        <td class="muted" style="font-size:11.5px">{{.Created}}</td>
+        <td class="muted" style="font-size:11.5px">{{.LastSeen}}</td>
+        <td style="text-align:right"><form method="post" action="/account/session-revoke" style="display:inline" {{if .Current}}onsubmit="return confirm('This is the device you are using - signing it out ends this session. Continue?')"{{end}}>
+          <input type="hidden" name="id" value="{{.ID}}"><button class="btn btn-ghost btn-sm">Sign out</button></form></td>
+      </tr>{{end}}</tbody>
+    </table></div>{{end}}
+  </div>
+  <div class="card">
     <h2>Two-factor authentication</h2>
     {{if not .HasRow}}
     <p class="muted" style="font-size:12.5px;margin:.4rem 0 0">Available on registered accounts (not the built-in admin login).</p>

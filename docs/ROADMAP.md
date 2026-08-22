@@ -31,8 +31,8 @@ happy path.
 - [ ] Warm process pool - no cold starts for busy functions.
 - [ ] Streaming responses, background tasks, WebSocket support.
 - [x] Message queues with a panel UI and function consumers.
-- [ ] Team depth: per-project member scoping, granular permissions, panel
-      session management.
+- [x] Team depth: per-project member scoping, role-based permissions,
+      panel session management.
 
 ## Phase 3 - Auth depth
 - [x] Anonymous sign-ins with upgrade-to-permanent.
@@ -107,9 +107,9 @@ happy path.
 The remaining unchecked items above are the heavyweight tier - read replicas,
 PITR-branching, warm/streaming functions, TUS + S3-protocol storage,
 storage access rules, SAML SSO + phone OTP, asymmetric JWT signing with
-JWKS, per-subscriber RLS on change streams, adaptive sizing, and team
-scoping. Each needs its own design pass and ships as focused 1.4.x releases,
-in the order they unlock the most for real projects.
+JWKS, per-subscriber RLS on change streams, and adaptive sizing. Each needs
+its own design pass and ships as focused 1.4.x releases, in the order they
+unlock the most for real projects.
 
 ## How we run it
 1. Top-down inside a phase; phases interleave when priorities demand.

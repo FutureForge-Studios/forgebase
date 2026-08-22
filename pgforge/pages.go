@@ -1302,7 +1302,7 @@ const peopleBody = `
 <div class="card">
   <h2>Members</h2>
   <div class="tblwrap" style="margin-top:.8rem">
-    <table class="data"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Joined</th><th></th></tr></thead>
+    <table class="data"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Project access</th><th>Joined</th><th></th></tr></thead>
     <tbody>
     {{range .Members}}
       <tr>
@@ -1311,8 +1311,17 @@ const peopleBody = `
           <select name="role" onchange="this.form.submit()" style="width:auto;padding:.3rem .5rem;font-size:12px">
             {{$r := .Role}}{{range $.Roles}}<option value="{{.}}" {{if eq . $r}}selected{{end}}>{{.}}</option>{{end}}
           </select></form></td>
+        <td>{{if eq .Role "owner"}}<span class="muted" style="font-size:11.5px">all (owner)</span>{{else}}
+          <form method="post" action="/people/scope" style="display:flex;gap:.3rem;align-items:center">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <input type="text" name="scope" value="{{.Scope}}" placeholder="all projects" title="Comma-separated project slugs this member may open; empty = all. Branches of an allowed project are included." style="width:150px;padding:.3rem .5rem;font-size:11.5px">
+            <button class="btn btn-ghost btn-sm" type="submit" style="padding:.25rem .5rem">Set</button>
+          </form>{{end}}</td>
         <td class="muted">{{.Created}}</td>
-        <td style="text-align:right"><form method="post" action="/people/remove" onsubmit="return confirm('Remove {{.Email}}?')" style="display:inline">
+        <td style="text-align:right;white-space:nowrap">
+          <form method="post" action="/people/signout" onsubmit="return confirm('Sign {{.Name}} out of every device?')" style="display:inline">
+            <input type="hidden" name="id" value="{{.ID}}"><button class="btn btn-ghost btn-sm" title="Revoke all of this member's panel sessions">Sign out</button></form>
+          <form method="post" action="/people/remove" onsubmit="return confirm('Remove {{.Email}}?')" style="display:inline">
           <input type="hidden" name="id" value="{{.ID}}"><button class="copy" style="color:hsl(var(--destructive))" title="remove">{{icon "trash"}}</button></form></td>
       </tr>
     {{end}}

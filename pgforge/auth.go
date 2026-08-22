@@ -40,9 +40,18 @@ func (a *app) setSession(w http.ResponseWriter, r *http.Request, name string, re
 	if remember {
 		ttl = 7 * 24 * time.Hour // "remember me" on a trusted device
 	}
+	// Sessions are HMAC cookies AND server-side rows: the row is what makes
+	// "sign out that device" possible, and its absence kills a stolen cookie.
+	sid := randHex(16)
+	ua := r.UserAgent()
+	if len(ua) > 200 {
+		ua = ua[:200]
+	}
+	a.db.Exec(`INSERT INTO panel_sessions(id, user_name, ip, ua, expires_at)
+		VALUES ($1,$2,$3,$4,$5)`, sid, name, clientIP(r), ua, time.Now().Add(ttl))
 	exp := strconv.FormatInt(time.Now().Add(ttl).Unix(), 10)
 	b64 := base64.RawURLEncoding.EncodeToString([]byte(name))
-	val := b64 + "." + exp + "." + a.sign("session:"+exp+":"+b64)
+	val := b64 + "." + exp + "." + sid + "." + a.sign("session:"+exp+":"+b64+":"+sid)
 	http.SetCookie(w, &http.Cookie{
 		Name: "pgforge_session", Value: val, Path: "/",
 		// Secure only when the request is actually HTTPS, so the cookie works
@@ -67,20 +76,55 @@ func (a *app) sessionName(r *http.Request) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	parts := strings.SplitN(c.Value, ".", 3)
-	if len(parts) != 3 {
+	parts := strings.SplitN(c.Value, ".", 4)
+	if len(parts) == 3 {
+		// legacy cookie (pre session-rows): honored until it expires
+		b64, exp, sig := parts[0], parts[1], parts[2]
+		e, err := strconv.ParseInt(exp, 10, 64)
+		if err != nil || time.Now().Unix() > e {
+			return "", false
+		}
+		if subtle.ConstantTimeCompare([]byte(a.sign("session:"+exp+":"+b64)), []byte(sig)) != 1 {
+			return "", false
+		}
+		nb, _ := base64.RawURLEncoding.DecodeString(b64)
+		return string(nb), true
+	}
+	if len(parts) != 4 {
 		return "", false
 	}
-	b64, exp, sig := parts[0], parts[1], parts[2]
+	b64, exp, sid, sig := parts[0], parts[1], parts[2], parts[3]
 	e, err := strconv.ParseInt(exp, 10, 64)
 	if err != nil || time.Now().Unix() > e {
 		return "", false
 	}
-	if subtle.ConstantTimeCompare([]byte(a.sign("session:"+exp+":"+b64)), []byte(sig)) != 1 {
+	if subtle.ConstantTimeCompare([]byte(a.sign("session:"+exp+":"+b64+":"+sid)), []byte(sig)) != 1 {
 		return "", false
 	}
+	// the server-side row is the revocation switch: no row, no session
+	var live bool
+	a.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM panel_sessions WHERE id=$1 AND expires_at > now())`, sid).Scan(&live)
+	if !live {
+		return "", false
+	}
+	a.db.Exec(`UPDATE panel_sessions SET last_seen=now(), ip=$2
+		WHERE id=$1 AND last_seen < now() - interval '5 minutes'`, sid, clientIP(r))
 	nb, _ := base64.RawURLEncoding.DecodeString(b64)
 	return string(nb), true
+}
+
+// sessionID returns the current request's session row id ("" for legacy or
+// API-key auth) so the Account page can mark "this device".
+func (a *app) sessionID(r *http.Request) string {
+	c, err := r.Cookie("pgforge_session")
+	if err != nil {
+		return ""
+	}
+	parts := strings.SplitN(c.Value, ".", 4)
+	if len(parts) != 4 {
+		return ""
+	}
+	return parts[2]
 }
 
 // currentUser reads the display name off the request (set by middleware).
@@ -275,6 +319,9 @@ func (a *app) loginSurge() bool {
 }
 
 func (a *app) logout(w http.ResponseWriter, r *http.Request) {
+	if sid := a.sessionID(r); sid != "" {
+		a.db.Exec(`DELETE FROM panel_sessions WHERE id=$1`, sid)
+	}
 	http.SetCookie(w, &http.Cookie{Name: "pgforge_session", Value: "", Path: "/", MaxAge: -1})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
@@ -449,12 +496,33 @@ func (a *app) accountPage(w http.ResponseWriter, r *http.Request) {
 	if totpLabel == "" {
 		totpLabel = name
 	}
+	type sessRow struct {
+		ID, IP, UA, Created, LastSeen string
+		Current                       bool
+	}
+	var sessions []sessRow
+	curSID := a.sessionID(r)
+	if srows, err := a.db.Query(`SELECT id, ip, ua, to_char(created_at,'Mon DD, HH24:MI'),
+			to_char(last_seen,'Mon DD, HH24:MI') FROM panel_sessions
+			WHERE user_name=$1 AND expires_at > now() ORDER BY last_seen DESC`, name); err == nil {
+		for srows.Next() {
+			var s sessRow
+			srows.Scan(&s.ID, &s.IP, &s.UA, &s.Created, &s.LastSeen)
+			s.Current = s.ID == curSID
+			if len(s.UA) > 70 {
+				s.UA = s.UA[:70] + "..."
+			}
+			sessions = append(sessions, s)
+		}
+		srows.Close()
+	}
 	content := renderContent(accountBody, map[string]any{
 		"User": name, "Email": email, "First": first, "Last": last,
 		"HasRow": hasRow, "Keys": keys, "NewKey": r.URL.Query().Get("k"),
 		"TOTPSecret": totpSec, "TOTPOn": totpOn,
 		"AIBase": aiBase, "AIModel": aiModel, "AIHasKey": aiHasKey,
-		"TOTPUri": "otpauth://totp/ForgeBase:" + url.PathEscape(totpLabel) + "?secret=" + totpSec + "&issuer=ForgeBase",
+		"Sessions": sessions,
+		"TOTPUri":  "otpauth://totp/ForgeBase:" + url.PathEscape(totpLabel) + "?secret=" + totpSec + "&issuer=ForgeBase",
 	})
 	a.renderShell(w, r, shellData{Title: "Account", Nav: "account",
 		Crumbs: []crumb{{Label: "Account"}}}, content)
@@ -551,4 +619,26 @@ func (a *app) renderAuth(w http.ResponseWriter, title, subtitle string, body tem
 	authTmpl.Execute(w, map[string]any{
 		"Title": title, "Subtitle": subtitle, "Body": body, "Brand": brandBurst(true),
 	})
+}
+
+// revokePanelSession signs one of the CURRENT user's devices out; with
+// others=1 it revokes every session except the one making the request.
+func (a *app) revokePanelSession(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r)
+	cur := a.sessionID(r)
+	if r.FormValue("others") == "1" {
+		a.db.Exec(`DELETE FROM panel_sessions WHERE user_name=$1 AND id <> $2`, user, cur)
+		a.audit(r, "sessions-revoke-others", user)
+		redirectMsg(w, r, "/account", "Signed out everywhere else.")
+		return
+	}
+	id := r.FormValue("id")
+	a.db.Exec(`DELETE FROM panel_sessions WHERE user_name=$1 AND id=$2`, user, id)
+	a.audit(r, "session-revoke", user)
+	if id == cur {
+		http.SetCookie(w, &http.Cookie{Name: "pgforge_session", Value: "", Path: "/", MaxAge: -1})
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	redirectMsg(w, r, "/account", "That device is signed out.")
 }

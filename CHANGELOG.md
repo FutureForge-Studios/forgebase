@@ -13,6 +13,16 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.5] - 2026-08-23
+
+### Added
+- Per-project member scoping: members with a project list see only those
+  projects (and their branches); everything else 404s. Owners see all.
+- Panel session management: sign-ins are listed devices on the Account
+  page; revoke one or all-but-current instantly. Server-side session rows
+  mean revocation works even against a stolen cookie.
+- Owners can sign any member out of every device from the Team page.
+
 ## [1.4.4] - 2026-08-23
 
 ### Added

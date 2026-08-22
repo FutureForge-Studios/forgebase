@@ -1,6 +1,9 @@
 package main
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 // securityHeaders wraps every response with standard hardening headers. The
 // panel (apex host) also gets a Content-Security-Policy; API/storage/auth
@@ -87,10 +90,41 @@ func (a *app) requireRole(min string, next http.HandlerFunc) http.HandlerFunc {
 // confirms the project exists before the handler runs. This is the single choke
 // point that stops a request for a non-existent (or malformed) slug from
 // reaching dbFor and leaking a cached *sql.DB into projConns.
+// canSeeProject applies per-member project scoping: owners (and the env
+// admin) see everything; other members with a non-empty project_scope see
+// only those slugs plus their branches. Empty scope = all projects.
+func (a *app) canSeeProject(r *http.Request, slug string) bool {
+	name := currentUser(r)
+	if name == a.cfg.panelUser || a.userRole(r) == "owner" {
+		return true
+	}
+	var scope string
+	a.db.QueryRow(`SELECT coalesce(project_scope,'') FROM users WHERE name=$1`, name).Scan(&scope)
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		return true
+	}
+	var parent string
+	a.db.QueryRow(`SELECT coalesce(parent,'') FROM projects WHERE slug=$1`, slug).Scan(&parent)
+	for _, s := range strings.Split(scope, ",") {
+		s = strings.TrimSpace(s)
+		if s != "" && (s == slug || s == parent) {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *app) proj(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := r.PathValue("slug")
 		if !slugRe.MatchString(slug) || !a.projectExists(slug) {
+			http.NotFound(w, r)
+			return
+		}
+		// scoped members get a 404, not a 403: no existence leak
+		if !a.canSeeProject(r, slug) {
+			a.auditRaw(currentUser(r), clientIP(r), "denied-scope", slug)
 			http.NotFound(w, r)
 			return
 		}

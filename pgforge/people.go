@@ -18,15 +18,15 @@ var roles = []string{"member", "admin", "owner"}
 
 func (a *app) peoplePage(w http.ResponseWriter, r *http.Request) {
 	type member struct {
-		ID, Name, Email, Role, Created string
+		ID, Name, Email, Role, Created, Scope string
 	}
 	var members []member
 	rows, _ := a.db.Query(`SELECT id, coalesce(nullif(trim(coalesce(first_name,'')||' '||coalesce(last_name,'')),''), name),
-		email, role, to_char(created_at,'Mon DD, YYYY') FROM users ORDER BY created_at`)
+		email, role, to_char(created_at,'Mon DD, YYYY'), coalesce(project_scope,'') FROM users ORDER BY created_at`)
 	if rows != nil {
 		for rows.Next() {
 			var m member
-			rows.Scan(&m.ID, &m.Name, &m.Email, &m.Role, &m.Created)
+			rows.Scan(&m.ID, &m.Name, &m.Email, &m.Role, &m.Created, &m.Scope)
 			members = append(members, m)
 		}
 		rows.Close()
@@ -116,4 +116,45 @@ func (a *app) removeMember(w http.ResponseWriter, r *http.Request) {
 	a.db.Exec(`DELETE FROM users WHERE id=$1`, id)
 	a.audit(r, "remove-member", email)
 	redirectMsg(w, r, "/people", "Member removed.")
+}
+
+// setMemberScope restricts a member to specific projects (empty = all).
+// Owners are never scoped - the role outranks the fence.
+func (a *app) setMemberScope(w http.ResponseWriter, r *http.Request) {
+	id := r.FormValue("id")
+	scope := strings.TrimSpace(r.FormValue("scope"))
+	var cleaned []string
+	for _, s := range strings.Split(scope, ",") {
+		s = strings.TrimSpace(strings.ToLower(s))
+		if s == "" {
+			continue
+		}
+		if !slugRe.MatchString(s) || !a.projectExists(s) {
+			redirectErr(w, r, "/people", "No such project: "+s)
+			return
+		}
+		cleaned = append(cleaned, s)
+	}
+	var email string
+	a.db.QueryRow(`SELECT email FROM users WHERE id=$1`, id).Scan(&email)
+	a.db.Exec(`UPDATE users SET project_scope=$2 WHERE id=$1`, id, strings.Join(cleaned, ","))
+	what := "all projects"
+	if len(cleaned) > 0 {
+		what = strings.Join(cleaned, ", ")
+	}
+	a.audit(r, "set-scope", email+" -> "+what)
+	redirectMsg(w, r, "/people", "Project access updated: "+what+".")
+}
+
+// signOutMember revokes every panel session a member holds (owner action).
+func (a *app) signOutMember(w http.ResponseWriter, r *http.Request) {
+	id := r.FormValue("id")
+	var name, email string
+	if a.db.QueryRow(`SELECT name, email FROM users WHERE id=$1`, id).Scan(&name, &email) != nil {
+		redirectErr(w, r, "/people", "No such member.")
+		return
+	}
+	a.db.Exec(`DELETE FROM panel_sessions WHERE user_name=$1`, name)
+	a.audit(r, "signout-member", email)
+	redirectMsg(w, r, "/people", name+" is signed out everywhere.")
 }
