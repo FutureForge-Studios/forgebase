@@ -1,0 +1,7 @@
+[Unit]
+Description=ForgeBase hourly WAL archive hygiene
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/pgforge/bin/wal-prune.sh

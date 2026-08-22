@@ -224,6 +224,7 @@ install -m 0755 "$REPO_DIR/scripts/backup.sh"       /opt/pgforge/bin/backup.sh
 install -m 0755 "$REPO_DIR/scripts/restore-test.sh" /opt/pgforge/bin/restore-test.sh
 install -m 0755 "$REPO_DIR/scripts/pitr-restore.sh" /opt/pgforge/bin/pitr-restore.sh
 install -m 0755 "$REPO_DIR/scripts/set-db-allowlist.sh" /opt/pgforge/bin/set-db-allowlist.sh
+install -m 0755 "$REPO_DIR/scripts/wal-prune.sh"    /opt/pgforge/bin/wal-prune.sh
 # Retire a pgweb unit left by an older install, if present.
 if [ -f /etc/systemd/system/pgweb.service ]; then
   systemctl disable --now pgweb 2>/dev/null || true
@@ -234,7 +235,7 @@ for u in pgforged.service pgforge-backup.service pgforge-backup.timer \
   install -m 0644 "$REPO_DIR/systemd/$u" "/etc/systemd/system/$u"
 done
 systemctl daemon-reload
-systemctl enable --now pgforged pgforge-backup.timer pgforge-restore-test.timer >/dev/null 2>&1
+systemctl enable --now pgforged pgforge-backup.timer pgforge-restore-test.timer pgforge-walprune.timer >/dev/null 2>&1
 systemctl restart pgforged
 
 # ----------------------------------------------------------------- per-instance mode (opt-in)
