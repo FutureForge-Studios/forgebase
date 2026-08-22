@@ -13,6 +13,14 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.12] - 2026-08-22
+
+### Added
+- View-as-role grid: browse any table as anon/authenticated/service_role with
+  RLS and grants applied (read-only, clearly bannered).
+- RLS status badge with policy count in the Table Editor header, linking to
+  the Policies page.
+
 ## [1.3.11] - 2026-08-22
 
 ### Added
@@ -789,7 +797,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.11...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.12...HEAD
+[1.3.12]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.11...v1.3.12
 [1.3.11]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.10...v1.3.11
 [1.3.10]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.9...v1.3.10
 [1.3.9]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.8...v1.3.9

@@ -785,6 +785,23 @@ func (a *app) tablesPage(w http.ResponseWriter, r *http.Request) {
 			}
 			orderBy = " ORDER BY " + strings.Join(qpk, ",")
 		}
+		// View-as-role: render the grid under anon/authenticated/service_role
+		// inside a rolled-back transaction, so RLS policies apply to what you
+		// see - the exact experience an API caller gets.
+		va := r.URL.Query().Get("va")
+		if va != "anon" && va != "authenticated" && va != "service_role" {
+			va = ""
+		}
+		data["ViewAs"] = va
+		if kind == "table" {
+			var rlsOn bool
+			var polN int
+			db.QueryRow(`SELECT c.relrowsecurity,
+					(SELECT count(*) FROM pg_policies p WHERE p.schemaname=$1 AND p.tablename=$2)
+				FROM pg_class c WHERE c.oid = $3::regclass`, sc, sel, qrel(sc, sel)).Scan(&rlsOn, &polN)
+			data["RLSOn"] = rlsOn
+			data["RLSPol"] = polN
+		}
 		// Page size selector (25/100/500)
 		pageSize := 100
 		if ps, e := strconv.Atoi(r.URL.Query().Get("ps")); e == nil && (ps == 25 || ps == 100 || ps == 500) {
@@ -799,17 +816,37 @@ func (a *app) tablesPage(w http.ResponseWriter, r *http.Request) {
 		defer gcancel()
 		q := fmt.Sprintf(`SELECT %s FROM %s%s%s LIMIT %d OFFSET %d`,
 			selExpr, qrel(sc, sel), where, orderBy, pageSize, (page-1)*pageSize)
-		rows, qerr := db.QueryContext(gctx, q, args...)
+		var rows *sql.Rows
+		var qerr error
+		var vtx *sql.Tx
+		if va == "" {
+			rows, qerr = db.QueryContext(gctx, q, args...)
+		} else if vtx, qerr = db.BeginTx(gctx, nil); qerr == nil {
+			if _, qerr = vtx.ExecContext(gctx, "SET LOCAL ROLE "+pq.QuoteIdentifier(va)); qerr == nil {
+				rows, qerr = vtx.QueryContext(gctx, q, args...)
+			}
+			if qerr != nil {
+				vtx.Rollback()
+				vtx = nil
+			}
+		}
 		if qerr != nil {
 			data["Error"] = qerr.Error()
 		} else {
 			cnames, recs, _ := scanRows(rows)
 			rows.Close()
-			data["Cols"] = cnames
-			data["Rows"] = recs
-			data["Meta"] = cols
+			if vtx != nil {
+				vtx.Rollback()
+			}
+			if va != "" {
+				// impersonated views are read-only in the grid
+				data["Editable"] = false
+				data["Cols"] = cnames
+				data["Rows"] = recs
+				data["Meta"] = cols
+			}
 			data["PK"] = pk
-			data["HasPK"] = len(pk) > 0
+			data["HasPK"] = len(pk) > 0 && va == ""
 			data["Page"] = page
 			data["PrevPage"] = page - 1
 			data["NextPage"] = page + 1

@@ -220,6 +220,7 @@ const tablesBody = `
     <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem">
       <h2 style="font-size:18px">{{.Sel}}</h2>
       {{if ne .Kind "table"}}<span class="badge active" style="text-transform:none">{{.Kind}}</span>{{end}}
+      {{if eq .Kind "table"}}{{if .RLSOn}}<a class="badge active" href="/p/{{.Slug}}/policies" style="text-transform:none" title="Row Level Security is on with {{.RLSPol}} policies - manage on the Policies page">RLS · {{.RLSPol}}</a>{{else}}<a class="badge paused" href="/p/{{.Slug}}/policies" style="text-transform:none" title="Row Level Security is off - anyone with a table grant sees every row">RLS off</a>{{end}}{{end}}
       {{if .Editable}}<button class="copy" type="button" title="Rename table" onclick="document.getElementById('ren').style.display='flex'">{{icon "settings"}}</button>{{end}}
       <span class="muted" style="font-size:12px">{{if .EstUnknown}}~ rows{{else}}≈{{.Est}} rows{{end}}{{if not .HasPK}} · no primary key (read-only rows){{end}}</span>
       <div class="spacer"></div>
@@ -230,6 +231,7 @@ const tablesBody = `
       {{if and .Meta .Editable}}<button class="btn btn-ghost btn-sm" onclick="document.getElementById('ins').style.display='block'">{{icon "plus"}} Insert row</button>{{end}}
     </div>
     {{if .Error}}<div class="flash err">{{.Error}}</div>{{end}}
+    {{if .ViewAs}}<div class="flash" style="margin-bottom:.8rem">Viewing as <b>{{.ViewAs}}</b> - RLS policies and grants applied, grid is read-only. <a href="#" onclick="return setVA('')">Back to owner view</a>.</div>{{end}}
 
     <form method="post" action="/p/{{.Slug}}/table-comment" style="display:flex;gap:.4rem;align-items:center;margin:-.2rem 0 .8rem">
       <input type="hidden" name="table" value="{{.Sel}}"><input type="hidden" name="__schema" value="{{.Schema}}">
@@ -270,6 +272,13 @@ const tablesBody = `
         <input id="fval" type="text" placeholder="value" style="width:140px;padding:.3rem .5rem;font-size:12px" onkeydown="if(event.key==='Enter'){addFilter();return false}">
         <button class="btn btn-ghost btn-sm" type="button" onclick="addFilter()">Add</button>
         <div class="spacer"></div>
+        <span class="label">View as</span>
+        <select onchange="setVA(this.value)" style="width:auto;padding:.3rem .4rem;font-size:12px">
+          <option value="" {{if not .ViewAs}}selected{{end}}>owner</option>
+          <option value="anon" {{if eq .ViewAs "anon"}}selected{{end}}>anon</option>
+          <option value="authenticated" {{if eq .ViewAs "authenticated"}}selected{{end}}>authenticated</option>
+          <option value="service_role" {{if eq .ViewAs "service_role"}}selected{{end}}>service_role</option>
+        </select>
         <span class="label">Rows</span>
         <select onchange="setPS(this.value)" style="width:auto;padding:.3rem .4rem;font-size:12px">
           <option value="25" {{if eq .PageSize 25}}selected{{end}}>25</option>
@@ -2201,6 +2210,7 @@ const editCellJS = `
 function urlWith(mut){var u=new URL(location.href);mut(u.searchParams);return u.pathname+'?'+u.searchParams.toString();}
 function goPage(p){location.href=urlWith(function(q){q.set('p',p)});return false;}
 function setPS(v){location.href=urlWith(function(q){q.set('ps',v);q.delete('p')});}
+function setVA(v){location.href=urlWith(function(q){if(v)q.set('va',v);else q.delete('va');q.delete('p')});return false;}
 function addFilter(){var c=document.getElementById('fcol').value,o=document.getElementById('fop').value,v=document.getElementById('fval').value;
  if(o==='is'){v=v||'null';}
  if(!c||!o)return;location.href=urlWith(function(q){q.append('f',c+'.'+o+'.'+v);q.delete('p')});}

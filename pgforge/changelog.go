@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.11"
+const appVersion = "1.3.12"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,16 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.12", Date: "2026-08-22",
+		Summary: "See your data exactly as your users do.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"View-as-role in the Table Editor: switch the grid to anon, authenticated or service_role and see exactly the rows that role gets - RLS policies and grants fully applied, safely read-only, with a banner and one click back to owner view.",
+				"RLS badge on every table: the editor header now shows whether Row Level Security is on and how many policies exist, linking straight to the Policies page.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.11", Date: "2026-08-22",
 		Summary: "A real policy editor, and a zoomable diagram.",
