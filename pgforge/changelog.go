@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.9"
+const appVersion = "1.3.10"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,20 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.10", Date: "2026-08-22",
+		Summary: "SQL editor tabs, table definitions, and diagram fixes.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"SQL editor tabs: keep several queries open at once - tabs persist in your browser per project, double-click to rename.",
+				"Table definition view: a collapsible card in the Table Editor shows the full CREATE TABLE statement (columns, defaults, primary key, foreign keys, indexes) for any table.",
+			}},
+			{"Fixed", []string{
+				"The schema diagram was rendering collapsed (a global icon style squashed it) and its colors could not resolve - it now draws at full size with proper theme colors.",
+				"The Objects page no longer lists functions, enums or indexes that belong to installed extensions (pg_stat_statements internals and friends) - only your own objects show.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.9", Date: "2026-08-22",
 		Summary: "See your schema as a diagram.",

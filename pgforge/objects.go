@@ -46,6 +46,8 @@ func (a *app) listFunctions(db *sql.DB, schema string) []dbFunc {
 		JOIN pg_namespace n ON n.oid = p.pronamespace
 		JOIN pg_language l ON l.oid = p.prolang
 		WHERE n.nspname = $1 AND p.prokind = 'f'
+			AND NOT EXISTS (SELECT 1 FROM pg_depend d
+				WHERE d.objid = p.oid AND d.deptype = 'e')
 		ORDER BY p.proname`, schema)
 	if err != nil {
 		return nil
@@ -89,6 +91,8 @@ func (a *app) listEnums(db *sql.DB, schema string) []dbEnum {
 		JOIN pg_namespace n ON n.oid = t.typnamespace
 		JOIN pg_enum e ON e.enumtypid = t.oid
 		WHERE n.nspname = $1
+			AND NOT EXISTS (SELECT 1 FROM pg_depend d
+				WHERE d.objid = t.oid AND d.deptype = 'e')
 		ORDER BY t.typname, e.enumsortorder`, schema)
 	if err != nil {
 		return nil
@@ -117,6 +121,8 @@ func (a *app) listIndexes(db *sql.DB, schema string) []dbIndex {
 		JOIN pg_namespace n ON n.oid = ic.relnamespace
 		LEFT JOIN pg_stat_user_indexes s ON s.indexrelid = i.indexrelid
 		WHERE n.nspname = $1
+			AND NOT EXISTS (SELECT 1 FROM pg_depend d
+				WHERE d.objid = tc.oid AND d.deptype = 'e')
 		ORDER BY tc.relname, ic.relname`, schema)
 	if err != nil {
 		return nil

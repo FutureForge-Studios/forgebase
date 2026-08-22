@@ -13,6 +13,17 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.10] - 2026-08-22
+
+### Added
+- SQL editor tabs (persisted per project in the browser; double-click renames).
+- Table definition card: generated CREATE TABLE SQL incl. keys and indexes.
+
+### Fixed
+- Schema diagram rendered collapsed and colorless; now full-size with theme
+  colors.
+- Objects page hides extension-owned functions/enums/indexes.
+
 ## [1.3.9] - 2026-08-22
 
 ### Added
@@ -768,7 +779,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.9...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.10...HEAD
+[1.3.10]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.9...v1.3.10
 [1.3.9]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.8...v1.3.9
 [1.3.8]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.7...v1.3.8
 [1.3.7]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.6...v1.3.7

@@ -237,6 +237,7 @@ const tablesBody = `
       <button class="btn btn-ghost btn-sm" type="submit" id="tcsave" style="display:none">Save comment</button>
     </form>
 
+    {{if .TableDef}}<details class="card" style="padding:.6rem .8rem;margin-bottom:.8rem"><summary class="label" style="cursor:pointer">Table definition (SQL)</summary><pre style="font-family:var(--mono);font-size:12px;overflow-x:auto;margin-top:.5rem;white-space:pre-wrap">{{.TableDef}}</pre></details>{{end}}
     {{if .ViewDef}}<details class="card" style="padding:.6rem .8rem;margin-bottom:.8rem"><summary class="label" style="cursor:pointer">View definition</summary><pre style="font-family:var(--mono);font-size:12px;overflow-x:auto;margin-top:.5rem;white-space:pre-wrap">{{.ViewDef}}</pre></details>{{end}}
     <form id="ren" class="card" method="post" action="/p/{{.Slug}}/table-rename" style="display:none;gap:.6rem;align-items:center;margin-bottom:.9rem">
       <input type="hidden" name="table" value="{{.Sel}}"><input type="hidden" name="__schema" value="{{.Schema}}">
@@ -425,6 +426,7 @@ const sqlBody = `
       </span>{{end}}
     </div>{{end}}
     <form id="saveform" method="post" action="/p/{{.Slug}}/sql/save" style="display:none"><input type="hidden" name="name" id="savename"><input type="hidden" name="query" id="savequery"></form>
+    <div id="tabbar" style="display:flex;gap:.3rem;align-items:center;margin-bottom:.5rem;flex-wrap:wrap"></div>
     <form method="post" action="/p/{{.Slug}}/sql" id="sqlform">
       <input type="hidden" name="buffer" id="buf"><input type="hidden" name="explain" id="explainfld" value="">
       <div class="edwrap">
@@ -544,6 +546,29 @@ document.getElementById('sqlform').addEventListener('submit',function(e){
   if(!confirm('This looks destructive (DROP/TRUNCATE, or DELETE/UPDATE without WHERE). Run it?')){e.preventDefault();q.value=document.getElementById('buf').value;paint();return false;}}
 });
 function runExplain(){document.getElementById('explainfld').value='1';document.getElementById('sqlform').submit();document.getElementById('explainfld').value='';}
+// ---- editor tabs: independent buffers persisted per project in localStorage
+var TKEY='fb_sqltabs_'+"{{.Slug}}";
+function tload(){try{var t=JSON.parse(localStorage.getItem(TKEY)||'null');if(t&&t.tabs&&t.tabs.length)return t;}catch(e){}return {tabs:[{n:'Query 1',q:''}],a:0};}
+var TS=tload();
+if(q.value){TS.tabs[TS.a].q=q.value;}else{q.value=TS.tabs[TS.a].q||'';paint();}
+function tsave(){try{localStorage.setItem(TKEY,JSON.stringify(TS))}catch(e){}}
+function trender(){var bar=document.getElementById('tabbar');bar.innerHTML='';
+ TS.tabs.forEach(function(t,i){var b=document.createElement('button');b.type='button';
+  b.className='btn btn-sm '+(i===TS.a?'btn-primary':'btn-ghost');b.textContent=t.n;b.title='Double-click to rename';
+  b.onclick=function(){TS.tabs[TS.a].q=q.value;TS.a=i;q.value=TS.tabs[i].q||'';paint();tsave();trender();q.focus();};
+  b.ondblclick=function(){var n=prompt('Tab name:',t.n);if(n){t.n=n;tsave();trender();}};
+  bar.appendChild(b);});
+ if(TS.tabs.length>1){var x=document.createElement('button');x.type='button';x.className='copy';x.textContent='×';x.title='Close current tab';
+  x.onclick=function(){TS.tabs.splice(TS.a,1);if(TS.a>=TS.tabs.length)TS.a=TS.tabs.length-1;q.value=TS.tabs[TS.a].q||'';paint();tsave();trender();};
+  bar.appendChild(x);}
+ var add=document.createElement('button');add.type='button';add.className='copy';add.textContent='+';add.title='New tab';
+ add.onclick=function(){TS.tabs[TS.a].q=q.value;TS.tabs.push({n:'Query '+(TS.tabs.length+1),q:''});TS.a=TS.tabs.length-1;q.value='';paint();tsave();trender();q.focus();};
+ bar.appendChild(add);}
+q.addEventListener('input',function(){TS.tabs[TS.a].q=q.value;tsave();});
+document.getElementById('sqlform').addEventListener('submit',function(){
+ TS.tabs[TS.a].q=document.getElementById('buf').value||q.value;tsave();});
+trender();
+tsave();
 function fmtSQL(){var v=q.value;
  v=v.replace(KW,function(m){return m.toUpperCase()});
  v=v.replace(/[ \t]+(FROM|WHERE|ORDER BY|GROUP BY|HAVING|LIMIT|LEFT JOIN|RIGHT JOIN|INNER JOIN|JOIN|UNION|VALUES|SET|RETURNING)\b/g,'\n$1');
@@ -1829,22 +1854,22 @@ const erdBody = `
 <div class="card" style="text-align:center;padding:2.5rem"><p class="muted" style="margin:0">No tables in <b>{{.Schema}}</b> yet.</p></div>
 {{else}}
 <div class="card" style="padding:.4rem;overflow:auto;max-height:78vh">
-<svg width="{{.Width}}" height="{{.Height}}" xmlns="http://www.w3.org/2000/svg" style="display:block;font-family:var(--mono)">
-  <defs><marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="hsl(var(--muted-fg))"/></marker></defs>
-  {{range .Edges}}<path d="{{.Path}}" fill="none" stroke="hsl(var(--muted-fg))" stroke-width="1.3" opacity=".55" marker-end="url(#arr)"><title>{{.Title}}</title></path>{{end}}
+<svg width="{{.Width}}" height="{{.Height}}" xmlns="http://www.w3.org/2000/svg" style="display:block;font-family:var(--mono);width:{{.Width}}px;height:{{.Height}}px;max-width:none">
+  <defs><marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" style="fill:hsl(var(--muted-fg))"/></marker></defs>
+  {{range .Edges}}<path d="{{.Path}}" style="fill:none;stroke:hsl(var(--muted-fg));stroke-width:1.3;opacity:.55" marker-end="url(#arr)"><title>{{.Title}}</title></path>{{end}}
   {{range .Boxes}}
   <g>
-    <rect x="{{.X}}" y="{{.Y}}" width="{{.W}}" height="{{.H}}" rx="9" fill="hsl(var(--card))" stroke="hsl(var(--border))" stroke-width="1.2"/>
+    <rect x="{{.X}}" y="{{.Y}}" width="{{.W}}" height="{{.H}}" rx="9" style="fill:hsl(var(--card));stroke:hsl(var(--border));stroke-width:1.2"/>
     <a href="/p/{{$.Slug}}/tables?t={{.Name}}&sc={{$.Schema}}">
-      <rect x="{{.X}}" y="{{.Y}}" width="{{.W}}" height="{{.HeadH}}" rx="9" fill="hsl(var(--primary) / .09)"/>
-      <text x="{{add .X 12}}" y="{{add .Y 20}}" font-size="12.5" font-weight="700" fill="hsl(var(--fg))">{{.Name}}</text>
+      <rect x="{{.X}}" y="{{.Y}}" width="{{.W}}" height="{{.HeadH}}" rx="9" style="fill:hsl(var(--primary) / .09)"/>
+      <text x="{{add .X 12}}" y="{{add .Y 20}}" style="font-size:12.5px;font-weight:700;fill:hsl(var(--fg))">{{.Name}}</text>
     </a>
     {{$b := .}}
     {{range $i, $row := .Rows}}
-    <text x="{{add $b.X 12}}" y="{{rowy $b $i}}" font-size="11" fill="hsl(var(--fg))" {{if .PK}}font-weight="700"{{end}}>{{.Name}}{{if .PK}} *{{end}}</text>
-    <text x="{{add $b.X 218}}" y="{{rowy $b $i}}" font-size="10" text-anchor="end" fill="hsl(var(--muted-fg))">{{.Type}}</text>
+    <text x="{{add $b.X 12}}" y="{{rowy $b $i}}" style="font-size:11px;fill:hsl(var(--fg)){{if .PK}};font-weight:700{{end}}">{{.Name}}{{if .PK}} *{{end}}</text>
+    <text x="{{add $b.X 218}}" y="{{rowy $b $i}}" text-anchor="end" style="font-size:10px;fill:hsl(var(--muted-fg))">{{.Type}}</text>
     {{end}}
-    {{if .More}}<text x="{{add .X 12}}" y="{{morey .}}" font-size="10" fill="hsl(var(--muted-fg))">+{{.More}} more columns</text>{{end}}
+    {{if .More}}<text x="{{add .X 12}}" y="{{morey .}}" style="font-size:10px;fill:hsl(var(--muted-fg))">+{{.More}} more columns</text>{{end}}
   </g>
   {{end}}
 </svg>

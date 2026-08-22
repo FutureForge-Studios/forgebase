@@ -167,6 +167,45 @@ func qrel(schema, name string) string {
 	return pq.QuoteIdentifier(schema) + "." + pq.QuoteIdentifier(name)
 }
 
+// buildTableDef reconstructs a readable CREATE TABLE statement (plus its
+// secondary indexes) from catalog metadata - the "show me the SQL" view.
+func buildTableDef(sc, table string, cols []tableCol, pk []string, idxs []dbIndex) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "CREATE TABLE %s (\n", qrel(sc, table))
+	var lines []string
+	for _, c := range cols {
+		l := "  " + pq.QuoteIdentifier(c.Name) + " " + c.Type
+		if c.Default != "" {
+			l += " DEFAULT " + c.Default
+		}
+		if c.Nullable == "NO" {
+			l += " NOT NULL"
+		}
+		lines = append(lines, l)
+	}
+	if len(pk) > 0 {
+		qp := make([]string, len(pk))
+		for i, k := range pk {
+			qp[i] = pq.QuoteIdentifier(k)
+		}
+		lines = append(lines, "  PRIMARY KEY ("+strings.Join(qp, ", ")+")")
+	}
+	for _, c := range cols {
+		if c.FKTable != "" {
+			lines = append(lines, fmt.Sprintf("  FOREIGN KEY (%s) REFERENCES %s (%s)",
+				pq.QuoteIdentifier(c.Name), qrel(c.FKSchema, c.FKTable), pq.QuoteIdentifier(c.FKCol)))
+		}
+	}
+	b.WriteString(strings.Join(lines, ",\n"))
+	b.WriteString("\n);")
+	for _, ix := range idxs {
+		if ix.Table == table && !ix.Primary {
+			b.WriteString("\n" + ix.Def + ";")
+		}
+	}
+	return b.String()
+}
+
 // roleFor returns the project's database role name (defaults to the slug).
 func (a *app) roleFor(slug string) string {
 	role := ""
@@ -691,6 +730,9 @@ func (a *app) tablesPage(w http.ResponseWriter, r *http.Request) {
 			var def string
 			db.QueryRow(`SELECT pg_get_viewdef($1::regclass, true)`, qrel(sc, sel)).Scan(&def)
 			data["ViewDef"] = def
+		}
+		if kind == "table" && len(cols) > 0 {
+			data["TableDef"] = buildTableDef(sc, sel, cols, pk, a.listIndexes(db, sc))
 		}
 		type colMetaJS struct {
 			T    string   `json:"t"`
