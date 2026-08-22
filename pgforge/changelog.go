@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.5"
+const appVersion = "1.4.6"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,16 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.6", Date: "2026-08-23",
+		Summary: "Storage grows up: path rules and resumable uploads.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Path-level storage access rules: scope any bucket prefix to public, authenticated, owner (the first folder must be the user's own id - enforced on reads AND uploads) or private (service key and signed URLs only). Longest prefix wins; buckets without rules keep their plain public/private flag.",
+				"Resumable uploads: a standard tus 1.0.0 endpoint at /storage/v1/tus/<bucket>. Works with tus-js-client, Uppy and every other tus client; interrupted uploads resume exactly where they stopped, survive daemon restarts, respect bucket size/type limits, quotas and path rules, and abandoned uploads are pruned after a day.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.5", Date: "2026-08-23",
 		Summary: "Team depth: project scoping and real session control.",

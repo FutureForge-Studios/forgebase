@@ -193,6 +193,7 @@ func (a *app) storagePage(w http.ResponseWriter, r *http.Request) {
 		"Pfx": strings.TrimSuffix(pfx, "/"), "Parent": parent, "InFolder": pfx != "", "Query": query,
 		"NBuckets": len(buckets), "TotObjects": totObjects, "TotSize": totSize,
 		"QuotaMB": quotaMB, "UsedPct": usedPct, "HasQuota": quotaB > 0,
+		"Rules": a.listStorageRules(slug), "Domain": a.cfg.domain,
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Storage", Nav: "storage", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Storage"}}}, content)
@@ -859,11 +860,19 @@ func (a *app) serveStorageRead(w http.ResponseWriter, r *http.Request, slug, p s
 		return
 	}
 	if mode == "public" {
-		var public bool
-		a.db.QueryRow(`SELECT public FROM storage_buckets WHERE slug=$1 AND bucket=$2`, slug, bucket).Scan(&public)
-		if !public {
-			http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
-			return
+		// path rules first (longest prefix wins); fall back to the bucket flag
+		if allowed, hadRule := a.storageRuleAllows(r, slug, bucket, path); hadRule {
+			if !allowed {
+				http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+				return
+			}
+		} else {
+			var public bool
+			a.db.QueryRow(`SELECT public FROM storage_buckets WHERE slug=$1 AND bucket=$2`, slug, bucket).Scan(&public)
+			if !public {
+				http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+				return
+			}
 		}
 	} else {
 		tok := r.URL.Query().Get("token")
@@ -895,6 +904,21 @@ func (a *app) storageUploadAPI(w http.ResponseWriter, r *http.Request, slug, p s
 	if !ok || !a.bucketExists(slug, bucket) {
 		writeJSON(w, 400, map[string]string{"message": "unknown bucket or path"})
 		return
+	}
+	// owner/private path rules gate writes too (service_role passes)
+	if access, prefix := a.storageRuleFor(slug, bucket, rel); role != "service_role" {
+		if access == "private" {
+			writeJSON(w, http.StatusForbidden, map[string]string{"message": "this path is service-role only"})
+			return
+		}
+		if access == "owner" {
+			claims, _ := a.storageClaims(r, slug)
+			sub, _ := claims["sub"].(string)
+			if sub == "" || ownerSegment(rel, prefix) != sub {
+				writeJSON(w, http.StatusForbidden, map[string]string{"message": "you can only write under your own folder here"})
+				return
+			}
+		}
 	}
 	mime := r.Header.Get("Content-Type")
 	if mime == "" {

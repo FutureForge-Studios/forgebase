@@ -514,6 +514,10 @@ func (a *app) serveAPI(w http.ResponseWriter, r *http.Request, slug string) {
 		a.serveStorage(w, r, slug)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/storage/v1/tus/") {
+		a.serveTUS(w, r, slug)
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/auth/v1") {
 		a.serveAuth(w, r, slug)
 		return

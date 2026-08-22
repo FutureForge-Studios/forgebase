@@ -56,9 +56,9 @@ happy path.
 - [x] Move, copy, bulk delete, paginated + searchable listing, upsert,
       custom object metadata.
 - [x] Signed upload URLs and richer download options.
-- [ ] Path-level and rule-based access policies.
+- [x] Path-level and rule-based access policies.
 - [x] Image transformations with cached renditions.
-- [ ] Resumable (TUS) uploads.
+- [x] Resumable (TUS) uploads.
 - [x] Smart caching (Cache-Control, ETags, conditional requests).
 - [x] A real storage explorer UI: folders, drag-drop, previews.
 - [x] Per-project storage quotas with usage meters.
@@ -105,9 +105,9 @@ happy path.
 
 ## Next (1.4.x)
 The remaining unchecked items above are the heavyweight tier - read replicas,
-PITR-branching, warm/streaming functions, TUS + S3-protocol storage,
-storage access rules, SAML SSO + phone OTP, asymmetric JWT signing with
-JWKS, per-subscriber RLS on change streams, and adaptive sizing. Each needs
+PITR-branching, warm/streaming functions, S3-protocol storage, SAML SSO +
+phone OTP, asymmetric JWT signing with JWKS, per-subscriber RLS on change
+streams, and adaptive sizing. Each needs
 its own design pass and ships as focused 1.4.x releases, in the order they
 unlock the most for real projects.
 

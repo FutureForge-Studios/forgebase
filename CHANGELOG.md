@@ -13,6 +13,16 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.6] - 2026-08-23
+
+### Added
+- Path-level storage access rules: bucket prefixes scoped to public /
+  authenticated / owner / private, longest prefix wins, enforced on reads
+  and uploads alike. Bucket flags remain the fallback.
+- Resumable uploads: a tus 1.0.0 endpoint (/storage/v1/tus/<bucket>)
+  compatible with tus-js-client and Uppy; resumes across interruptions and
+  daemon restarts, respects limits/quotas/rules, prunes abandoned uploads.
+
 ## [1.4.5] - 2026-08-23
 
 ### Added

@@ -1450,7 +1450,32 @@ function soMove(p,move){var to=prompt((move?'Move/rename to path:':'Copy to path
  var f=document.getElementById('somv');
  f.action='/p/'+location.pathname.split('/')[2]+'/storage/'+(move?'move':'copy');
  document.getElementById('somvfrom').value=p;document.getElementById('somvto').value=to;f.submit();}
-</script>`
+</script>
+<div class="card" style="margin-top:1rem">
+  <div style="display:flex;align-items:center;gap:.6rem"><h2>Access rules</h2><span class="label">{{len .Rules}} rule(s)</span></div>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .6rem">Path-level access on top of the bucket flag - the longest matching prefix wins. <b>public</b>: anyone reads. <b>authenticated</b>: any signed-in user. <b>owner</b>: the first folder after the prefix must be the user's own id (uploads too). <b>private</b>: service key and signed URLs only.</p>
+  {{if .Rules}}
+  <div class="tblwrap"><table class="data">
+    <thead><tr><th>Bucket</th><th>Prefix</th><th>Access</th><th></th></tr></thead>
+    <tbody>{{range .Rules}}<tr>
+      <td><code>{{.Bucket}}</code></td><td><code>{{if .Prefix}}{{.Prefix}}/{{else}}(whole bucket){{end}}</code></td>
+      <td><span class="badge {{if eq .Access "public"}}active{{else}}paused{{end}}">{{.Access}}</span></td>
+      <td style="text-align:right"><form method="post" action="/p/{{$.Slug}}/storage-rule-delete" style="display:inline"><input type="hidden" name="id" value="{{.ID}}"><button class="copy" style="color:hsl(var(--destructive))">{{icon "trash"}}</button></form></td>
+    </tr>{{end}}</tbody>
+  </table></div>{{end}}
+  <form method="post" action="/p/{{.Slug}}/storage-rule-add" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.7rem">
+    <label class="fld" style="margin:0"><span class="lt">Bucket</span><select name="bucket" style="width:auto">{{range .Buckets}}<option>{{.Name}}</option>{{end}}</select></label>
+    <label class="fld" style="margin:0"><span class="lt">Path prefix (empty = whole bucket)</span><input type="text" name="prefix" placeholder="avatars" style="width:160px"></label>
+    <label class="fld" style="margin:0"><span class="lt">Access</span><select name="access" style="width:auto">
+      <option>public</option><option>authenticated</option><option>owner</option><option>private</option></select></label>
+    <button class="btn btn-primary btn-sm" type="submit">Add rule</button>
+  </form>
+</div>
+<div class="card" style="margin-top:1rem">
+  <h2>Resumable uploads (tus)</h2>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .6rem">Big files over flaky connections: any standard tus 1.0.0 client (tus-js-client, Uppy) resumes exactly where it stopped. Authenticate like any upload; the filename comes from the tus metadata.</p>
+  <div class="cs"><span class="tag">Endpoint</span><code id="tusurl">https://{{.Slug}}.{{.Domain}}/storage/v1/tus/&lt;bucket&gt;</code><button class="copy" onclick="cp('tusurl')">{{icon "copy"}}</button></div>
+</div>`
 
 const authPageBody = `
 <div class="pagehead"><h1>Auth</h1><p>Email + password authentication for <b>{{.Slug}}</b>'s end users, with JWTs your Data API trusts.</p></div>

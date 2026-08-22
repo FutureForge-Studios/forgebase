@@ -349,6 +349,8 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/fdw-drop", a.auth(admin(a.fdwDrop)))
 	mux.HandleFunc("POST /p/{slug}/fdw-import", a.auth(admin(a.fdwImport)))
 	mux.HandleFunc("POST /p/{slug}/instance-compute", a.auth(admin(a.setInstanceCompute)))
+	mux.HandleFunc("POST /p/{slug}/storage-rule-add", a.auth(admin(a.storageRuleAdd)))
+	mux.HandleFunc("POST /p/{slug}/storage-rule-delete", a.auth(admin(a.storageRuleDelete)))
 	mux.HandleFunc("GET /p/{slug}/branch-diff", a.auth(proj(a.branchDiff)))
 	mux.HandleFunc("POST /p/{slug}/branch-reset", a.auth(admin(a.branchReset)))
 	mux.HandleFunc("GET /p/{slug}/realtime", a.auth(proj(a.realtimePage)))
@@ -521,6 +523,14 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS instance_mem_mb integer NOT NULL DEFAULT 0`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS instance_cpus real NOT NULL DEFAULT 0`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS project_scope text NOT NULL DEFAULT ''`,
+		`CREATE TABLE IF NOT EXISTS storage_rules (
+			id bigserial PRIMARY KEY,
+			slug text NOT NULL,
+			bucket text NOT NULL,
+			prefix text NOT NULL DEFAULT '',
+			access text NOT NULL DEFAULT 'public',
+			created_at timestamptz NOT NULL DEFAULT now()
+		)`,
 		`CREATE TABLE IF NOT EXISTS panel_sessions (
 			id text PRIMARY KEY,
 			user_name text NOT NULL,
