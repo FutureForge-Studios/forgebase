@@ -50,7 +50,7 @@ const dashboardBody = `
   <div class="card proj-card" data-slug="{{.Slug}}">
     <div style="display:flex;align-items:center;gap:.6rem">
       <a href="/p/{{.Slug}}" style="font-family:var(--serif);font-size:18px;font-weight:600">{{.Slug}}</a>
-      <span class="badge {{.Status}}">{{.Status}}</span>
+      <span class="badge {{.Status}}">{{if eq .Status "suspended"}}&#127769; sleeping{{else}}{{.Status}}{{end}}</span>
       <div class="spacer"></div>
       <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}">Open</a>
     </div>
@@ -60,6 +60,9 @@ const dashboardBody = `
     <div style="display:flex;gap:.5rem;margin-top:.9rem">
       {{if eq .Status "active"}}
       <form method="post" action="/pause"><input type="hidden" name="slug" value="{{.Slug}}"><button class="btn btn-ghost btn-sm">{{icon "pause"}} Pause</button></form>
+      <form method="post" action="/sleep"><input type="hidden" name="slug" value="{{.Slug}}"><button class="btn btn-ghost btn-sm" title="Release this project's resources now - it wakes automatically on the next request">&#127769; Sleep now</button></form>
+      {{else if eq .Status "suspended"}}
+      <form method="post" action="/wake"><input type="hidden" name="slug" value="{{.Slug}}"><button class="btn btn-primary btn-sm">{{icon "bolt"}} Wake</button></form>
       {{else}}
       <form method="post" action="/resume"><input type="hidden" name="slug" value="{{.Slug}}"><button class="btn btn-ghost btn-sm">{{icon "play"}} Resume</button></form>
       {{end}}
@@ -466,7 +469,17 @@ const backupsBody = `
 </div>
 <div class="card" style="margin-bottom:1rem">
   <h2>Restore to a point in time</h2>
-  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .8rem">Recover <b>{{.Slug}}</b> to any instant, down to the second, into a <b>new</b> project - the source is never touched. This replays the continuous WAL archive forward from a basebackup to the moment you pick. Available for any time within the physical-backup window (basebackups kept 7 days).</p>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .8rem">Recover <b>{{.Slug}}</b> to any instant, down to the second, into a <b>new</b> project - the source is never touched. This replays the continuous WAL archive forward from a snapshot to the moment you pick.{{if .PITRFrom}} Restorable window: <b>{{.PITRFrom}} &rarr; now</b> (UTC). Older restores use the daily and weekly dumps above.{{end}}</p>
+  <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin:0 0 .6rem">
+    <button type="button" class="btn btn-ghost btn-sm" onclick="pitrPick(5)">5 min ago</button>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="pitrPick(60)">1 hour ago</button>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="pitrPick(1440)">Yesterday</button>
+  </div>
+  <script>
+  function pitrPick(min){var d=new Date(Date.now()-min*60000);
+    var p=function(n){return (n<10?'0':'')+n};
+    document.querySelector('input[name=target]').value=d.getUTCFullYear()+'-'+p(d.getUTCMonth()+1)+'-'+p(d.getUTCDate())+'T'+p(d.getUTCHours())+':'+p(d.getUTCMinutes())+':'+p(d.getUTCSeconds());}
+  </script>
   <form method="post" action="/p/{{.Slug}}/pitr" style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end"
         onsubmit="return confirm('Recover '+{{.Slug}}+' to the chosen time into a new project?')">
     <div><div class="label">Point in time (UTC)</div><input type="datetime-local" name="target" step="1" required style="width:220px"></div>
@@ -495,7 +508,7 @@ const settingsBody = `
   <h2>Project details</h2>
   <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));margin-top:.8rem;gap:1rem">
     <div><div class="label">Project ID</div><code style="font-size:13px">{{.Slug}}</code></div>
-    <div><div class="label">Status</div><div style="font-size:15px;text-transform:capitalize">{{.Status}}</div></div>
+    <div><div class="label">Status</div><div style="font-size:15px;text-transform:capitalize">{{if eq .Status "suspended"}}&#127769; sleeping{{else}}{{.Status}}{{end}}</div></div>
     <div><div class="label">Size</div><div style="font-size:15px">{{.Size}}</div></div>
     <div><div class="label">Postgres</div><div style="font-size:15px">{{.Version}}</div></div>
     <div><div class="label">Created</div><div style="font-size:15px">{{.Created}}</div></div>
@@ -553,6 +566,11 @@ const settingsBody = `
 
 const monitoringBody = `
 <div class="pagehead"><h1>Monitoring</h1><p>Live health and usage for <b>{{.Slug}}</b>. Counters are cumulative since the last stats reset.</p></div>
+<div style="display:flex;gap:.4rem;margin-bottom:1rem">
+  <a class="btn btn-sm {{if eq .Range "24h"}}btn-primary{{else}}btn-ghost{{end}}" href="?range=24h">24h</a>
+  <a class="btn btn-sm {{if eq .Range "7d"}}btn-primary{{else}}btn-ghost{{end}}" href="?range=7d">7 days</a>
+  <a class="btn btn-sm {{if eq .Range "30d"}}btn-primary{{else}}btn-ghost{{end}}" href="?range=30d">30 days</a>
+</div>
 <div class="grid g3" style="margin-bottom:1rem">
   <div class="card stat"><div class="k">Storage</div><div class="v">{{.Size}}</div></div>
   <div class="card stat"><div class="k">Cache hit ratio</div><div class="v">{{.Hit}}%</div>
@@ -662,7 +680,10 @@ function filterLogs(){var q=document.getElementById('logsearch').value.toLowerCa
 </script>`
 
 const branchesBody = `
-<div class="pagehead"><h1>Branches</h1><p>Instant copies of <b>{{.Slug}}</b> - spin up an isolated database for staging, a feature, or a migration test.</p></div>
+<div class="pagehead"><h1>Branches</h1><p>Isolated copies of <b>{{.Slug}}</b> for staging, a feature, or a migration test.</p></div>
+<div class="card" style="margin-bottom:1rem;border-color:hsl(var(--warn)/.4)">
+  <p class="muted" style="font-size:12.5px;margin:.2rem 0">&#9888;&#65039; A branch today is a <b style="color:hsl(var(--fg))">full copy</b>: it doubles this project's storage and gets its own nightly backups. Instant copy-on-write branching (a branch in ~1 second, sharing storage with its parent) is in active development and will replace this.</p>
+</div>
 <form class="card" method="post" action="/p/{{.Slug}}/branch-create" style="display:flex;gap:.6rem;align-items:center;margin-bottom:1.2rem">
   <span class="mono muted" style="font-size:13px">{{.Slug}}-</span>
   <input type="text" name="name" placeholder="branch name  ·  e.g. staging" pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,30}" required style="flex:1">
@@ -1381,6 +1402,13 @@ const systemBody = `
     </div>
     <a class="btn btn-ghost btn-sm" href="/changelog" style="margin-top:.6rem">{{icon "sparkle"}} What's New</a>
   {{end}}
+  {{if .IsOwner}}{{if not .UpdateRunning}}
+  <form method="post" action="/system/auto-update" style="margin:.9rem 0 0;display:flex;align-items:center;gap:.5rem">
+    <label style="display:flex;align-items:center;gap:.4rem;font-size:12.5px;cursor:pointer">
+      <input type="checkbox" name="auto" {{if .AutoUpd}}checked{{end}} style="width:auto;margin:0" onchange="this.form.submit()">
+      Install new releases automatically (03:00-05:00 UTC, with health-check + rollback)</label>
+  </form>
+  {{end}}{{end}}
   {{if and .UpdateLog (not .UpdateRunning)}}<div class="label" style="margin:.9rem 0 .2rem">Last update log</div><pre style="background:hsl(var(--primary) / .04);border:1px solid hsl(var(--border));border-radius:.5rem;padding:.7rem;font-size:11px;line-height:1.5;overflow:auto;max-height:220px;margin:0">{{.UpdateLog}}</pre>{{end}}
 </div>
 <div class="card" style="margin-bottom:1rem">

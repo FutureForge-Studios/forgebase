@@ -156,6 +156,7 @@ func main() {
 	a.startRateLimitPruner()
 	go a.migrateAuthProjects() // apply new auth columns to already-enabled projects
 	go a.reconcileInfra()      // bring on-box scripts/units current after a self-update
+	a.startUpdateChecker()     // background update-available badge + optional auto-install
 
 	mux := http.NewServeMux()
 	// public
@@ -183,6 +184,7 @@ func main() {
 	mux.HandleFunc("GET /changelog", a.auth(a.changelogPage))
 	mux.HandleFunc("POST /system/update", a.auth(a.requireRole("owner", a.applyUpdate)))
 	mux.HandleFunc("POST /system/discord", a.auth(a.requireRole("owner", a.setDiscordWebhook)))
+	mux.HandleFunc("POST /system/auto-update", a.auth(a.requireRole("owner", a.setAutoUpdate)))
 	// team (owner-only management)
 	mux.HandleFunc("GET /people", a.auth(a.peoplePage))
 	mux.HandleFunc("POST /people/add", a.auth(a.requireRole("owner", a.addMember)))
@@ -195,6 +197,8 @@ func main() {
 	mux.HandleFunc("POST /delete", a.auth(a.requireRole("admin", a.deleteProject)))
 	mux.HandleFunc("POST /pause", a.auth(a.requireRole("admin", a.pauseProject)))
 	mux.HandleFunc("POST /resume", a.auth(a.requireRole("admin", a.resumeProject)))
+	mux.HandleFunc("POST /sleep", a.auth(a.requireRole("admin", a.sleepProject)))
+	mux.HandleFunc("POST /wake", a.auth(a.requireRole("admin", a.wakeProject)))
 	// project-scoped. proj() = slug-valid + project-exists gate on every route
 	// (also the single guard that stops dbFor from caching a bogus slug). admin()
 	// additionally requires the admin role for destructive / platform-affecting

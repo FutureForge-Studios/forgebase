@@ -13,6 +13,29 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.12] - 2026-08-22
+
+### Added
+- Update awareness: ForgeBase checks for new releases in the background and
+  shows a pulsing dot on System in the sidebar the moment one exists - no more
+  clicking "Check for updates". Discord gets one ping per new version too.
+- Optional auto-install: a checkbox on the System page installs new releases
+  automatically between 03:00-05:00 UTC, with the usual health-check and
+  rollback. Off by default - updates wait for your click.
+- Sleeping projects are visible: a moon badge on the dashboard, plus "Sleep
+  now" and "Wake" buttons to park or rouse a project instantly.
+- Monitoring charts now offer 24-hour, 7-day, and 30-day views.
+- Creating a project with a taken name now just works: "profitzon" taken
+  becomes "profitzon-2" automatically.
+
+### Changed
+- The point-in-time recovery picker got a proper design: styled date-time
+  input, one-click presets (5 min ago, 1 hour ago, yesterday), and it now
+  shows the actual restorable window instead of an outdated "7 days" claim.
+- The Branches page now states plainly that a branch is currently a full copy
+  (2x storage) - and that instant copy-on-write branching is in active
+  development.
+
 ## [1.2.11] - 2026-08-22
 
 ### Security
@@ -441,7 +464,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.11...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.12...HEAD
+[1.2.12]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.11...v1.2.12
 [1.2.11]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.10...v1.2.11
 [1.2.10]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.9...v1.2.10
 [1.2.9]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.8...v1.2.9

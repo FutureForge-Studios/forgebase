@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -158,6 +159,83 @@ func updateInFlight() bool {
 		!strings.Contains(s, "failed")
 }
 
+// Background update awareness: the panel should TELL the operator an update
+// exists without them clicking "Check". A cached check runs shortly after boot
+// and every 6 hours; the sidebar shows a dot on System while behind, Discord
+// gets one ping per new version, and - only when the operator opts in via the
+// auto_update setting - new releases install themselves in the 03:00-05:00 UTC
+// quiet window.
+var updCheck struct {
+	mu       sync.Mutex
+	info     updateInfo
+	at       time.Time
+	notified string // last version announced to Discord (once per version)
+}
+
+func (a *app) startUpdateChecker() {
+	go func() {
+		time.Sleep(30 * time.Second) // let boot settle first
+		for {
+			info := a.updateStatus()
+			updCheck.mu.Lock()
+			updCheck.info, updCheck.at = info, time.Now()
+			announce := info.Behind && updCheck.notified != info.Latest
+			if announce {
+				updCheck.notified = info.Latest
+			}
+			updCheck.mu.Unlock()
+			if announce {
+				go a.notifyDiscord(fmt.Sprintf("⬆️ ForgeBase v%s is available (running v%s). Install it from the System page.", info.Latest, info.Current))
+			}
+			if info.Behind && a.settingOn("auto_update") && !updateInFlight() {
+				if h := time.Now().UTC().Hour(); h >= 3 && h < 5 {
+					a.auditRaw("system", "-", "auto-update", info.Latest)
+					go a.notifyDiscord("🔄 Auto-installing ForgeBase v" + info.Latest + " (auto-update is on)...")
+					a.launchUpdate()
+				}
+			}
+			time.Sleep(6 * time.Hour)
+		}
+	}()
+}
+
+// cachedUpdate returns the last background check result (zero value if none yet).
+func cachedUpdate() (updateInfo, time.Time) {
+	updCheck.mu.Lock()
+	defer updCheck.mu.Unlock()
+	return updCheck.info, updCheck.at
+}
+
+// updateAvail is the cheap sidebar-badge check.
+func updateAvail() bool {
+	updCheck.mu.Lock()
+	defer updCheck.mu.Unlock()
+	return updCheck.info.Behind
+}
+
+func (a *app) settingOn(key string) bool {
+	var v string
+	a.db.QueryRow(`SELECT value FROM settings WHERE key=$1`, key).Scan(&v)
+	return v == "1"
+}
+
+// setAutoUpdate toggles nightly self-installation of new releases.
+func (a *app) setAutoUpdate(w http.ResponseWriter, r *http.Request) {
+	on := r.FormValue("auto") == "on"
+	val := "0"
+	if on {
+		val = "1"
+	}
+	a.db.Exec(`INSERT INTO settings(key,value) VALUES ('auto_update',$1)
+		ON CONFLICT (key) DO UPDATE SET value=$1`, val)
+	a.audit(r, "auto-update-setting", val)
+	msg := "Auto-install disabled - updates wait for your click."
+	if on {
+		msg = "Auto-install enabled: new releases install automatically between 03:00-05:00 UTC."
+	}
+	redirectMsg(w, r, "/system", msg)
+}
+
 // applyUpdate stages an updater script and launches it as a TRANSIENT systemd
 // unit (systemd-run). That is deliberate: the script restarts pgforged, and a
 // plain background child would sit in pgforged's own cgroup and be killed by that
@@ -177,13 +255,23 @@ func (a *app) applyUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectMsg(w, r, "/system", "An update is already in progress.")
 		return
 	}
+	if err := a.launchUpdate(); err != nil {
+		redirectErr(w, r, "/system", err.Error())
+		return
+	}
+	a.audit(r, "self-update", "started")
+	redirectMsg(w, r, "/system", "Update started. Watch the live log below - this page refreshes on its own until it finishes.")
+}
+
+// launchUpdate stages the updater script and starts it in a transient unit.
+// Shared by the manual button and the opt-in nightly auto-installer.
+func (a *app) launchUpdate() error {
 	repoDir := ""
 	if b, err := os.ReadFile("/opt/pgforge/repo_dir"); err == nil {
 		repoDir = strings.TrimSpace(string(b))
 	}
 	if repoDir == "" {
-		redirectErr(w, r, "/system", "Update source not configured (this box was not installed from a git checkout).")
-		return
+		return fmt.Errorf("update source not configured (this box was not installed from a git checkout)")
 	}
 	script := `#!/bin/sh
 LOG=/opt/pgforge/update.log
@@ -229,8 +317,7 @@ MOD=$(du -sm "$GOMODCACHE" 2>/dev/null | cut -f1)
 exit 0
 `
 	if err := os.WriteFile("/opt/pgforge/update.sh", []byte(script), 0o755); err != nil {
-		redirectErr(w, r, "/system", "Could not stage updater: "+err.Error())
-		return
+		return fmt.Errorf("could not stage updater: %v", err)
 	}
 	// Write an immediate "running" marker BEFORE launching the updater. The System
 	// page derives its "updating..." state from this log, and the transient unit
@@ -246,6 +333,5 @@ exit 0
 	if err := exec.Command("systemd-run", "--unit=forgebase-update", "--collect", "/opt/pgforge/update.sh").Run(); err != nil {
 		exec.Command("setsid", "sh", "-c", "/opt/pgforge/update.sh").Start()
 	}
-	a.audit(r, "self-update", "started")
-	redirectMsg(w, r, "/system", "Update started. Watch the live log below - this page refreshes on its own until it finishes.")
+	return nil
 }

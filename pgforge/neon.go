@@ -33,6 +33,17 @@ func (a *app) monitoringPage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// chart window: 24h / 7d (default) / 30d
+	rangeName := r.URL.Query().Get("range")
+	rangeDays := 7
+	switch rangeName {
+	case "24h":
+		rangeDays = 1
+	case "30d":
+		rangeDays = 30
+	default:
+		rangeName = "7d"
+	}
 	db, err := a.dbFor(slug)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -129,10 +140,11 @@ func (a *app) monitoringPage(w http.ResponseWriter, r *http.Request) {
 		"Deadlocks": deadlocks, "Commits": commits, "Rollbacks": rollbacks,
 		"TupIns": tupIns, "TupUpd": tupUpd, "TupDel": tupDel, "TempFiles": tempFiles,
 		"RAMUsed": hs.RAMUsed, "RAMTotal": hs.RAMTotal, "Load": load, "Cores": cores,
-		"ChartSize": areaChart(a.series(slug, "db_size"), ""),
-		"ChartConn": areaChart(a.series(slug, "conns"), ""),
-		"ChartRAM":  areaChart(a.series(hostSlug, "ram_used"), ""),
-		"ChartCPU":  areaChart(a.series(hostSlug, "cpu_load"), ""),
+		"ChartSize": areaChart(a.series(slug, "db_size", rangeDays), ""),
+		"ChartConn": areaChart(a.series(slug, "conns", rangeDays), ""),
+		"ChartRAM":  areaChart(a.series(hostSlug, "ram_used", rangeDays), ""),
+		"ChartCPU":  areaChart(a.series(hostSlug, "cpu_load", rangeDays), ""),
+		"Range":     rangeName,
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Monitoring", Nav: "monitoring", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Monitoring"}}}, content)

@@ -279,8 +279,21 @@ func (a *app) backupsPage(w http.ResponseWriter, r *http.Request) {
 	if b, err := os.ReadFile("/opt/pgforge/backup_remote"); err == nil {
 		remote = strings.TrimSpace(string(b))
 	}
+	// PITR window starts at the oldest kept cluster snapshot
+	pitrFrom := ""
+	if ents, err := os.ReadDir("/opt/pgforge-backups/physical"); err == nil {
+		for _, e := range ents {
+			if strings.HasPrefix(e.Name(), "base-") {
+				d := strings.TrimPrefix(e.Name(), "base-")
+				if pitrFrom == "" || d < pitrFrom {
+					pitrFrom = d
+				}
+			}
+		}
+	}
 	content := renderContent(backupsBody, map[string]any{
 		"Slug": slug, "Files": files, "Retention": retention, "Remote": remote,
+		"PITRFrom": pitrFrom,
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Backups", Nav: "backups", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Backups"}}}, content)

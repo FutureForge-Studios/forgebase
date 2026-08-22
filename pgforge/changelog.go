@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.2.11"
+const appVersion = "1.2.12"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,23 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.2.12", Date: "2026-08-22",
+		Summary: "You always know when an update exists, sleep is visible, and lots of polish.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Update awareness: ForgeBase checks for new releases in the background and shows a pulsing dot on System in the sidebar the moment one exists - no more clicking \"Check for updates\". Discord gets one ping per new version too.",
+				"Optional auto-install: a checkbox on the System page installs new releases automatically between 03:00-05:00 UTC, with the usual health-check and rollback. Off by default - updates wait for your click.",
+				"Sleeping projects are visible: a moon badge on the dashboard, plus \"Sleep now\" and \"Wake\" buttons to park or rouse a project instantly.",
+				"Monitoring charts now offer 24-hour, 7-day, and 30-day views.",
+				"Creating a project with a taken name now just works: \"profitzon\" taken becomes \"profitzon-2\" automatically.",
+			}},
+			{"Changed", []string{
+				"The point-in-time recovery picker got a proper design: styled date-time input, one-click presets (5 min ago, 1 hour ago, yesterday), and it now shows the actual restorable window instead of an outdated \"7 days\" claim.",
+				"The Branches page now states plainly that a branch is currently a full copy (2x storage) - and that instant copy-on-write branching is in active development.",
+			}},
+		},
+	},
 	{
 		Version: "1.2.11", Date: "2026-08-22",
 		Summary: "Login hardening against brute-force attacks, Discord alerts, and always-warm pinned projects.",

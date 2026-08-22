@@ -127,22 +127,43 @@ func (a *app) rewriteUserlist() error {
 	return exec.Command("docker", "kill", "-s", "HUP", a.cfg.pgbContainer).Run()
 }
 
+// uniqueSlug returns the slug itself if free, else the first available
+// numbered variant (slug-2, slug-3, ...), so creating a project with a taken
+// name just works instead of erroring.
+func (a *app) uniqueSlug(slug string) string {
+	if !a.projectExists(slug) {
+		return slug
+	}
+	for i := 2; i < 100; i++ {
+		cand := fmt.Sprintf("%s-%d", slug, i)
+		if len(cand) > 40 { // keep within the slug length limit
+			cand = fmt.Sprintf("%s-%d", slug[:40-len(fmt.Sprint(i))-1], i)
+		}
+		if !a.projectExists(cand) {
+			return cand
+		}
+	}
+	return slug + "-" + randHex(3)
+}
+
 func (a *app) createProject(w http.ResponseWriter, r *http.Request) {
 	slug := strings.TrimSpace(strings.ToLower(r.FormValue("slug")))
 	if !slugRe.MatchString(slug) || isReserved(slug) {
 		redirectErr(w, r, "/", "Invalid or reserved name: 3-40 chars, a-z 0-9 and dash, must start with a letter.")
 		return
 	}
-	if a.projectExists(slug) {
-		redirectErr(w, r, "/", "A project named "+slug+" already exists.")
-		return
-	}
+	asked := slug
+	slug = a.uniqueSlug(slug)
 	if _, err := a.provisionProject(slug); err != nil {
 		redirectErr(w, r, "/", "Create failed: "+err.Error())
 		return
 	}
 	a.audit(r, "create", slug)
-	http.Redirect(w, r, "/p/"+slug+"?m="+template.URLQueryEscaper("Project "+slug+" is ready."), http.StatusSeeOther)
+	msg := "Project " + slug + " is ready."
+	if slug != asked {
+		msg = "\"" + asked + "\" was taken, so your project was created as " + slug + "."
+	}
+	http.Redirect(w, r, "/p/"+slug+"?m="+template.URLQueryEscaper(msg), http.StatusSeeOther)
 }
 
 // dropProjectFully removes a single project/branch and ALL of its resources:
@@ -226,6 +247,40 @@ func (a *app) pauseProject(w http.ResponseWriter, r *http.Request) {
 	a.db.Exec(`UPDATE projects SET status='paused' WHERE slug=$1`, slug)
 	a.audit(r, "pause", slug)
 	redirectMsg(w, r, "/", slug+" paused. Data kept; connections blocked.")
+}
+
+// sleepProject releases a project's resources immediately (same as auto-sleep:
+// API sidecar, realtime listener, cached pools) without waiting for the idle
+// window. Nothing is blocked - it wakes on the next request like any sleeper.
+func (a *app) sleepProject(w http.ResponseWriter, r *http.Request) {
+	slug := r.FormValue("slug")
+	if !a.projectExists(slug) {
+		redirectErr(w, r, "/", "No such project.")
+		return
+	}
+	a.stopPostgREST(slug)
+	a.stopRealtimeHub(slug)
+	closeConn(slug)
+	a.db.Exec(`UPDATE projects SET status='suspended' WHERE slug=$1 AND status='active'`, slug)
+	a.audit(r, "manual-sleep", slug)
+	redirectMsg(w, r, "/", slug+" is sleeping. It wakes automatically on the next request.")
+}
+
+// wakeProject flips a sleeping project active and re-warms webhook delivery.
+func (a *app) wakeProject(w http.ResponseWriter, r *http.Request) {
+	slug := r.FormValue("slug")
+	if !a.projectExists(slug) {
+		redirectErr(w, r, "/", "No such project.")
+		return
+	}
+	// clear a legacy hard-suspend NOLOGIN if one exists
+	a.db.Exec(fmt.Sprintf(`ALTER ROLE %s LOGIN`, pq.QuoteIdentifier(slug)))
+	a.db.Exec(`UPDATE projects SET status='active', last_active=now() WHERE slug=$1 AND status='suspended'`, slug)
+	if a.hasWebhooks(slug) {
+		a.rtGetHub(slug)
+	}
+	a.audit(r, "manual-wake", slug)
+	redirectMsg(w, r, "/", slug+" is awake.")
 }
 
 func (a *app) resumeProject(w http.ResponseWriter, r *http.Request) {

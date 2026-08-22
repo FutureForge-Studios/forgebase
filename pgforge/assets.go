@@ -141,6 +141,13 @@ input[type=file]::file-selector-button:hover{background:hsl(var(--accent))}
   padding:.2rem .55rem; border-radius:999px; border:1px solid transparent}
 .badge.active{background:hsl(var(--primary) / .12); color:hsl(var(--primary)); border-color:hsl(var(--primary) / .25)}
 .badge.paused,.badge.suspended,.badge.cloning{background:hsl(var(--warn) / .14); color:hsl(var(--warn)); border-color:hsl(var(--warn) / .3)}
+.upddot{display:inline-block; width:8px; height:8px; border-radius:50%; background:hsl(var(--warn));
+  margin-left:auto; animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+input[type="datetime-local"]{background:hsl(var(--bg)); border:1px solid hsl(var(--border));
+  border-radius:.55rem; padding:.5rem .7rem; font:inherit; font-size:13.5px; color:hsl(var(--fg));
+  accent-color:hsl(var(--primary))}
+input[type="datetime-local"]:focus{outline:2px solid hsl(var(--primary)/.35); border-color:hsl(var(--primary))}
 .spin{display:inline-block; width:.72em; height:.72em; border:2px solid currentColor;
   border-right-color:transparent; border-radius:50%; animation:spin .7s linear infinite; vertical-align:-1px}
 .btn.is-loading{opacity:.7; pointer-events:none; cursor:progress}
@@ -424,6 +431,7 @@ type shellData struct {
 	IsProj   bool
 	Switch   []string
 	Version  string
+	UpdAvail bool
 	Brand    template.HTML
 	Content  template.HTML
 }
@@ -446,7 +454,7 @@ var shellTmpl = template.Must(template.New("shell").Funcs(funcs).Parse(`<!doctyp
     </div>
     {{if .IsProj}}<a class="navi" href="/" style="margin:0 .5rem .3rem">{{icon "back"}} All projects</a>{{end}}
     <nav class="side">
-      {{range .Items}}<a class="navi {{if eq .Key $.Nav}}active{{end}}" href="{{.Href}}">{{icon .Icon}} {{.Label}}</a>{{end}}
+      {{range .Items}}<a class="navi {{if eq .Key $.Nav}}active{{end}}" href="{{.Href}}">{{icon .Icon}} {{.Label}}{{if and (eq .Key "system") $.UpdAvail}}<span class="upddot" title="Update available"></span>{{end}}</a>{{end}}
     </nav>
     <div class="sidefoot"><a class="navi" href="https://{{.Domain}}" style="padding:.3rem .2rem" target="_blank">{{icon "external"}} {{.Domain}}</a>
       <div style="font-size:10px;color:hsl(var(--muted-fg));padding:.4rem .2rem 0;line-height:1.5">© 2026 <a href="https://ffstudios.io" target="_blank" style="color:hsl(var(--muted-fg))">FutureForge Studios Private Limited</a> · <a href="/system" style="color:hsl(var(--muted-fg))">v{{.Version}}</a><br>Made with care in India ♥</div></div>
@@ -488,6 +496,7 @@ func (a *app) renderShell(w http.ResponseWriter, r *http.Request, d shellData, c
 	d.Initials = initials(d.User)
 	d.Domain = a.cfg.domain
 	d.Version = version
+	d.UpdAvail = updateAvail()
 	if d.Slug != "" {
 		d.IsProj = true
 		d.Items = projectNav(d.Slug)

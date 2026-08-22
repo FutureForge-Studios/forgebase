@@ -65,6 +65,10 @@ func (a *app) systemPage(w http.ResponseWriter, r *http.Request) {
 	checked := r.URL.Query().Get("check") == "1"
 	if checked {
 		upd = a.updateStatus()
+	} else if info, _ := cachedUpdate(); info.Behind {
+		// the background checker already knows an update exists - show it
+		// without requiring a manual "Check for updates" click
+		upd, checked = info, true
 	}
 
 	// If an update ran (or is running), show the tail of its log so the operator
@@ -91,6 +95,7 @@ func (a *app) systemPage(w http.ResponseWriter, r *http.Request) {
 		"DBOK": dbOK, "PGVer": pgVer, "DBSize": dbSize, "ActiveAPIs": activeAPIs, "Svcs": svcs,
 		"Stats": a.hostStats(), "AppVersion": appVersion, "IsOwner": a.atLeast(r, "owner"),
 		"Checked": checked, "Upd": upd, "UpdateLog": updLog, "UpdateRunning": updateRunning,
+		"AutoUpd": a.settingOn("auto_update"),
 	})
 	a.renderShell(w, r, shellData{Title: "System", Nav: "system",
 		Crumbs: []crumb{{Label: "System"}}}, content)

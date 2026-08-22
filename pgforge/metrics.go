@@ -177,15 +177,18 @@ type pt struct {
 	v float64
 }
 
-// series returns up to 7 days of (epoch, value) points for a whitelisted column.
-func (a *app) series(slug, col string) []pt {
+// series returns up to `days` days of (epoch, value) points for a whitelisted column.
+func (a *app) series(slug, col string, days int) []pt {
 	switch col {
 	case "db_size", "conns", "ram_used", "cpu_load":
 	default:
 		return nil
 	}
+	if days < 1 || days > 30 {
+		days = 7
+	}
 	q := fmt.Sprintf(`SELECT extract(epoch from at), (%s)::float8 FROM metrics_samples
-		WHERE slug=$1 AND at > now()-interval '7 days' AND %s IS NOT NULL ORDER BY at`, col, col)
+		WHERE slug=$1 AND at > now()-make_interval(days => %d) AND %s IS NOT NULL ORDER BY at`, col, days, col)
 	rows, err := a.db.Query(q, slug)
 	if err != nil {
 		return nil
