@@ -1799,6 +1799,172 @@ const syncBody = `
 
 // ----- shared JS snippets -----
 
+const objectsBody = `
+<div class="pagehead"><h1>Database Objects</h1><p>Functions, triggers, enum types and indexes - managed visually.</p></div>
+<div style="display:flex;gap:.7rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
+  <a class="btn {{if eq .Tab "functions"}}btn-primary{{else}}btn-ghost{{end}} btn-sm" href="/p/{{.Slug}}/objects?tab=functions&sc={{.Schema}}">Functions</a>
+  <a class="btn {{if eq .Tab "triggers"}}btn-primary{{else}}btn-ghost{{end}} btn-sm" href="/p/{{.Slug}}/objects?tab=triggers&sc={{.Schema}}">Triggers</a>
+  <a class="btn {{if eq .Tab "enums"}}btn-primary{{else}}btn-ghost{{end}} btn-sm" href="/p/{{.Slug}}/objects?tab=enums&sc={{.Schema}}">Enums</a>
+  <a class="btn {{if eq .Tab "indexes"}}btn-primary{{else}}btn-ghost{{end}} btn-sm" href="/p/{{.Slug}}/objects?tab=indexes&sc={{.Schema}}">Indexes</a>
+  <div class="spacer"></div>
+  <label class="label" style="display:flex;align-items:center;gap:.4rem">Schema
+    <select onchange="location.href='/p/{{.Slug}}/objects?tab={{.Tab}}&sc='+encodeURIComponent(this.value)" style="width:auto;padding:.4rem .6rem">
+      {{range .Schemas}}<option value="{{.}}" {{if eq . $.Schema}}selected{{end}}>{{.}}</option>{{end}}
+    </select></label>
+</div>
+
+{{if eq .Tab "functions"}}
+<div class="card" style="margin-bottom:1rem">
+  <h2>New function</h2>
+  <form method="post" action="/p/{{.Slug}}/function-create">
+    <input type="hidden" name="__schema" value="{{.Schema}}">
+    <textarea name="sql" rows="8" placeholder="CREATE OR REPLACE FUNCTION {{.Schema}}.my_function() RETURNS trigger AS $fn$
+BEGIN
+  NEW.updated_at := now();
+  RETURN NEW;
+END
+$fn$ LANGUAGE plpgsql;" style="font-family:var(--mono);font-size:12.5px"></textarea>
+    <button class="btn btn-primary btn-sm" type="submit" style="margin-top:.6rem">{{icon "plus"}} Create function</button>
+  </form>
+</div>
+{{if .Funcs}}
+{{range .Funcs}}
+<details class="card" style="margin-bottom:.6rem;padding:.8rem 1rem">
+  <summary style="cursor:pointer;display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+    <b style="font-family:var(--mono);font-size:13px">{{.Name}}({{.Args}})</b>
+    <span class="muted" style="font-size:11.5px">&rarr; {{.Ret}} · {{.Lang}} · {{.Volatility}}{{if .SecDef}} · <span style="color:hsl(var(--warn))">security definer</span>{{end}}</span>
+    <div class="spacer"></div>
+    <form method="post" action="/p/{{$.Slug}}/function-drop" onsubmit="return confirm('Drop function {{.Name}}?')" style="display:inline">
+      <input type="hidden" name="__schema" value="{{$.Schema}}"><input type="hidden" name="name" value="{{.Name}}"><input type="hidden" name="args" value="{{.Args}}">
+      <button class="copy" style="color:hsl(var(--destructive))" title="Drop function">{{icon "trash"}}</button>
+    </form>
+  </summary>
+  <pre style="font-family:var(--mono);font-size:12px;overflow-x:auto;margin-top:.7rem;white-space:pre-wrap">{{.Def}}</pre>
+</details>
+{{end}}
+{{else}}<p class="muted">No functions in <b>{{.Schema}}</b> yet.</p>{{end}}
+{{end}}
+
+{{if eq .Tab "triggers"}}
+<div class="card" style="margin-bottom:1rem">
+  <h2>New trigger</h2>
+  <form method="post" action="/p/{{.Slug}}/trigger-create" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.6rem">
+    <input type="hidden" name="__schema" value="{{.Schema}}">
+    <label class="fld" style="margin:0"><span class="lt">Name</span><input type="text" name="name" placeholder="set_updated_at" required style="width:160px"></label>
+    <label class="fld" style="margin:0"><span class="lt">Table</span><select name="table" style="width:auto">{{range .Tables}}<option>{{.}}</option>{{end}}</select></label>
+    <label class="fld" style="margin:0"><span class="lt">Timing</span><select name="timing" style="width:auto"><option>BEFORE</option><option>AFTER</option><option>INSTEAD OF</option></select></label>
+    <span class="muted" style="font-size:12px;display:flex;gap:.6rem;align-items:center;padding-bottom:.5rem">
+      <label style="display:flex;gap:.25rem;align-items:center"><input type="checkbox" name="events" value="INSERT" checked> insert</label>
+      <label style="display:flex;gap:.25rem;align-items:center"><input type="checkbox" name="events" value="UPDATE"> update</label>
+      <label style="display:flex;gap:.25rem;align-items:center"><input type="checkbox" name="events" value="DELETE"> delete</label>
+    </span>
+    <label class="fld" style="margin:0"><span class="lt">For each</span><select name="level" style="width:auto"><option>ROW</option><option>STATEMENT</option></select></label>
+    <label class="fld" style="margin:0"><span class="lt">Function</span><select name="function" style="width:auto">{{range .TrigFuncs}}<option value="{{.Schema}}.{{.Name}}">{{.Schema}}.{{.Name}}</option>{{end}}</select></label>
+    <button class="btn btn-primary btn-sm" type="submit">Create trigger</button>
+    {{if not .TrigFuncs}}<span class="muted" style="font-size:11.5px">no trigger functions yet - create one under Functions (RETURNS trigger)</span>{{end}}
+  </form>
+</div>
+{{if .Triggers}}
+<div class="tblwrap"><table class="data">
+  <thead><tr><th>Trigger</th><th>Table</th><th>Definition</th><th>Status</th><th></th></tr></thead>
+  <tbody>{{range .Triggers}}<tr>
+    <td><code>{{.Name}}</code></td><td class="muted">{{.Table}}</td>
+    <td class="muted" style="font-size:11px;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Def}}">{{.Def}}</td>
+    <td>{{if .Enabled}}<span class="badge active">enabled</span>{{else}}<span class="badge paused">disabled</span>{{end}}</td>
+    <td style="text-align:right;white-space:nowrap">
+      <form method="post" action="/p/{{$.Slug}}/trigger-toggle" style="display:inline">
+        <input type="hidden" name="__schema" value="{{$.Schema}}"><input type="hidden" name="table" value="{{.Table}}"><input type="hidden" name="name" value="{{.Name}}">
+        <input type="hidden" name="action" value="{{if .Enabled}}disable{{else}}enable{{end}}">
+        <button class="copy" title="{{if .Enabled}}Disable{{else}}Enable{{end}}">{{if .Enabled}}{{icon "pause"}}{{else}}{{icon "play"}}{{end}}</button>
+      </form>
+      <form method="post" action="/p/{{$.Slug}}/trigger-drop" onsubmit="return confirm('Drop trigger {{.Name}}?')" style="display:inline">
+        <input type="hidden" name="__schema" value="{{$.Schema}}"><input type="hidden" name="table" value="{{.Table}}"><input type="hidden" name="name" value="{{.Name}}">
+        <button class="copy" style="color:hsl(var(--destructive))" title="Drop trigger">{{icon "trash"}}</button>
+      </form>
+    </td>
+  </tr>{{end}}</tbody>
+</table></div>
+{{else}}<p class="muted">No triggers in <b>{{.Schema}}</b> yet.</p>{{end}}
+{{end}}
+
+{{if eq .Tab "enums"}}
+<div class="card" style="margin-bottom:1rem">
+  <h2>New enum type</h2>
+  <form method="post" action="/p/{{.Slug}}/enum-create" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.6rem">
+    <input type="hidden" name="__schema" value="{{.Schema}}">
+    <label class="fld" style="margin:0"><span class="lt">Type name</span><input type="text" name="name" placeholder="order_status" required style="width:180px"></label>
+    <label class="fld" style="margin:0;flex:1;min-width:220px"><span class="lt">Values (comma or newline separated, in order)</span><input type="text" name="labels" placeholder="new, paid, shipped, done" required></label>
+    <button class="btn btn-primary btn-sm" type="submit">Create enum</button>
+  </form>
+</div>
+{{if .Enums}}
+{{range .Enums}}
+<div class="card" style="margin-bottom:.6rem;padding:.8rem 1rem">
+  <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+    <b style="font-family:var(--mono);font-size:13px">{{.Name}}</b>
+    {{range .Labels}}<span class="badge active" style="text-transform:none">{{.}}</span>{{end}}
+    <div class="spacer"></div>
+    <form method="post" action="/p/{{$.Slug}}/enum-drop" onsubmit="return confirm('Drop enum {{.Name}}? Fails if a column still uses it.')" style="display:inline">
+      <input type="hidden" name="__schema" value="{{$.Schema}}"><input type="hidden" name="name" value="{{.Name}}">
+      <button class="copy" style="color:hsl(var(--destructive))" title="Drop enum">{{icon "trash"}}</button>
+    </form>
+  </div>
+  <div style="display:flex;gap:1.4rem;flex-wrap:wrap;margin-top:.6rem;padding-top:.6rem;border-top:1px solid hsl(var(--border))">
+    <form method="post" action="/p/{{$.Slug}}/enum-add-value" style="display:flex;gap:.4rem;align-items:center">
+      <input type="hidden" name="__schema" value="{{$.Schema}}"><input type="hidden" name="name" value="{{.Name}}">
+      <input type="text" name="label" placeholder="new value" required style="width:130px;padding:.3rem .5rem;font-size:12px">
+      <select name="pos" style="width:auto;padding:.3rem .4rem;font-size:12px"><option value="">at end</option><option value="before">before</option><option value="after">after</option></select>
+      <select name="ref" style="width:auto;padding:.3rem .4rem;font-size:12px">{{range .Labels}}<option>{{.}}</option>{{end}}</select>
+      <button class="btn btn-ghost btn-sm" type="submit">Add value</button>
+    </form>
+    <form method="post" action="/p/{{$.Slug}}/enum-rename-value" style="display:flex;gap:.4rem;align-items:center">
+      <input type="hidden" name="__schema" value="{{$.Schema}}"><input type="hidden" name="name" value="{{.Name}}">
+      <select name="from" style="width:auto;padding:.3rem .4rem;font-size:12px">{{range .Labels}}<option>{{.}}</option>{{end}}</select>
+      <span class="muted" style="font-size:12px">&rarr;</span>
+      <input type="text" name="to" placeholder="new name" required style="width:130px;padding:.3rem .5rem;font-size:12px">
+      <button class="btn btn-ghost btn-sm" type="submit">Rename</button>
+    </form>
+  </div>
+</div>
+{{end}}
+{{else}}<p class="muted">No enum types in <b>{{.Schema}}</b> yet.</p>{{end}}
+{{end}}
+
+{{if eq .Tab "indexes"}}
+<div class="card" style="margin-bottom:1rem">
+  <h2>New index</h2>
+  <form method="post" action="/p/{{.Slug}}/index-create" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.6rem">
+    <input type="hidden" name="__schema" value="{{.Schema}}">
+    <label class="fld" style="margin:0"><span class="lt">Table</span><select name="table" style="width:auto">{{range .Tables}}<option>{{.}}</option>{{end}}</select></label>
+    <label class="fld" style="margin:0"><span class="lt">Columns (comma separated)</span><input type="text" name="columns" placeholder="user_id, created_at" required style="width:220px"></label>
+    <label class="fld" style="margin:0"><span class="lt">Method</span><select name="method" style="width:auto"><option>btree</option><option>gin</option><option>gist</option><option>hash</option><option>brin</option></select></label>
+    <label class="muted" style="font-size:12px;display:flex;align-items:center;gap:.3rem"><input type="checkbox" name="unique"> unique</label>
+    <label class="fld" style="margin:0"><span class="lt">Name (optional)</span><input type="text" name="name" placeholder="auto" style="width:150px"></label>
+    <button class="btn btn-primary btn-sm" type="submit">Create index</button>
+  </form>
+</div>
+{{if .Indexes}}
+<div class="tblwrap"><table class="data">
+  <thead><tr><th>Index</th><th>Table</th><th>Definition</th><th>Size</th><th>Scans</th><th></th></tr></thead>
+  <tbody>{{range .Indexes}}<tr>
+    <td><code>{{.Name}}</code>{{if .Primary}} <span class="badge active">pk</span>{{else if .Unique}} <span class="badge active">unique</span>{{end}}</td>
+    <td class="muted">{{.Table}}</td>
+    <td class="muted" style="font-size:11px;max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Def}}">{{.Def}}</td>
+    <td class="muted" style="white-space:nowrap">{{.Size}}</td>
+    <td class="muted">{{.Scans}}</td>
+    <td style="text-align:right">{{if not .Primary}}
+      <form method="post" action="/p/{{$.Slug}}/index-drop" onsubmit="return confirm('Drop index {{.Name}}?')" style="display:inline">
+        <input type="hidden" name="__schema" value="{{$.Schema}}"><input type="hidden" name="name" value="{{.Name}}">
+        <button class="copy" style="color:hsl(var(--destructive))" title="Drop index">{{icon "trash"}}</button>
+      </form>{{end}}
+    </td>
+  </tr>{{end}}</tbody>
+</table></div>
+<p class="muted" style="font-size:11.5px;margin-top:.5rem">Scans = how often Postgres used the index since stats were last reset. A large index with 0 scans is a candidate for removal.</p>
+{{else}}<p class="muted">No indexes in <b>{{.Schema}}</b> yet.</p>{{end}}
+{{end}}
+`
+
 const copyJS = `
 <script>
 function cp(id){

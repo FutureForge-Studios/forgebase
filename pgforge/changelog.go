@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.7"
+const appVersion = "1.3.8"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,19 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.8", Date: "2026-08-22",
+		Summary: "A visual home for functions, triggers, enums and indexes.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"New Objects page per project: browse and manage database functions, triggers, enum types and indexes visually, in any schema.",
+				"Functions: full definitions with language, return type, volatility and security-definer flags; create with a guided editor; drop safely.",
+				"Triggers: guided builder (table, timing, events, row/statement, trigger function picker), one-click enable/disable, drop.",
+				"Enums: create types, add values (at a position), rename values, drop - with the current values shown as chips.",
+				"Indexes: per-index size and usage counts (a big index with zero scans is a removal candidate), guided creation (method, unique, multi-column), drop - primary key indexes are protected.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.7", Date: "2026-08-22",
 		Summary: "Browse every schema, views included.",

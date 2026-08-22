@@ -430,6 +430,7 @@ func projectNav(slug string) []navItem {
 		{"home", "Overview", b, "home"},
 		{"tables", "Tables", b + "/tables", "table"},
 		{"sql", "SQL Editor", b + "/sql", "terminal"},
+		{"objects", "Objects", b + "/objects", "grid"},
 		{"api", "Data API", b + "/api", "api"},
 		{"storage", "Storage", b + "/storage", "folder"},
 		{"authn", "Auth", b + "/auth", "shield"},

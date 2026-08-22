@@ -13,6 +13,16 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.8] - 2026-08-22
+
+### Added
+- Objects page: visual management of database functions, triggers, enum types
+  and indexes, schema-aware.
+- Functions: definitions with metadata, guided create, safe drop.
+- Triggers: guided builder with trigger-function picker, enable/disable, drop.
+- Enums: create, add value at a position, rename value, drop.
+- Indexes: size + usage counts, guided creation, drop (primary keys protected).
+
 ## [1.3.7] - 2026-08-22
 
 ### Added
@@ -746,7 +756,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.7...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.8...HEAD
+[1.3.8]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.7...v1.3.8
 [1.3.7]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.6...v1.3.7
 [1.3.6]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.5...v1.3.6
 [1.3.5]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.4...v1.3.5
