@@ -213,7 +213,105 @@ func (a *app) setInstanceCompute(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, back, "docker update failed: "+tail(string(out), 200))
 		return
 	}
-	a.db.Exec(`UPDATE projects SET instance_mem_mb=$2, instance_cpus=$3 WHERE slug=$1`, slug, memMB, cpus)
-	a.audit(r, "instance-compute", fmt.Sprintf("%s %dMB %.2gcpu", slug, memMB, cpus))
+	adaptMin, _ := strconv.Atoi(r.FormValue("adapt_min"))
+	adaptMax, _ := strconv.Atoi(r.FormValue("adapt_max"))
+	if adaptMax > 0 && (adaptMin < 256 || adaptMax > 16384 || adaptMin > adaptMax) {
+		redirectErr(w, r, back, "Adaptive bounds: min 256+, max up to 16384, min <= max (max 0 turns adaptive off).")
+		return
+	}
+	a.db.Exec(`UPDATE projects SET instance_mem_mb=$2, instance_cpus=$3, adapt_min_mb=$4, adapt_max_mb=$5 WHERE slug=$1`,
+		slug, memMB, cpus, adaptMin, adaptMax)
+	a.audit(r, "instance-compute", fmt.Sprintf("%s %dMB %.2gcpu adapt[%d..%d]", slug, memMB, cpus, adaptMin, adaptMax))
 	redirectMsg(w, r, back, fmt.Sprintf("Compute limits applied: %d MB RAM, %g CPUs.", memMB, cpus))
+}
+
+// parseMemMiB turns docker stats' "123.4MiB / 512MiB" left side into MB.
+func parseMemMiB(s string) float64 {
+	s = strings.TrimSpace(strings.SplitN(s, "/", 2)[0])
+	s = strings.TrimSpace(s)
+	var v float64
+	var unit string
+	if _, err := fmt.Sscanf(s, "%f%s", &v, &unit); err != nil {
+		return 0
+	}
+	switch strings.ToUpper(strings.TrimSpace(unit)) {
+	case "KIB", "KB":
+		return v / 1024
+	case "MIB", "MB":
+		return v
+	case "GIB", "GB":
+		return v * 1024
+	}
+	return 0
+}
+
+// adaptInstances resizes running dedicated instances inside owner-set
+// bounds: sustained pressure (>85% of the limit) grows the limit by a
+// quarter, a mostly-idle instance (<30%) shrinks by a fifth - never past
+// [adapt_min_mb, adapt_max_mb]. Runs hourly from the sampler; projects
+// with adapt_max_mb=0 are untouched.
+func (a *app) adaptInstances() {
+	rows, err := a.db.Query(`SELECT slug, coalesce(instance_mem_mb,512),
+			coalesce(adapt_min_mb,0), coalesce(adapt_max_mb,0)
+		FROM projects WHERE mode='instance' AND status='active' AND coalesce(adapt_max_mb,0) > 0`)
+	if err != nil {
+		return
+	}
+	type row struct {
+		slug          string
+		cur, min, max int
+	}
+	var list []row
+	for rows.Next() {
+		var p row
+		rows.Scan(&p.slug, &p.cur, &p.min, &p.max)
+		list = append(list, p)
+	}
+	rows.Close()
+	for _, p := range list {
+		if p.min < 256 {
+			p.min = 256
+		}
+		if p.cur < p.min {
+			p.cur = p.min
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		out, err := exec.CommandContext(ctx, "docker", "stats", "--no-stream",
+			"--format", "{{.MemUsage}}", "pgi-"+p.slug).Output()
+		cancel()
+		if err != nil {
+			continue // sleeping or gone: nothing to adapt
+		}
+		usedMB := parseMemMiB(string(out))
+		if usedMB <= 0 {
+			continue
+		}
+		ratio := usedMB / float64(p.cur)
+		next := p.cur
+		if ratio > 0.85 {
+			next = p.cur + p.cur/4
+		} else if ratio < 0.30 {
+			next = p.cur - p.cur/5
+		}
+		if next > p.max {
+			next = p.max
+		}
+		if next < p.min {
+			next = p.min
+		}
+		if next == p.cur {
+			continue
+		}
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 20*time.Second)
+		_, uerr := exec.CommandContext(ctx2, "docker", "update",
+			fmt.Sprintf("--memory=%dm", next), fmt.Sprintf("--memory-swap=%dm", next),
+			"pgi-"+p.slug).Output()
+		cancel2()
+		if uerr != nil {
+			continue
+		}
+		a.db.Exec(`UPDATE projects SET instance_mem_mb=$2 WHERE slug=$1`, p.slug, next)
+		a.auditRaw("system", "-", "instance-adapt",
+			fmt.Sprintf("%s %dMB -> %dMB (using %.0fMB)", p.slug, p.cur, next, usedMB))
+	}
 }

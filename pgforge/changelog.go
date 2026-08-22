@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.9"
+const appVersion = "1.4.10"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,16 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.10", Date: "2026-08-23",
+		Summary: "Time-travel branches and adaptive instance sizing.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Branch from any point in time: set a past timestamp on the branch form and the branch is rebuilt from the WAL archive exactly as the project was at that instant, down to the second - then it behaves like any branch (diff against the parent, reset, expiry). Reading yesterday's data next to today's is now a two-minute operation, and the source is never touched.",
+				"Adaptive instance sizing: give a dedicated-instance project memory bounds and the platform resizes it hourly - growing the limit a quarter at a time under sustained pressure (above 85 percent), shrinking it a fifth at a time when mostly idle - never past the bounds you set.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.9", Date: "2026-08-23",
 		Summary: "Edge functions grow up: warm starts, streaming, WebSockets.",

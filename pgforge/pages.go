@@ -861,8 +861,12 @@ const settingsBody = `
       <input type="number" name="mem_mb" value="{{.InstMem}}" min="256" max="16384" step="128" style="width:110px"></label>
     <label class="fld" style="margin:0"><span class="lt">CPUs</span>
       <input type="number" name="cpus" value="{{.InstCpus}}" min="0.25" max="16" step="0.25" style="width:90px"></label>
+    <label class="fld" style="margin:0"><span class="lt">Adaptive min (MB)</span>
+      <input type="number" name="adapt_min" value="{{.AdaptMin}}" min="0" max="16384" step="128" style="width:100px"></label>
+    <label class="fld" style="margin:0"><span class="lt">Adaptive max (MB, 0 = off)</span>
+      <input type="number" name="adapt_max" value="{{.AdaptMax}}" min="0" max="16384" step="128" style="width:110px"></label>
     <button class="btn btn-primary btn-sm" type="submit">Apply compute limits</button>
-    <span class="muted" style="font-size:11px">applies live, survives sleep/wake</span>
+    <span class="muted" style="font-size:11px">applies live, survives sleep/wake. With adaptive bounds set, the platform grows the memory limit under sustained pressure and shrinks it when idle - hourly, never past your bounds.</span>
   </form>
   {{else if .CanInstance}}<p class="muted" style="font-size:12.5px;margin:0">Move this project out of the shared cluster onto its own Postgres container. Zero data loss: the shared copy stays parked until you delete it.</p>
   {{else}}<p class="muted" style="font-size:12.5px;margin:0">Not available on this server: the dedicated-instance store is not set up (setup-instances.sh).</p>{{end}}
@@ -1113,6 +1117,8 @@ const branchesBody = `
   </select></label>
   <label class="fld" style="margin:0"><span class="lt">Anonymize (optional: table.column, comma separated)</span>
     <input type="text" name="anonymize" placeholder="users.email, users.phone" style="width:230px;font-family:var(--mono);font-size:12px" title="Text columns become anon_<hash> tokens; other types become NULL - safe test data from real shape"></label>
+  <label class="fld" style="margin:0"><span class="lt">From a point in time (optional, UTC)</span>
+    <input type="datetime-local" name="at_time" step="1" style="width:190px;font-size:12px" title="Leave empty to branch the current state. Set a past time and the branch is rebuilt from the WAL archive exactly as the project was at that instant - down to the second."></label>
   <button class="btn btn-primary" type="submit">{{icon "branch"}} Create branch</button>
 </form>
 {{if .Branches}}

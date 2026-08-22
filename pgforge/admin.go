@@ -680,6 +680,16 @@ func (a *app) settingsPage(w http.ResponseWriter, r *http.Request) {
 			}
 			return v
 		}(),
+		"AdaptMin": func() int {
+			var v int
+			a.db.QueryRow(`SELECT coalesce(adapt_min_mb,0) FROM projects WHERE slug=$1`, slug).Scan(&v)
+			return v
+		}(),
+		"AdaptMax": func() int {
+			var v int
+			a.db.QueryRow(`SELECT coalesce(adapt_max_mb,0) FROM projects WHERE slug=$1`, slug).Scan(&v)
+			return v
+		}(),
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Settings", Nav: "settings", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Settings"}}}, content)

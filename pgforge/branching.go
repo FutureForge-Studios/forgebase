@@ -361,6 +361,32 @@ func (a *app) branchCreate(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/p/"+slug+"/branches", "A branch named "+branch+" already exists.")
 		return
 	}
+	// Time-travel branch: build the branch from the WAL archive as the parent
+	// was at a chosen instant, instead of from its current state.
+	if at := strings.TrimSpace(r.FormValue("at_time")); at != "" {
+		if a.projectMode(slug) == "instance" {
+			redirectErr(w, r, "/p/"+slug+"/branches", "Time-travel branches replay the shared cluster's WAL archive; dedicated-instance projects use instant snapshots instead.")
+			return
+		}
+		target, terr := parsePITRTarget(at)
+		if terr != nil {
+			redirectErr(w, r, "/p/"+slug+"/branches", "Pick a valid past date and time (UTC).")
+			return
+		}
+		pw, perr := a.provisionProject(branch)
+		if perr != nil {
+			redirectErr(w, r, "/p/"+slug+"/branches", "Could not create the branch: "+perr.Error())
+			return
+		}
+		a.db.Exec(`UPDATE projects SET parent=$2, expires_at=$3, status='cloning' WHERE slug=$1`, branch, slug, expires)
+		a.db.Exec(`INSERT INTO db_imports(slug, status, message) VALUES ($1,'cloning',$2)
+			ON CONFLICT (slug) DO UPDATE SET status='cloning', message=$2`,
+			branch, "time-travel branch of "+slug+" @ "+target+" UTC")
+		a.audit(r, "branch-at-time", branch+" @ "+target+" UTC")
+		go a.runPITR(slug, target, branch, pw)
+		redirectMsg(w, r, "/p/"+slug+"/branches", "Time-travel branch "+branch+" is being rebuilt from the WAL archive as "+slug+" was at "+target+" UTC. It goes active here when the replay finishes.")
+		return
+	}
 	// Dedicated-instance parents get INSTANT copy-on-write branches: a btrfs
 	// snapshot + fresh container (~2s), no lock on the parent, and the branch
 	// shares unchanged disk blocks with it.

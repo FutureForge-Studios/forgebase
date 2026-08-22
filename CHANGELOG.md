@@ -13,6 +13,15 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.10] - 2026-08-23
+
+### Added
+- Time-travel branches: an optional past timestamp on the branch form
+  rebuilds the branch from the WAL archive as the project was at that
+  second; it then diffs/resets/expires like any branch. Non-destructive.
+- Adaptive instance sizing: owner-set memory bounds; the platform grows
+  the limit under sustained pressure and shrinks it when idle, hourly.
+
 ## [1.4.9] - 2026-08-23
 
 ### Added

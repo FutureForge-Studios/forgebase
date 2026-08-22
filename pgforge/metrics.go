@@ -83,6 +83,7 @@ func (a *app) sampleOnce(full bool) {
 		a.db.Exec(`DELETE FROM metrics_samples WHERE at < now() - interval '30 days'`)
 		a.db.Exec(`DELETE FROM panel_sessions WHERE expires_at < now()`)
 		pruneStaleTUS()
+		a.adaptInstances()
 		// Bounded control-plane tables (same idea as webhook_deliveries' 500-row
 		// cap): age limit AND a hard row cap, hourly. Nothing here grows forever.
 		a.db.Exec(`DELETE FROM audit_log WHERE at < now() - interval '90 days'`)

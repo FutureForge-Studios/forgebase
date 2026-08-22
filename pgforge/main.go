@@ -532,6 +532,8 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE oauth_providers ADD COLUMN IF NOT EXISTS issuer text NOT NULL DEFAULT ''`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS instance_mem_mb integer NOT NULL DEFAULT 0`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS instance_cpus real NOT NULL DEFAULT 0`,
+		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS adapt_min_mb integer NOT NULL DEFAULT 0`,
+		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS adapt_max_mb integer NOT NULL DEFAULT 0`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS project_scope text NOT NULL DEFAULT ''`,
 		`CREATE TABLE IF NOT EXISTS storage_rules (
 			id bigserial PRIMARY KEY,

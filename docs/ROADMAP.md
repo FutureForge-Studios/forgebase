@@ -77,7 +77,8 @@ happy path.
 - [x] Branch governance: reset from parent, protected branches, branch
       expiry, richer branch metadata.
 - [x] Schema diff between branches.
-- [ ] Branch from any point in time; time-travel read sessions.
+- [x] Branch from any point in time (WAL-archive replay to the second);
+      a time-travel branch IS the read session.
 - [x] One-click migration between shared-cluster and dedicated-instance modes.
 - [x] Per-instance compute controls (live memory/CPU limits).
 - [x] Per-database activity attribution in Monitoring (transactions,
@@ -85,7 +86,7 @@ happy path.
 - [ ] Read replicas with a read-only connection string.
 - [x] Anonymized branches (PII scrubbing rules).
 - [x] Logical replication publications UI.
-- [ ] Adaptive instance sizing within owner-set bounds.
+- [x] Adaptive instance sizing within owner-set bounds.
 
 ## Phase 7 - Developer experience
 - [x] TypeScript type generation from the schema.
@@ -107,8 +108,7 @@ happy path.
 
 ## Next (1.4.x)
 The remaining unchecked items above are the truly infrastructure-heavy
-tier - read replicas, PITR-branching, S3-protocol storage, SAML SSO, and
-adaptive instance sizing. Each needs
+tier - read replicas, S3-protocol storage, and SAML SSO. Each needs
 its own design pass and ships as focused 1.4.x releases, in the order they
 unlock the most for real projects.
 
