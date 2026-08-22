@@ -13,6 +13,30 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.8] - 2026-08-22
+
+### Changed
+- Backup retention is now tiered: the newest 7 daily dumps per database plus
+  one weekly dump for 4 weeks are kept, instead of 30 full nightly dumps.
+  Cluster snapshots for point-in-time recovery are trimmed from 7 standing
+  copies to 2 (older restores use the daily and weekly dumps). NOTE: the first
+  nightly backup after this update deletes the now-out-of-policy older backups,
+  typically freeing many GB, and the off-box mirror follows the same policy.
+  Copy any dump you want to keep forever somewhere else before the next
+  nightly run.
+- Retention is enforced BEFORE the nightly backup work as well as after, so a
+  failed dump or a full disk can never skip cleanup again.
+
+### Fixed
+- A monthly restore-drill failure could leave a full-size test database in the
+  cluster forever (which then got backed up nightly at full size). It is now
+  always cleaned up, is excluded from backups by name, and the drill skips
+  safely when disk space is low.
+- An empty retention settings file could silently abort the whole nightly
+  backup before any cleanup ran.
+- Point-in-time-recovery working files and deleted-project dump remnants are
+  now cleaned up automatically.
+
 ## [1.2.7] - 2026-08-22
 
 ### Security
@@ -359,7 +383,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.7...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.8...HEAD
+[1.2.8]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.7...v1.2.8
 [1.2.7]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.6...v1.2.7
 [1.2.6]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.5...v1.2.6
 [1.2.5]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.4...v1.2.5

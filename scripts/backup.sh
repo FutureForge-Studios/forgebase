@@ -1,15 +1,21 @@
 #!/bin/sh
 #
-# ForgeBase nightly backups. Two layers every night:
+# ForgeBase nightly backups. Three layers every night:
 #   1. logical:  pg_dump -Fc of every database + pg_dumpall globals
-#                -> /opt/pgforge-backups/dumps/, 30-day retention (editable
-#                via /opt/pgforge/retention_days)
+#                -> /opt/pgforge-backups/dumps/, TIERED retention: the newest
+#                dump_keep_daily (default 7) dumps per database plus the newest
+#                dump per ISO week for dump_keep_weekly (default 4) weeks, with
+#                retention_days as a hard age ceiling.
 #   2. physical: pg_basebackup (tar+gzip) -> /opt/pgforge-backups/physical/,
-#                7-day retention. Combined with the continuous WAL archive
-#                (/opt/pgforge-backups/wal, gzipped segments written by
-#                archive_command in the compose file) this gives PITR.
+#                newest basebackup_keep (default 2) kept. Combined with the
+#                continuous WAL archive this gives PITR over that window;
+#                anything older restores from the logical dumps.
+#   3. files:    storage + edge functions archives, same tiered policy.
 # WAL is pruned to what the oldest kept basebackup needs (pg_archivecleanup),
 # with an emergency prune at 85% disk so the archive can never fill the box.
+# Retention runs BOTH before and after the backup work, so a failed dump or a
+# full disk can never prevent pruning (a full disk once crash-looped Postgres
+# here - pruning must always get its chance first).
 # Optional off-box sync: put an rclone remote path in
 # /opt/pgforge/backup_remote and install rclone.
 #
@@ -17,16 +23,118 @@ set -e
 CONT=pgforge-db
 OUT=/opt/pgforge-backups
 DATE="$(date -u +%F)"
-RETENTION_DUMPS="${RETENTION_DUMPS:-$(cat /opt/pgforge/retention_days 2>/dev/null || echo 30)}"
-RETENTION_BASE="${RETENTION_BASE:-7}"
+
+# num FILE DEFAULT - read a positive integer from FILE, else DEFAULT. An empty
+# or garbage file must never produce an empty value: `find -mtime "+"` errors
+# and (under set -e) used to abort the whole script before any pruning ran.
+num() {
+  v="$(tr -dc 0-9 < "$1" 2>/dev/null || true)"
+  [ -n "$v" ] && echo "$v" || echo "$2"
+}
+RETENTION_DUMPS="${RETENTION_DUMPS:-$(num /opt/pgforge/retention_days 30)}"
+KEEP_DAILY="$(num /opt/pgforge/dump_keep_daily 7)"
+KEEP_WEEKLY="$(num /opt/pgforge/dump_keep_weekly 4)"
+KEEP_BASE="${RETENTION_BASE:-$(num /opt/pgforge/basebackup_keep 2)}"
+[ "$KEEP_BASE" -lt 1 ] && KEEP_BASE=1
 
 echo "== pgforge backup $(date -u '+%F %T') UTC =="
-mkdir -p "$OUT/dumps" "$OUT/physical"
+mkdir -p "$OUT/dumps" "$OUT/physical" "$OUT/files"
 
-# ---- layer 1: logical dumps
+# tier_prune DIR GLOB - keep the newest $KEEP_DAILY files matching GLOB, plus
+# the newest file per ISO week for up to $KEEP_WEEKLY older weeks; delete the
+# rest. retention_days stays as a hard age ceiling applied separately.
+tier_prune() {
+  dir="$1"; glob="$2"
+  # shellcheck disable=SC2012
+  ls -1t "$dir"/$glob 2>/dev/null | {
+    i=0; weeks=""; nweeks=0
+    while IFS= read -r f; do
+      i=$((i+1))
+      if [ "$i" -le "$KEEP_DAILY" ]; then continue; fi
+      wk="$(date -u -r "$f" +%G-%V 2>/dev/null || echo x)"
+      case " $weeks " in
+        *" $wk "*) rm -f "$f" ;;              # this week already has its keeper
+        *) if [ "$nweeks" -lt "$KEEP_WEEKLY" ]; then
+             weeks="$weeks $wk"; nweeks=$((nweeks+1))   # newest of a new week
+           else
+             rm -f "$f"                        # past the weekly window
+           fi ;;
+      esac
+    done
+  }
+}
+
+prune_all() {
+  # dumps: tiered per database prefix, then the age ceiling
+  for pre in $(ls -1 "$OUT/dumps"/*.dump 2>/dev/null | sed -E 's|.*/||; s/-[0-9]{4}-[0-9]{2}-[0-9]{2}[^/]*\.dump$//' | sort -u); do
+    tier_prune "$OUT/dumps" "$pre-[0-9]*.dump"
+  done
+  tier_prune "$OUT/dumps" "globals-*.sql"
+  find "$OUT/dumps" -maxdepth 1 -type f -mtime "+$RETENTION_DUMPS" -delete 2>/dev/null || true
+  # deleted-project dumps land in .trash for a 7-day grace period
+  find "$OUT/dumps/.trash" -type f -mtime +7 -delete 2>/dev/null || true
+
+  # files: same tiered policy per archive kind
+  tier_prune "$OUT/files" "storage-*.tgz"
+  tier_prune "$OUT/files" "functions-*.tgz"
+  find "$OUT/files" -maxdepth 1 -type f -mtime "+$RETENTION_DUMPS" -delete 2>/dev/null || true
+
+  # physical: count-based - keep the newest $KEEP_BASE basebackups
+  ls -1dt "$OUT"/physical/base-* 2>/dev/null | tail -n "+$((KEEP_BASE + 1))" | while IFS= read -r d; do
+    rm -rf "$d" && echo "  pruned basebackup $(basename "$d")"
+  done
+
+  # PITR working files: restored dumps older than 2 days, stale scratch dirs
+  find "$OUT/pitr" -maxdepth 1 -type f -name '*.dump' -mtime +2 -delete 2>/dev/null || true
+  find /opt/pgforge/pitr -maxdepth 1 -type d -name 'scratch-*' -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+
+  # WAL archive hygiene: compress strays, drop stale temp files
+  find "$OUT/wal" -maxdepth 1 -type f -name '0*' ! -name '*.gz' ! -name '*.part' \
+    -mmin +10 -exec gzip -f {} \; 2>/dev/null || true
+  find "$OUT/wal" -maxdepth 1 -type f -name '*.part' -mmin +10 -delete 2>/dev/null || true
+
+  # Prune WAL to exactly what PITR needs: everything logically older than the
+  # START segment of the oldest kept basebackup is useless without that backup.
+  OLDEST_BASE="$(ls -d "$OUT"/physical/base-* 2>/dev/null | sort | head -1 | sed 's/.*base-//')" || true
+  CUTSEG="$([ -n "$OLDEST_BASE" ] && wal_cutoff "$OLDEST_BASE")" || true
+  if [ -n "$CUTSEG" ]; then
+    docker exec "$CONT" pg_archivecleanup -x .gz /wal-archive "$CUTSEG" 2>/dev/null \
+      && echo "  ok wal pruned to $CUTSEG (oldest basebackup $OLDEST_BASE)"
+  fi
+
+  # Emergency guard: at >=85% disk keep only the WAL the NEWEST basebackup needs.
+  USED_PCT="$(df --output=pcent "$OUT" 2>/dev/null | tail -1 | tr -dc '0-9')"
+  if [ "${USED_PCT:-0}" -ge 85 ]; then
+    NEWEST_BASE="$(ls -d "$OUT"/physical/base-* 2>/dev/null | sort | tail -1 | sed 's/.*base-//')" || true
+    CUTSEG="$([ -n "$NEWEST_BASE" ] && wal_cutoff "$NEWEST_BASE")" || true
+    [ -n "$CUTSEG" ] && docker exec "$CONT" pg_archivecleanup -x .gz /wal-archive "$CUTSEG" 2>/dev/null
+    echo "  ! disk at ${USED_PCT}% - emergency WAL prune to newest basebackup ($NEWEST_BASE)"
+  fi
+}
+
+# wal_cutoff BASE_DATE - echoes the basebackup's START WAL segment name. The
+# .backup history files in the archive record each basebackup's start.
+wal_cutoff() {
+  for f in "$OUT"/wal/*.backup "$OUT"/wal/*.backup.gz; do
+    [ -f "$f" ] || continue
+    case "$f" in *.gz) reader=zcat;; *) reader=cat;; esac
+    if $reader "$f" 2>/dev/null | grep -q "START TIME: $1"; then
+      $reader "$f" 2>/dev/null | sed -n 's/.*(file \([0-9A-F]*\)).*/\1/p' | head -1
+      return
+    fi
+  done
+}
+
+# ---- retention FIRST: free space before writing anything, and guarantee that
+# a failure later in the script can never mean "no pruning happened today".
+prune_all || echo "  ! pre-prune had errors (continuing)"
+
+# ---- layer 1: logical dumps (pgforge_restore_test is the monthly restore
+# drill's scratch database - never worth backing up, and a stranded one would
+# otherwise be dumped at full size nightly)
 docker exec "$CONT" pg_dumpall -U postgres --globals-only > "$OUT/dumps/globals-$DATE.sql"
 for db in $(docker exec "$CONT" psql -U postgres -tAc \
-    "select datname from pg_database where not datistemplate"); do
+    "select datname from pg_database where not datistemplate and datname <> 'pgforge_restore_test'"); do
   if docker exec "$CONT" pg_dump -U postgres -Fc -d "$db" > "$OUT/dumps/$db-$DATE.dump" 2>"$OUT/.err"; then
     echo "  ok dump $db ($(wc -c < "$OUT/dumps/$db-$DATE.dump") bytes)"
   else
@@ -45,70 +153,33 @@ fi
 
 # ---- layer 3: file plane (storage objects + edge functions) so a restore can
 # rebuild the whole platform, not just the databases.
-mkdir -p "$OUT/files"
 [ -d /opt/pgforge-storage ] && tar -czf "$OUT/files/storage-$DATE.tgz" -C /opt pgforge-storage 2>/dev/null && echo "  ok storage archive"
 [ -d /opt/pgforge-functions ] && tar -czf "$OUT/files/functions-$DATE.tgz" -C /opt pgforge-functions 2>/dev/null && echo "  ok functions archive"
 
-# ---- retention
-find "$OUT/dumps" -type f -mtime "+$RETENTION_DUMPS" -delete
-find "$OUT/files" -type f -mtime "+$RETENTION_DUMPS" -delete 2>/dev/null || true
-find "$OUT/physical" -maxdepth 1 -type d -name 'base-*' -mtime "+$RETENTION_BASE" \
-  -exec rm -rf {} +
-
-# ---- WAL archive hygiene
-# Compress any stray uncompressed segments (pre-gzip era or crash leftovers)
-# and drop stale .part temp files. Anything younger than 10 min may still be
-# in flight from the archiver, so leave it alone.
-find "$OUT/wal" -maxdepth 1 -type f -name '0*' ! -name '*.gz' ! -name '*.part' \
-  -mmin +10 -exec gzip -f {} \; 2>/dev/null || true
-find "$OUT/wal" -maxdepth 1 -type f -name '*.part' -mmin +10 -delete 2>/dev/null || true
-
-# Prune WAL to exactly what PITR needs: everything logically older than the
-# START segment of the oldest kept basebackup is useless without that backup.
-# The .backup history files in the archive record each basebackup's start.
-# (A blind mtime prune sized in days can exceed the disk - that is what filled
-# the box on 2026-07-22 and took Postgres down.)
-wal_cutoff() { # $1 = base-<date> date; echoes the backup's START segment name
-  for f in "$OUT"/wal/*.backup "$OUT"/wal/*.backup.gz; do
-    [ -f "$f" ] || continue
-    case "$f" in *.gz) reader=zcat;; *) reader=cat;; esac
-    if $reader "$f" 2>/dev/null | grep -q "START TIME: $1"; then
-      $reader "$f" 2>/dev/null | sed -n 's/.*(file \([0-9A-F]*\)).*/\1/p' | head -1
-      return
-    fi
-  done
-}
-OLDEST_BASE="$(ls -d "$OUT"/physical/base-* 2>/dev/null | sort | head -1 | sed 's/.*base-//')" || true
-CUTSEG="$([ -n "$OLDEST_BASE" ] && wal_cutoff "$OLDEST_BASE")" || true
-if [ -n "$CUTSEG" ]; then
-  docker exec "$CONT" pg_archivecleanup -x .gz /wal-archive "$CUTSEG" \
-    && echo "  ok wal pruned to $CUTSEG (oldest basebackup $OLDEST_BASE)"
-else
-  echo "  ! wal prune: no cutoff found, falling back to age-based prune"
-  find "$OUT/wal" -type f -mtime "+$((RETENTION_BASE + 1))" -delete 2>/dev/null || true
-fi
-
-# Emergency guard: if the disk is still filling despite retention, keep only
-# the WAL needed by the NEWEST basebackup. Older days stay restorable from
-# their nightly dumps (and the off-box copy holds everything).
-USED_PCT="$(df --output=pcent "$OUT" 2>/dev/null | tail -1 | tr -dc '0-9')"
-if [ "${USED_PCT:-0}" -ge 85 ]; then
-  NEWEST_BASE="$(ls -d "$OUT"/physical/base-* 2>/dev/null | sort | tail -1 | sed 's/.*base-//')" || true
-  CUTSEG="$([ -n "$NEWEST_BASE" ] && wal_cutoff "$NEWEST_BASE")" || true
-  [ -n "$CUTSEG" ] && docker exec "$CONT" pg_archivecleanup -x .gz /wal-archive "$CUTSEG"
-  echo "  ! disk at ${USED_PCT}% - emergency WAL prune to newest basebackup ($NEWEST_BASE)"
-fi
+# ---- retention AGAIN now that today's artifacts exist (prunes yesterday's
+# out-of-tier files and trims WAL to the fresh basebackup's cutoff)
+prune_all || echo "  ! post-prune had errors (continuing)"
 
 # ---- housekeeping: keep the box clean
 journalctl --vacuum-time=7d --vacuum-size=200M >/dev/null 2>&1 || true
 apt-get clean >/dev/null 2>&1 || true
 docker image prune -f >/dev/null 2>&1 || true
-rm -f /root/pgforge-src.tar.gz 2>/dev/null || true
+docker builder prune -f --filter until=168h >/dev/null 2>&1 || true
+rm -f /root/pgforge-src.tar.gz /tmp/pgforged.upd 2>/dev/null || true
+# Deno module cache (edge functions with remote imports) - wipe past 500MB,
+# Deno re-fetches on demand
+for dc in /opt/pgforge/deno-cache /root/.cache/deno; do
+  if [ -d "$dc" ] && [ "$(du -sm "$dc" 2>/dev/null | cut -f1)" -gt 500 ] 2>/dev/null; then
+    rm -rf "$dc"/* 2>/dev/null && echo "  pruned deno cache $dc"
+  fi
+done
 
-# ---- off-box (optional)
+# ---- off-box (optional). pitr/ holds transient restore products and .trash
+# holds deleted projects' grace-period dumps - neither belongs off-box.
 REMOTE="$(cat /opt/pgforge/backup_remote 2>/dev/null || true)"
 if [ -n "$REMOTE" ] && command -v rclone >/dev/null 2>&1; then
-  rclone sync "$OUT" "$REMOTE" --transfers 4 2>&1 | tail -2
+  rclone sync "$OUT" "$REMOTE" --transfers 4 \
+    --exclude 'pitr/**' --exclude 'dumps/.trash/**' 2>&1 | tail -2
   echo "  off-box: synced to $REMOTE"
 else
   echo "  off-box: NOT CONFIGURED (echo '<rclone-remote>:<path>' > /opt/pgforge/backup_remote)"

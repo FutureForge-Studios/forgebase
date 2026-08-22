@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.2.7"
+const appVersion = "1.2.8"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,21 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.2.8", Date: "2026-08-22",
+		Summary: "Backups now use a fraction of the disk.",
+		Sections: []changeSection{
+			{"Changed", []string{
+				"Backup retention is now tiered: the newest 7 daily dumps per database plus one weekly dump for 4 weeks are kept, instead of 30 full nightly dumps. Cluster snapshots for point-in-time recovery are trimmed from 7 standing copies to 2 (older restores use the daily and weekly dumps). NOTE: the first nightly backup after this update deletes the now-out-of-policy older backups - typically freeing many GB - and the off-box mirror follows the same policy. Copy any dump you want to keep forever somewhere else before the next nightly run.",
+				"Retention is enforced BEFORE the nightly backup work as well as after, so a failed dump or a full disk can never skip cleanup again.",
+			}},
+			{"Fixed", []string{
+				"A monthly restore-drill failure could leave a full-size test database in the cluster forever (which then got backed up nightly at full size). It is now always cleaned up, is excluded from backups by name, and the drill skips safely when disk space is low.",
+				"An empty retention settings file could silently abort the whole nightly backup before any cleanup ran.",
+				"Point-in-time-recovery working files and deleted-project dump remnants are now cleaned up automatically.",
+			}},
+		},
+	},
 	{
 		Version: "1.2.7", Date: "2026-08-22",
 		Summary: "Data API isolation hardening and instant update checks.",

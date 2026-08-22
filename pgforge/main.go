@@ -331,7 +331,7 @@ func (a *app) ensureSchema() error {
 			key text PRIMARY KEY,
 			value text NOT NULL
 		)`,
-		`INSERT INTO settings(key,value) VALUES ('retention_days','30')
+		`INSERT INTO settings(key,value) VALUES ('retention_days','7')
 			ON CONFLICT (key) DO NOTHING`,
 		`CREATE TABLE IF NOT EXISTS api_config (
 			slug text PRIMARY KEY,
