@@ -13,6 +13,28 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.2.16] - 2026-08-22
+
+### Changed
+- Postgres memory settings now auto-tune to the server's RAM (a 4GB box runs
+  512MB shared buffers instead of a hardcoded 768MB, freeing about 250MB),
+  autovacuum is calmed for many-database hosts, and the database container gets
+  a memory backstop.
+- The connection pooler now caps per-project server connections (20) with
+  smaller per-user pools, so many busy projects queue at the pooler instead of
+  exhausting the whole cluster.
+- Idle direct database connections now close after 30 minutes (per project
+  role); application connection pools reconnect transparently. Frees the RAM
+  that permanently-parked connections were pinning.
+- Nightly backups moved from 09:00 to 03:00 IST - out of Indian daytime hours.
+- All containers now rotate their logs (10MB x 3) - previously unbounded.
+
+### Fixed
+- The WAL archiver can no longer wedge permanently after a crash-retry:
+  re-archiving an identical, already-archived segment now succeeds instead of
+  failing forever (which could fill the disk). Archive logic now lives in a
+  host-managed script, fixable without touching the database container.
+
 ## [1.2.15] - 2026-08-22
 
 ### Added
@@ -515,7 +537,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.15...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.16...HEAD
+[1.2.16]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.15...v1.2.16
 [1.2.15]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.14...v1.2.15
 [1.2.14]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.13...v1.2.14
 [1.2.13]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.12...v1.2.13

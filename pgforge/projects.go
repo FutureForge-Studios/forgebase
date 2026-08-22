@@ -88,6 +88,9 @@ func (a *app) provisionProject(slug string) (string, error) {
 	// beyond this); existing projects keep their configured limit.
 	steps := []string{
 		fmt.Sprintf(`CREATE ROLE %s LOGIN PASSWORD %s CONNECTION LIMIT 10`, q, pq.QuoteLiteral(pw)),
+		// idle direct connections release their backend after 30 min; client
+		// pools reconnect transparently on next use
+		fmt.Sprintf(`ALTER ROLE %s SET idle_session_timeout = '30min'`, q),
 		fmt.Sprintf(`CREATE DATABASE %s OWNER %s`, q, q),
 		fmt.Sprintf(`REVOKE CONNECT ON DATABASE %s FROM PUBLIC`, q),
 	}

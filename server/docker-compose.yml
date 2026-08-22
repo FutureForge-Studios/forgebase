@@ -15,22 +15,39 @@ services:
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     shm_size: 256mb
+    # Backstop only - the tiered settings below should keep real usage well
+    # under this. An in-container OOM kills a backend and postmaster recovers
+    # in seconds; without the limit the HOST OOM-killer picks a victim.
+    mem_limit: ${PG_MEM_LIMIT:-1536m}
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
     volumes:
       - /opt/pgforge/data:/var/lib/postgresql/data
       - /opt/pgforge/certs:/certs:ro
       - /opt/pgforge-backups/wal:/wal-archive
       - /opt/pgforge-backups/physical:/physical
+      - /opt/pgforge/bin:/pgforge-bin:ro
       - ./init:/docker-entrypoint-initdb.d:ro
+    # RAM-tiered settings: apply-infra.sh detects host RAM and writes PG_* to
+    # the stack .env (<=2GB: 256MB/4MB; <=4GB: 512MB/8MB; else 25%/8MB).
+    # Defaults here suit a 4GB box.
     command:
       - postgres
       - -c
-      - shared_buffers=768MB
+      - shared_buffers=${PG_SHARED_BUFFERS:-512MB}
       - -c
-      - effective_cache_size=2GB
+      - effective_cache_size=${PG_EFFECTIVE_CACHE:-2GB}
       - -c
-      - maintenance_work_mem=128MB
+      - maintenance_work_mem=${PG_MAINT_WORK_MEM:-64MB}
       - -c
-      - work_mem=16MB
+      - work_mem=${PG_WORK_MEM:-8MB}
+      - -c
+      - autovacuum_max_workers=${PG_AV_WORKERS:-2}
+      # naptime is the per-DATABASE cycle: with dozens of DBs the launcher forks
+      # a worker every naptime/N seconds, so keep the cadence relaxed.
+      - -c
+      - autovacuum_naptime=${PG_AV_NAPTIME:-180}
       # max_connections is intentionally NOT pinned here: the panel manages it
       # via ALTER SYSTEM (postgresql.auto.conf), which a command-line -c flag
       # would silently override.
@@ -50,13 +67,14 @@ services:
       - wal_level=replica
       - -c
       - archive_mode=on
-      # Segments are gzipped on archive (an idle 16 MB segment shrinks to ~16 KB)
-      # and written via a .part temp file so a disk-full mid-copy can never leave
-      # a partial file under the final name (that wedges the archiver on retry).
-      # archive_timeout=3600: force a segment at most hourly when idle; the
-      # off-box copy only ships nightly, so a shorter cadence buys no real RPO.
+      # Archiving lives in a host-managed script (bind-mounted) so its logic can
+      # be fixed without recreating this container. It gzips via .part + atomic
+      # rename, and treats "already archived, identical" as success - the old
+      # inline `test ! -f` failed forever on that retry case and could wedge the
+      # archiver until pg_wal filled the disk. archive_timeout=3600: force a
+      # segment at most hourly when idle (the off-box copy ships nightly).
       - -c
-      - archive_command=test ! -f /wal-archive/%f.gz && gzip -c %p > /wal-archive/%f.part && mv /wal-archive/%f.part /wal-archive/%f.gz
+      - archive_command=/pgforge-bin/archive-wal.sh %p %f
       - -c
       - archive_timeout=3600
       - -c
@@ -71,6 +89,10 @@ services:
     image: edoburu/pgbouncer:latest
     container_name: pgforge-pgbouncer
     restart: unless-stopped
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
     ports:
       - "6543:6543"
     volumes:

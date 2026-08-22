@@ -75,6 +75,53 @@ if [ "$MODE" = "--with-compose" ]; then
     printf '{\n  "log-driver": "json-file",\n  "log-opts": { "max-size": "10m", "max-file": "3" }\n}\n' > /etc/docker/daemon.json
     log "wrote /etc/docker/daemon.json log defaults (takes effect on docker restart)"
   fi
+
+  # ---- RAM tier -> stack .env (compose command reads PG_* vars). Idempotent:
+  # replaces existing PG_* lines, appends missing ones.
+  memmb=$(( $(grep MemTotal /proc/meminfo | tr -dc 0-9) / 1024 ))
+  if [ "$memmb" -le 2200 ]; then SB=256; WM=4
+  elif [ "$memmb" -le 4200 ]; then SB=512; WM=8
+  else SB=$((memmb / 4)); WM=8; fi
+  EC=$((memmb - SB)); ML=$((SB + 1024))
+  env_set() {
+    grep -q "^$1=" "$STACK/.env" 2>/dev/null \
+      && sed -i "s|^$1=.*|$1=$2|" "$STACK/.env" \
+      || echo "$1=$2" >> "$STACK/.env"
+  }
+  env_set PG_SHARED_BUFFERS "${SB}MB"
+  env_set PG_WORK_MEM "${WM}MB"
+  env_set PG_EFFECTIVE_CACHE "${EC}MB"
+  env_set PG_MAINT_WORK_MEM "64MB"
+  env_set PG_AV_WORKERS "2"
+  env_set PG_AV_NAPTIME "180"
+  env_set PG_MEM_LIMIT "${ML}m"
+  log "RAM tier: host ${memmb}MB -> shared_buffers=${SB}MB work_mem=${WM}MB effective_cache=${EC}MB mem_limit=${ML}m"
+
+  # ---- cluster GUCs via ALTER SYSTEM while the old container is still up
+  # (compose recreate below picks them up). max_connections is raised ONLY when
+  # it is still the untouched default - never clobber an operator's value.
+  PSQL="docker exec pgforge-db psql -U postgres"
+  cur=$($PSQL -tAc "SELECT setting FROM pg_settings WHERE name='max_connections'" 2>/dev/null || true)
+  src=$($PSQL -tAc "SELECT source FROM pg_settings WHERE name='max_connections'" 2>/dev/null || true)
+  if [ "$cur" = "100" ] && [ "$src" = "default" ]; then
+    $PSQL -c "ALTER SYSTEM SET max_connections = 200" >/dev/null 2>&1 \
+      && $PSQL -c "ALTER SYSTEM SET superuser_reserved_connections = 5" >/dev/null 2>&1 \
+      && log "max_connections 100(default) -> 200 (+5 reserved), applies on restart"
+  fi
+  # reloadable: abandoned transactions can't hold locks/bloat forever
+  $PSQL -c "ALTER SYSTEM SET idle_in_transaction_session_timeout = '10min'" >/dev/null 2>&1 || true
+
+  # ---- per-role idle-connection timeout: idle DIRECT connections release
+  # their backend after 30 min; client pools reconnect transparently. Per-role
+  # (not cluster-wide) so the superuser control plane and its LISTEN backends
+  # are never affected.
+  if [ -n "$($PSQL -tAc 'SELECT 1' 2>/dev/null)" ]; then
+    for role in $($PSQL -d pgforge -tAc "SELECT slug FROM projects" 2>/dev/null); do
+      $PSQL -c "ALTER ROLE \"$role\" SET idle_session_timeout = '30min'" >/dev/null 2>&1 || true
+    done
+    log "per-role idle_session_timeout=30min applied to all project roles"
+  fi
+
   # sync compose stack (compose files, pgbouncer config, Dockerfile) - .env is
   # box-local and never touched.
   if [ -d "$REPO/server" ] && [ -d "$STACK" ]; then
@@ -83,7 +130,11 @@ if [ "$MODE" = "--with-compose" ]; then
       cp -f "$f" "$STACK/$f"
     done)
     log "stack synced from server/"
+    # up -d recreates only services whose definition changed (the db recreate is
+    # the ~15-30s maintenance moment; Postgres data is untouched)
     (cd "$STACK" && docker compose up -d 2>&1 | tail -3 | tee -a "$LOG")
+    # HUP pgbouncer so an ini-only change (no recreate) still reloads
+    docker kill -s HUP pgforge-pgbouncer >/dev/null 2>&1 || true
   fi
 fi
 

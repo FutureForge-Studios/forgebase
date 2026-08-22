@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.2.15"
+const appVersion = "1.2.16"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,22 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.2.16", Date: "2026-08-22",
+		Summary: "The server tunes itself to its hardware, and every log is bounded.",
+		Sections: []changeSection{
+			{"Changed", []string{
+				"Postgres memory settings now auto-tune to the server's RAM (a 4GB box runs 512MB shared buffers instead of a hardcoded 768MB, freeing about 250MB), autovacuum is calmed for many-database hosts, and the database container gets a memory backstop.",
+				"The connection pooler now caps per-project server connections (20) with smaller per-user pools, so many busy projects queue at the pooler instead of exhausting the whole cluster.",
+				"Idle direct database connections now close after 30 minutes (per project role); application connection pools reconnect transparently. Frees the RAM that permanently-parked connections were pinning.",
+				"Nightly backups moved from 09:00 to 03:00 IST - out of Indian daytime hours.",
+				"All containers now rotate their logs (10MB x 3) - previously unbounded.",
+			}},
+			{"Fixed", []string{
+				"The WAL archiver can no longer wedge permanently after a crash-retry: re-archiving an identical, already-archived segment now succeeds instead of failing forever (which could fill the disk). Archive logic now lives in a host-managed script, fixable without touching the database container.",
+			}},
+		},
+	},
 	{
 		Version: "1.2.15", Date: "2026-08-22",
 		Summary: "One tenant can no longer take down the box, and the status page is yours to brand.",

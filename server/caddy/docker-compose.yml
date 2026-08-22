@@ -7,6 +7,9 @@ services:
     image: caddy:2-alpine
     container_name: pgforge-caddy
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
     network_mode: host
     volumes:
       - /opt/pgforge/caddy:/etc/caddy:ro
