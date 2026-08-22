@@ -268,6 +268,11 @@ func (a *app) ensurePostgREST(slug string) (*pgrst, error) {
 	port := allocPgrstPort()
 	dbURI := fmt.Sprintf("postgres://%s:%s@127.0.0.1:5432/%s?sslmode=require&application_name=pgforge-rest",
 		url.QueryEscape(slug), url.QueryEscape(pw), url.QueryEscape(slug))
+	if a.projectMode(slug) == "instance" {
+		// through the cold-start proxy: the first API call wakes a sleeping instance
+		dbURI = fmt.Sprintf("postgres://%s:%s@127.0.0.1:%d/%s?sslmode=disable&application_name=pgforge-rest",
+			url.QueryEscape(slug), url.QueryEscape(pw), instancePort, url.QueryEscape(slug))
+	}
 	cmd := exec.Command("/usr/local/bin/postgrest")
 	cmd.Env = append([]string{},
 		"PGRST_DB_URI="+dbURI,

@@ -10,15 +10,16 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/lib/pq"
 )
 
 type projectView struct {
-	Slug, Status, Created, Size      string
-	Conns                            int
-	DirectURL, PooledURL             string
-	LegacyDirectURL, LegacyPooledURL string // old-domain strings, shown collapsed
+	Slug, Status, Created, Size, Mode string
+	Conns                             int
+	DirectURL, PooledURL              string
+	LegacyDirectURL, LegacyPooledURL  string // old-domain strings, shown collapsed
 }
 
 func (a *app) loadProjects() ([]projectView, error) {
@@ -26,7 +27,7 @@ func (a *app) loadProjects() ([]projectView, error) {
 		SELECT p.slug, p.status, to_char(p.created_at,'Mon DD, YYYY'),
 		       coalesce(pg_size_pretty(pg_database_size(d.oid)),'-'),
 		       pgp_sym_decrypt(p.password_enc,$1),
-		       coalesce(s.n,0)
+		       coalesce(s.n,0), coalesce(p.mode,'shared')
 		FROM projects p
 		LEFT JOIN pg_database d ON d.datname=p.slug
 		LEFT JOIN (SELECT datname,count(*) n FROM pg_stat_activity GROUP BY 1) s ON s.datname=p.slug
@@ -40,10 +41,17 @@ func (a *app) loadProjects() ([]projectView, error) {
 	for rows.Next() {
 		var v projectView
 		var pw string
-		if err := rows.Scan(&v.Slug, &v.Status, &v.Created, &v.Size, &pw, &v.Conns); err != nil {
+		if err := rows.Scan(&v.Slug, &v.Status, &v.Created, &v.Size, &pw, &v.Conns, &v.Mode); err != nil {
 			return nil, err
 		}
 		host := a.dbHostForDisplay()
+		if v.Mode == "instance" {
+			// dedicated instance: one address through the cold-start proxy;
+			// connecting wakes a sleeping instance automatically
+			v.DirectURL = fmt.Sprintf("postgresql://%s:%s@%s:%d/%s?sslmode=disable", v.Slug, pw, host, instancePort, v.Slug)
+			out = append(out, v)
+			continue
+		}
 		v.DirectURL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=require", v.Slug, pw, host, v.Slug)
 		v.PooledURL = fmt.Sprintf("postgresql://%s:%s@%s:6543/%s", v.Slug, pw, host, v.Slug)
 		if host != a.cfg.domain {
@@ -79,6 +87,7 @@ func (a *app) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	content := renderContent(dashboardBody, map[string]any{
 		"Projects": projects, "Stats": a.hostStats(), "AnyCloning": anyCloning,
+		"InstanceMode": instanceModeAvailable(),
 	})
 	a.renderShell(w, r, shellData{Title: "Projects", Nav: "projects",
 		Crumbs: []crumb{{Label: "Projects"}}}, content)
@@ -120,7 +129,9 @@ func (a *app) provisionProject(slug string) (string, error) {
 }
 
 func (a *app) rewriteUserlist() error {
-	rows, err := a.db.Query(`SELECT slug, pgp_sym_decrypt(password_enc,$1) FROM projects`, string(a.cfg.secret))
+	// instance projects are not in the shared cluster - the pooler must not
+	// route their name at the shared db
+	rows, err := a.db.Query(`SELECT slug, pgp_sym_decrypt(password_enc,$1) FROM projects WHERE mode <> 'instance'`, string(a.cfg.secret))
 	if err != nil {
 		return err
 	}
@@ -166,6 +177,20 @@ func (a *app) createProject(w http.ResponseWriter, r *http.Request) {
 	}
 	asked := slug
 	slug = a.uniqueSlug(slug)
+	if r.FormValue("mode") == "instance" {
+		if !instanceModeAvailable() {
+			redirectErr(w, r, "/", "Dedicated instances are not set up on this server.")
+			return
+		}
+		if _, err := a.provisionInstanceProject(slug); err != nil {
+			redirectErr(w, r, "/", "Create failed: "+err.Error())
+			return
+		}
+		a.audit(r, "create-instance", slug)
+		http.Redirect(w, r, "/p/"+slug+"?m="+template.URLQueryEscaper(
+			"Dedicated instance "+slug+" is ready - instant branches and scale-to-zero included."), http.StatusSeeOther)
+		return
+	}
 	if _, err := a.provisionProject(slug); err != nil {
 		redirectErr(w, r, "/", "Create failed: "+err.Error())
 		return
@@ -192,6 +217,9 @@ func (a *app) createProject(w http.ResponseWriter, r *http.Request) {
 // database, role, every per-project metadata row, storage files and functions,
 // and its lazily-started processes. Does not rewrite the userlist (caller does).
 func (a *app) dropProjectFully(slug string) error {
+	if a.projectMode(slug) == "instance" {
+		return a.dropInstanceProject(slug)
+	}
 	q := pq.QuoteIdentifier(slug)
 	a.stopPostgREST(slug)
 	a.stopRealtimeHub(slug) // stop the LISTEN hub before the database goes away
@@ -208,6 +236,27 @@ func (a *app) dropProjectFully(slug string) error {
 	}
 	a.db.Exec(fmt.Sprintf(`DROP ROLE IF EXISTS %s`, q))
 	// every per-project table keyed by slug
+	for _, t := range []string{"projects", "api_config", "auth_config", "realtime_config",
+		"oauth_providers", "webhooks", "edge_functions", "saved_queries",
+		"storage_buckets", "storage_objects", "metrics_samples", "db_imports"} {
+		a.db.Exec(`DELETE FROM `+t+` WHERE slug=$1`, slug)
+	}
+	os.RemoveAll(filepath.Join(storageRoot, slug))
+	a.s3Purge(slug)
+	os.RemoveAll(filepath.Join(funcRoot, slug))
+	trashProjectDumps(slug)
+	return nil
+}
+
+// dropInstanceProject removes a dedicated-instance project: container +
+// copy-on-write subvolume + all panel metadata, storage and dumps.
+func (a *app) dropInstanceProject(slug string) error {
+	a.stopPostgREST(slug)
+	a.stopRealtimeHub(slug)
+	closeConn(slug)
+	if _, err := pgInstance(2*time.Minute, "delete", slug); err != nil {
+		return err
+	}
 	for _, t := range []string{"projects", "api_config", "auth_config", "realtime_config",
 		"oauth_providers", "webhooks", "edge_functions", "saved_queries",
 		"storage_buckets", "storage_objects", "metrics_samples", "db_imports"} {
@@ -282,6 +331,17 @@ func (a *app) deleteProject(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) pauseProject(w http.ResponseWriter, r *http.Request) {
 	slug := r.FormValue("slug")
+	if a.projectMode(slug) == "instance" {
+		os.WriteFile(instancesRoot+"/.paused-"+slug, []byte("paused"), 0o644)
+		pgInstance(time.Minute, "stop", slug)
+		a.stopPostgREST(slug)
+		a.stopRealtimeHub(slug)
+		closeConn(slug)
+		a.db.Exec(`UPDATE projects SET status='paused' WHERE slug=$1`, slug)
+		a.audit(r, "pause", slug)
+		redirectMsg(w, r, "/", slug+" paused: the instance is stopped and will NOT wake on connections until resumed.")
+		return
+	}
 	q := pq.QuoteIdentifier(slug)
 	if _, err := a.db.Exec(fmt.Sprintf(`ALTER ROLE %s NOLOGIN`, q)); err != nil {
 		redirectErr(w, r, "/", "Pause failed: "+err.Error())
@@ -302,6 +362,16 @@ func (a *app) sleepProject(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, "/", "No such project.")
 		return
 	}
+	if a.projectMode(slug) == "instance" {
+		pgInstance(time.Minute, "stop", slug)
+		a.stopPostgREST(slug)
+		a.stopRealtimeHub(slug)
+		closeConn(slug)
+		a.db.Exec(`UPDATE projects SET status='suspended' WHERE slug=$1 AND status='active'`, slug)
+		a.audit(r, "manual-sleep", slug)
+		redirectMsg(w, r, "/", slug+"'s instance is stopped (0 RAM). It cold-starts on the next connection.")
+		return
+	}
 	a.stopPostgREST(slug)
 	a.stopRealtimeHub(slug)
 	closeConn(slug)
@@ -315,6 +385,22 @@ func (a *app) wakeProject(w http.ResponseWriter, r *http.Request) {
 	slug := r.FormValue("slug")
 	if !a.projectExists(slug) {
 		redirectErr(w, r, "/", "No such project.")
+		return
+	}
+	if a.projectMode(slug) == "instance" {
+		var woke string
+		a.db.QueryRow(`UPDATE projects SET status='active', last_active=now()
+			WHERE slug=$1 AND status='suspended' RETURNING slug`, slug).Scan(&woke)
+		if woke == "" {
+			redirectMsg(w, r, "/", slug+" was not sleeping (paused projects use Resume).")
+			return
+		}
+		if _, err := pgInstance(2*time.Minute, "start", slug); err != nil {
+			redirectErr(w, r, "/", "Wake failed: "+err.Error())
+			return
+		}
+		a.audit(r, "manual-wake", slug)
+		redirectMsg(w, r, "/", slug+" is awake.")
 		return
 	}
 	// Gate every side effect on the row ACTUALLY transitioning from
@@ -338,6 +424,17 @@ func (a *app) wakeProject(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) resumeProject(w http.ResponseWriter, r *http.Request) {
 	slug := r.FormValue("slug")
+	if a.projectMode(slug) == "instance" {
+		os.Remove(instancesRoot + "/.paused-" + slug)
+		if _, err := pgInstance(2*time.Minute, "start", slug); err != nil {
+			redirectErr(w, r, "/", "Resume failed: "+err.Error())
+			return
+		}
+		a.db.Exec(`UPDATE projects SET status='active', last_active=now() WHERE slug=$1`, slug)
+		a.audit(r, "resume", slug)
+		redirectMsg(w, r, "/", slug+" resumed.")
+		return
+	}
 	q := pq.QuoteIdentifier(slug)
 	if _, err := a.db.Exec(fmt.Sprintf(`ALTER ROLE %s LOGIN`, q)); err != nil {
 		redirectErr(w, r, "/", "Resume failed: "+err.Error())

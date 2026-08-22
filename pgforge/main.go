@@ -399,6 +399,9 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS keep_awake boolean NOT NULL DEFAULT false`,
 		// opt-in visibility on the public status page
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_status boolean NOT NULL DEFAULT false`,
+		// 'shared' (database in the shared cluster) or 'instance' (own Postgres
+		// container on copy-on-write storage: instant branches, scale-to-zero)
+		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'shared'`,
 		// manual incident notes shown on the public status page
 		`CREATE TABLE IF NOT EXISTS incidents (
 			id bigserial PRIMARY KEY,

@@ -112,6 +112,11 @@ func readStartup(c net.Conn) (raw []byte, db string, err error) {
 }
 
 func coldStart(slug string) (string, error) {
+	// a paused project is an explicit operator lockout - never auto-start it
+	root := envOr("INSTANCES_ROOT", "/opt/pgforge/instances")
+	if _, err := os.Stat(root + "/.paused-" + slug); err == nil {
+		return "", fmt.Errorf("instance %s is paused", slug)
+	}
 	if out, err := exec.Command(instScript, "start", slug).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("start: %s", strings.TrimSpace(string(out)))
 	}

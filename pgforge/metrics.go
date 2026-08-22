@@ -92,6 +92,7 @@ func (a *app) sampleOnce(full bool) {
 		a.maybeWeeklyDigest()
 		a.pruneStorageCache()
 	}
+	a.syncInstanceStatus()
 
 	a.autoSuspend()
 	// "Keep awake" projects are also kept WARM: their API sidecar and realtime
@@ -161,7 +162,7 @@ func (a *app) autoSuspend() {
 		return
 	}
 	rows, err := a.db.Query(`SELECT slug FROM projects
-		WHERE status='active' AND NOT keep_awake
+		WHERE status='active' AND NOT keep_awake AND mode <> 'instance'
 		  AND last_active < now() - make_interval(hours => $1)`, hours)
 	if err != nil {
 		return

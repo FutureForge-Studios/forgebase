@@ -13,6 +13,28 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.0] - 2026-08-22
+
+### Added
+- Dedicated instances: choose "Dedicated instance" when creating a project and
+  it runs as its OWN Postgres on copy-on-write storage - full isolation (its
+  own engine, its own crash domain), with the project role as its superuser.
+- INSTANT branching: for dedicated projects, a branch is a copy-on-write
+  snapshot - it appears in about 2 seconds regardless of database size, never
+  locks the parent, and shares unchanged storage with it (a branch of a 40MB
+  database costs ~8MB).
+- True scale-to-zero: an idle dedicated instance is STOPPED after 15 minutes -
+  zero RAM, zero CPU. The next connection (app, API call, or panel visit)
+  cold-starts it in about 1.3 seconds through the always-on proxy on port 5433.
+- Everything else follows the mode automatically: connection strings, the Data
+  API, Realtime, backups (dedicated instances are dumped with the same
+  skip-unchanged smarts), Sleep/Wake buttons, and Pause (which locks the
+  instance so connections can NOT wake it until you Resume).
+
+### Changed
+- Every dedicated instance uses password-only authentication (scram) from
+  birth and runs the full ForgeBase image - pgvector and friends included.
+
 ## [1.2.21] - 2026-08-22
 
 ### Added
@@ -641,7 +663,8 @@ alternative that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.21...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.21...v1.3.0
 [1.2.21]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.20...v1.2.21
 [1.2.20]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.19...v1.2.20
 [1.2.19]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.18...v1.2.19

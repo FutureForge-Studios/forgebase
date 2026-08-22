@@ -162,7 +162,8 @@ for db in $(docker exec "$CONT" psql -U postgres -tAc \
   # FORCE_DAYS, so a broken detector can never leave only stale backups.
   sig="$(docker exec "$CONT" psql -U postgres -tAc "select coalesce(extract(epoch from stats_reset)::bigint,0)||'|'||tup_inserted||'|'||tup_updated||'|'||tup_deleted from pg_stat_database where datname='$db'" 2>/dev/null)"
   # awk drops psql meta-command lines (leading backslash): modern pg_dump
-  # embeds a RANDOMIZED estrict token in every run, which would make the
+  # embeds a RANDOMIZED 
+estrict token in every run, which would make the
   # schema hash different each night and defeat skip-unchanged entirely.
   schemasum="$(docker exec "$CONT" pg_dump -U postgres -s -d "$db" 2>/dev/null | awk 'substr($0,1,1)!="\\"' | sha256sum | cut -d' ' -f1)"
   sig="$sig|$schemasum"
@@ -181,6 +182,36 @@ for db in $(docker exec "$CONT" psql -U postgres -tAc \
     HAD_FAIL=1
   fi
 done
+rm -f "$OUT/.err"
+
+# ---- layer 1b: dedicated-instance projects (own containers, not in the shared
+# cluster). Only RUNNING instances are dumped - a stopped instance has had no
+# writes since it stopped, so its last dump is by definition still current
+# (the skip-unchanged logic would skip it anyway).
+IROOT=/opt/pgforge/instances
+if [ -d "$IROOT" ]; then
+  for d in "$IROOT"/*/; do
+    s2=$(basename "$d" 2>/dev/null); [ "$s2" = "*" ] && continue
+    [ -n "$(docker ps -q -f name=^pgi-$s2$ 2>/dev/null)" ] || continue
+    iuser="$(cat "$IROOT/.user-$s2" 2>/dev/null || echo postgres)"
+    isig="$(docker exec "pgi-$s2" psql -U "$iuser" -tAc "select coalesce(extract(epoch from stats_reset)::bigint,0)||'|'||tup_inserted||'|'||tup_updated||'|'||tup_deleted from pg_stat_database where datname='$s2'" 2>/dev/null)"
+    ischema="$(docker exec "pgi-$s2" pg_dump -U "$iuser" -s -d "$s2" 2>/dev/null | awk 'substr($0,1,1)!="\\"' | sha256sum | cut -d' ' -f1)"
+    isig="$isig|$ischema"
+    inewest="$(ls -1t "$OUT/dumps/$s2"-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.dump 2>/dev/null | head -1)"
+    if [ -n "$inewest" ] && [ "$(cat "$OUT/dumps/.state/$s2.sig" 2>/dev/null)" = "$isig" ]        && [ -n "$(find "$inewest" -mtime -"$FORCE_DAYS" 2>/dev/null)" ]; then
+      echo "  == $s2 (instance) unchanged, skipped"
+      continue
+    fi
+    if docker exec "pgi-$s2" pg_dump -U "$iuser" -Fc -d "$s2" > "$OUT/dumps/$s2-$DATE.dump" 2>"$OUT/.err"; then
+      echo "  ok dump $s2 (instance, $(wc -c < "$OUT/dumps/$s2-$DATE.dump") bytes)"
+      printf '%s' "$isig" > "$OUT/dumps/.state/$s2.sig"
+    else
+      echo "  ! dump $s2 (instance) failed: $(head -1 "$OUT/.err")"
+      rm -f "$OUT/dumps/$s2-$DATE.dump"
+      HAD_FAIL=1
+    fi
+  done
+fi
 rm -f "$OUT/.err"
 
 # ---- layer 2: physical basebackup (for PITR together with the WAL archive)

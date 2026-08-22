@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/lib/pq"
+	"time"
 )
 
 var branchNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,30}$`)
@@ -284,6 +285,26 @@ func (a *app) branchCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.projectExists(branch) {
 		redirectErr(w, r, "/p/"+slug+"/branches", "A branch named "+branch+" already exists.")
+		return
+	}
+	// Dedicated-instance parents get INSTANT copy-on-write branches: a btrfs
+	// snapshot + fresh container (~2s), no lock on the parent, and the branch
+	// shares unchanged disk blocks with it.
+	if a.projectMode(slug) == "instance" {
+		bpw := randHex(18)
+		if _, err := pgInstance(3*time.Minute, "branch", slug, branch, bpw); err != nil {
+			redirectErr(w, r, "/p/"+slug+"/branches", "Instant branch failed: "+err.Error())
+			return
+		}
+		if _, err := a.db.Exec(`INSERT INTO projects(slug, role_name, password_enc, parent, mode)
+			VALUES ($1,$1,pgp_sym_encrypt($2,$3),$4,'instance')`,
+			branch, bpw, string(a.cfg.secret), slug); err != nil {
+			pgInstance(time.Minute, "delete", branch)
+			redirectErr(w, r, "/p/"+slug+"/branches", "Branch record failed: "+err.Error())
+			return
+		}
+		a.audit(r, "branch-create-instant", branch)
+		redirectMsg(w, r, "/p/"+slug+"/branches", "Instant branch "+branch+" is ready (copy-on-write - it shares storage with "+slug+").")
 		return
 	}
 	pw := randHex(18)

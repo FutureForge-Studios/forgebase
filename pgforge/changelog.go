@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.2.21"
+const appVersion = "1.3.0"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,21 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.0", Date: "2026-08-22",
+		Summary: "Dedicated instances: instant branching and true scale-to-zero.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Dedicated instances: choose \"Dedicated instance\" when creating a project and it runs as its OWN Postgres on copy-on-write storage - full isolation (its own engine, its own crash domain), with the project role as its superuser.",
+				"INSTANT branching: for dedicated projects, a branch is a copy-on-write snapshot - it appears in about 2 seconds regardless of database size, never locks the parent, and shares unchanged storage with it (a branch of a 40MB database costs ~8MB).",
+				"True scale-to-zero: an idle dedicated instance is STOPPED after 15 minutes - zero RAM, zero CPU. The next connection (app, API call, or panel visit) cold-starts it in about 1.3 seconds through the always-on proxy on port 5433.",
+				"Everything else follows the mode automatically: connection strings, the Data API, Realtime, backups (dedicated instances are dumped with the same skip-unchanged smarts), Sleep/Wake buttons, and Pause (which locks the instance so connections can NOT wake it until you Resume).",
+			}},
+			{"Changed", []string{
+				"Every dedicated instance uses password-only authentication (scram) from birth and runs the full ForgeBase image - pgvector and friends included.",
+			}},
+		},
+	},
 	{
 		Version: "1.2.21", Date: "2026-08-22",
 		Summary: "S3 object storage, and 20 fixes from a deep adversarial review.",

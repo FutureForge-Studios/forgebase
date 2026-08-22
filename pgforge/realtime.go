@@ -148,10 +148,17 @@ func (a *app) rtGetHub(slug string) *rtHub {
 		rtMu.Unlock()
 		return h
 	}
-	u := *a.baseURL
-	u.Path = "/" + slug
+	dsn := ""
+	if a.projectMode(slug) == "instance" {
+		_, pw := a.projectCred(slug)
+		dsn = a.instanceDSN(slug, pw)
+	} else {
+		u := *a.baseURL
+		u.Path = "/" + slug
+		dsn = u.String()
+	}
 	h := &rtHub{clients: map[*websocket.Conn]rtSub{}, emptySince: time.Now()}
-	lis := pq.NewListener(u.String(), 2*time.Second, time.Minute, nil)
+	lis := pq.NewListener(dsn, 2*time.Second, time.Minute, nil)
 	h.lis = lis
 	rtHubs[slug] = h
 	rtMu.Unlock()

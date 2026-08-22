@@ -33,9 +33,18 @@ func (a *app) dbFor(slug string) (*sql.DB, error) {
 	if db, ok := projConns[slug]; ok {
 		return db, nil
 	}
-	u := *a.baseURL
-	u.Path = "/" + slug
-	db, err := sql.Open("postgres", u.String())
+	dsn := ""
+	if a.projectMode(slug) == "instance" {
+		// through the cold-start proxy: any panel/editor touch wakes a
+		// sleeping instance automatically
+		_, pw := a.projectCred(slug)
+		dsn = a.instanceDSN(slug, pw)
+	} else {
+		u := *a.baseURL
+		u.Path = "/" + slug
+		dsn = u.String()
+	}
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, err
 	}

@@ -4,6 +4,9 @@ After=docker.service network-online.target
 Requires=docker.service
 
 [Service]
+# Public: every instance is created scram-only (pg-instance.sh v2 has no trust
+# path), so the cold-start proxy can safely front them for client apps. The
+# proxy refuses paused instances (.paused-<slug> marker).
 Environment=PGPROXY_LISTEN=0.0.0.0:5433
 Environment=INSTANCES_ROOT=/opt/pgforge/instances
 Environment=PGINSTANCE=/opt/pgforge/bin/pg-instance.sh

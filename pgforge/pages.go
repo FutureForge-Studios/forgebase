@@ -17,8 +17,14 @@ const dashboardBody = `
   <div class="card stat"><div class="k">Postgres</div><div class="v" style="font-size:18px">{{.Stats.PGVersion}}</div></div>
 </div>
 
-<form class="card" method="post" action="/create" style="display:flex;gap:.7rem;align-items:center;margin-bottom:.7rem">
-  <input type="text" name="slug" placeholder="new project name  ·  letters, numbers, - and _" pattern="[A-Za-z][A-Za-z0-9_-]{1,38}[A-Za-z0-9]" required style="flex:1">
+<form class="card" method="post" action="/create" style="display:flex;gap:.7rem;align-items:center;margin-bottom:.7rem;flex-wrap:wrap">
+  <input type="text" name="slug" placeholder="new project name  ·  letters, numbers, - and _" pattern="[A-Za-z][A-Za-z0-9_-]{1,38}[A-Za-z0-9]" required style="flex:1;min-width:220px">
+  {{if .InstanceMode}}
+  <select name="mode" style="width:auto" title="Shared: lightest, a database in the shared cluster. Dedicated: own Postgres with instant branches and scale-to-zero.">
+    <option value="shared">Shared cluster</option>
+    <option value="instance">Dedicated instance</option>
+  </select>
+  {{end}}
   <button class="btn btn-primary" type="submit">{{icon "plus"}} New Project</button>
   <button class="btn btn-ghost" type="button" onclick="document.getElementById('impdb').style.display='block'">{{icon "restore"}} Import from Postgres</button>
 </form>
@@ -51,12 +57,13 @@ const dashboardBody = `
     <div style="display:flex;align-items:center;gap:.6rem">
       <a href="/p/{{.Slug}}" style="font-family:var(--serif);font-size:18px;font-weight:600">{{.Slug}}</a>
       <span class="badge {{.Status}}">{{if eq .Status "suspended"}}{{icon "moon"}} sleeping{{else}}{{.Status}}{{end}}</span>
+      {{if eq .Mode "instance"}}<span class="badge active" title="Own Postgres on copy-on-write storage: instant branches, sleeps to zero, wakes on connect">dedicated</span>{{end}}
       <div class="spacer"></div>
       <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}">Open</a>
     </div>
     <div class="muted" style="font-size:12px;margin:.5rem 0 .2rem">created {{.Created}} · {{.Size}} · {{.Conns}} connection(s)</div>
     <div class="cs"><span class="tag">Direct TLS</span><code id="d-{{.Slug}}">{{.DirectURL}}</code><button class="copy" onclick="cp('d-{{.Slug}}')">{{icon "copy"}}</button></div>
-    <div class="cs"><span class="tag">Pooled</span><code id="p-{{.Slug}}">{{.PooledURL}}</code><button class="copy" onclick="cp('p-{{.Slug}}')">{{icon "copy"}}</button></div>
+    {{if .PooledURL}}<div class="cs"><span class="tag">Pooled</span><code id="p-{{.Slug}}">{{.PooledURL}}</code><button class="copy" onclick="cp('p-{{.Slug}}')">{{icon "copy"}}</button></div>{{end}}
     {{if .LegacyDirectURL}}<details style="margin-top:.3rem"><summary class="muted" style="font-size:11px;cursor:pointer">legacy domain (still works)</summary>
     <div class="cs"><span class="tag">Direct</span><code id="ld-{{.Slug}}">{{.LegacyDirectURL}}</code><button class="copy" onclick="cp('ld-{{.Slug}}')">{{icon "copy"}}</button></div>
     <div class="cs"><span class="tag">Pooled</span><code id="lp-{{.Slug}}">{{.LegacyPooledURL}}</code><button class="copy" onclick="cp('lp-{{.Slug}}')">{{icon "copy"}}</button></div></details>{{end}}
