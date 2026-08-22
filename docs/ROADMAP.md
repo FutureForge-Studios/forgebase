@@ -64,7 +64,9 @@ happy path.
 - [x] Smart caching (Cache-Control, ETags, conditional requests).
 - [x] A real storage explorer UI: folders, drag-drop, previews.
 - [x] Per-project storage quotas with usage meters.
-- [ ] S3-compatible protocol access with scoped keys.
+- [x] S3-compatible protocol access with scoped keys (core object ops +
+      SigV4, verified against the official AWS test vectors; multipart
+      and presigned URLs tracked).
 
 ## Phase 5 - Realtime depth
 - [x] Broadcast channels (client pub/sub + send-from-SQL).
@@ -107,8 +109,12 @@ happy path.
 - [x] Foreign-data wrappers UI for external sources.
 
 ## Next (1.4.x)
-The remaining unchecked items above are the truly infrastructure-heavy
-tier - read replicas, S3-protocol storage, and SAML SSO. Each needs
+The remaining unchecked items are read replicas and SAML SSO - one is a
+second database server, the other an enterprise XML protocol that
+deserves a battle-tested library rather than a hand-rolled verifier.
+Both are planned; most SSO needs are covered today by the generic OIDC
+provider, and time-travel branches cover many read-scaling reporting
+workloads. Each needs
 its own design pass and ships as focused 1.4.x releases, in the order they
 unlock the most for real projects.
 

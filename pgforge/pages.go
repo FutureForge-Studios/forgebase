@@ -1492,6 +1492,20 @@ function soMove(p,move){var to=prompt((move?'Move/rename to path:':'Copy to path
   </form>
 </div>
 <div class="card" style="margin-top:1rem">
+  <div style="display:flex;align-items:center;gap:.6rem"><h2>S3 protocol access</h2><span class="label">{{len .S3Keys}} key(s)</span><div class="spacer"></div>
+    <form method="post" action="/p/{{.Slug}}/s3-key-create"><button class="btn btn-primary btn-sm" type="submit">{{icon "key"}} New S3 key</button></form></div>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .6rem">Point rclone, the AWS CLI or any S3 SDK straight at this project's storage. Endpoint <code>https://{{.Slug}}.{{.Domain}}</code> (path-style), region <code>auto</code>. Core object operations are supported; multipart and presigned URLs are not yet.</p>
+  {{if .S3Keys}}
+  <div class="tblwrap"><table class="data">
+    <thead><tr><th>Access key</th><th>Created</th><th></th></tr></thead>
+    <tbody>{{range .S3Keys}}<tr>
+      <td><code>{{.Access}}</code></td><td class="muted">{{.Created}}</td>
+      <td style="text-align:right"><form method="post" action="/p/{{$.Slug}}/s3-key-revoke" onsubmit="return confirm('Revoke {{.Access}}? Clients using it stop working immediately.')" style="display:inline"><input type="hidden" name="access_key" value="{{.Access}}"><button class="copy" style="color:hsl(var(--destructive))">{{icon "trash"}}</button></form></td>
+    </tr>{{end}}</tbody>
+  </table></div>{{end}}
+  <div class="cs" style="margin-top:.6rem"><span class="tag">rclone</span><code id="s3rc" style="font-size:10.5px">rclone config create myproj s3 provider=Other access_key_id=FB... secret_access_key=... endpoint=https://{{.Slug}}.{{.Domain}} force_path_style=true</code><button class="copy" onclick="cp('s3rc')">{{icon "copy"}}</button></div>
+</div>
+<div class="card" style="margin-top:1rem">
   <h2>Resumable uploads (tus)</h2>
   <p class="muted" style="font-size:12.5px;margin:.3rem 0 .6rem">Big files over flaky connections: any standard tus 1.0.0 client (tus-js-client, Uppy) resumes exactly where it stopped. Authenticate like any upload; the filename comes from the tus metadata.</p>
   <div class="cs"><span class="tag">Endpoint</span><code id="tusurl">https://{{.Slug}}.{{.Domain}}/storage/v1/tus/&lt;bucket&gt;</code><button class="copy" onclick="cp('tusurl')">{{icon "copy"}}</button></div>

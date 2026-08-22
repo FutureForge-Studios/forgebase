@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.10"
+const appVersion = "1.4.11"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,16 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.11", Date: "2026-08-23",
+		Summary: "S3-protocol storage access with scoped keys.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"S3-compatible access to project storage: mint a scoped key pair on the Storage page and point rclone, the AWS CLI or any S3 SDK at the project domain (path-style). ListBuckets, ListObjectsV2, Head/Get/Put/DeleteObject all work; requests are verified with real AWS Signature V4, and the implementation passes the official AWS signature test vectors. Multipart and presigned URLs answer a clear 501 rather than failing silently - they come later.",
+				"Keys are per project, revocable instantly, and the secret is shown exactly once at creation.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.10", Date: "2026-08-23",
 		Summary: "Time-travel branches and adaptive instance sizing.",

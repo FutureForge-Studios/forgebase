@@ -194,6 +194,21 @@ func (a *app) storagePage(w http.ResponseWriter, r *http.Request) {
 		"NBuckets": len(buckets), "TotObjects": totObjects, "TotSize": totSize,
 		"QuotaMB": quotaMB, "UsedPct": usedPct, "HasQuota": quotaB > 0,
 		"Rules": a.listStorageRules(slug), "Domain": a.cfg.domain,
+		"S3Keys": func() []struct{ Access, Created string } {
+			var out []struct{ Access, Created string }
+			rows, err := a.db.Query(`SELECT access_key, to_char(created_at,'Mon DD, YYYY')
+				FROM s3_keys WHERE slug=$1 ORDER BY created_at DESC`, slug)
+			if err != nil {
+				return out
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var k struct{ Access, Created string }
+				rows.Scan(&k.Access, &k.Created)
+				out = append(out, k)
+			}
+			return out
+		}(),
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Storage", Nav: "storage", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Storage"}}}, content)

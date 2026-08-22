@@ -506,6 +506,10 @@ func (a *app) serveAPI(w http.ResponseWriter, r *http.Request, slug string) {
 		return
 	}
 	a.touchAndResume(slug) // any request keeps the project alive / wakes it
+	if isS3Request(r) {
+		a.serveS3(w, r, slug)
+		return
+	}
 	if p := r.URL.Path; p == "/.well-known/jwks.json" || p == "/auth/v1/.well-known/jwks.json" {
 		a.serveJWKS(w, slug)
 		return

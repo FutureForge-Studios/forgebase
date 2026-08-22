@@ -13,6 +13,15 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.11] - 2026-08-23
+
+### Added
+- S3-compatible protocol access with scoped keys: rclone / AWS CLI / any
+  S3 SDK against the project domain, path-style. Core object operations
+  plus bucket listing; real SigV4 verification (passes the official AWS
+  test vectors). Multipart and presigned URLs return an explicit 501 for
+  now. Keys are minted and revoked on the Storage page; secrets shown once.
+
 ## [1.4.10] - 2026-08-23
 
 ### Added

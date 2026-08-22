@@ -354,6 +354,8 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/storage-rule-delete", a.auth(admin(a.storageRuleDelete)))
 	mux.HandleFunc("POST /p/{slug}/jwks", a.auth(admin(a.jwksToggle)))
 	mux.HandleFunc("POST /p/{slug}/realtime-rls", a.auth(admin(a.setRealtimeRLS)))
+	mux.HandleFunc("POST /p/{slug}/s3-key-create", a.auth(admin(a.s3KeyCreate)))
+	mux.HandleFunc("POST /p/{slug}/s3-key-revoke", a.auth(admin(a.s3KeyRevoke)))
 	mux.HandleFunc("GET /p/{slug}/branch-diff", a.auth(proj(a.branchDiff)))
 	mux.HandleFunc("POST /p/{slug}/branch-reset", a.auth(admin(a.branchReset)))
 	mux.HandleFunc("GET /p/{slug}/realtime", a.auth(proj(a.realtimePage)))
@@ -535,6 +537,12 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS adapt_min_mb integer NOT NULL DEFAULT 0`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS adapt_max_mb integer NOT NULL DEFAULT 0`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS project_scope text NOT NULL DEFAULT ''`,
+		`CREATE TABLE IF NOT EXISTS s3_keys (
+			slug text NOT NULL,
+			access_key text PRIMARY KEY,
+			secret text NOT NULL,
+			created_at timestamptz NOT NULL DEFAULT now()
+		)`,
 		`CREATE TABLE IF NOT EXISTS storage_rules (
 			id bigserial PRIMARY KEY,
 			slug text NOT NULL,
