@@ -1180,25 +1180,66 @@ const storageBody = `
       </form>
     </div>
     <div class="card">
-      <h2>Objects</h2>
-      {{if not .Objects}}<p class="muted" style="margin-top:.5rem">Empty. Upload a file above.</p>
+      <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+        <h2>Objects</h2>
+        {{if .InFolder}}<span class="muted" style="font-size:12px">/ {{.Pfx}}</span>{{end}}
+        <div class="spacer"></div>
+        <form method="get" action="/p/{{.Slug}}/storage" style="display:flex;gap:.4rem;align-items:center">
+          <input type="hidden" name="b" value="{{.Sel}}">
+          <input type="text" name="q" value="{{.Query}}" placeholder="Search whole bucket..." style="width:190px;padding:.35rem .55rem;font-size:12px">
+          <button class="btn btn-ghost btn-sm" type="submit">Search</button>
+          {{if .Query}}<a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/storage?b={{.Sel}}">Clear</a>{{end}}
+        </form>
+      </div>
+      {{if or .Folders .InFolder}}
+      <div style="display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.7rem">
+        {{if .InFolder}}<a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/storage?b={{.Sel}}&pfx={{.Parent}}">{{icon "back"}} Up</a>{{end}}
+        {{range .Folders}}<a class="btn btn-ghost btn-sm" href="/p/{{$.Slug}}/storage?b={{$.Sel}}&pfx={{if $.Pfx}}{{$.Pfx}}/{{end}}{{.}}">{{icon "folder"}} {{.}}</a>{{end}}
+      </div>{{end}}
+      {{if not .Objects}}<p class="muted" style="margin-top:.5rem">{{if .Query}}No matches for "{{.Query}}".{{else if .Folders}}Only folders at this level.{{else}}Empty. Upload a file above.{{end}}</p>
       {{else}}
       <div class="tblwrap" style="margin-top:.8rem"><table class="data">
-        <thead><tr><th>Path</th><th>Size</th><th>Type</th><th>Uploaded</th><th></th></tr></thead>
+        <thead><tr><th style="width:26px"><input type="checkbox" onclick="soTickAll(this)" style="width:auto"></th><th>Path</th><th>Size</th><th>Type</th><th>Uploaded</th><th></th></tr></thead>
         <tbody>{{range .Objects}}<tr>
-          <td><a href="{{.URL}}" target="_blank" style="color:hsl(var(--primary))">{{.Path}}</a></td>
+          <td><input type="checkbox" class="sock" style="width:auto" data-path="{{.Path}}"></td>
+          <td><a href="{{.URL}}" target="_blank" style="color:hsl(var(--primary))">{{if $.Query}}{{.Path}}{{else}}{{.Rel}}{{end}}</a></td>
           <td class="muted">{{.Size}}</td><td class="muted">{{.Mime}}</td><td class="muted">{{.Created}}</td>
           <td style="text-align:right;white-space:nowrap">
             <button class="copy" title="copy URL" onclick="navigator.clipboard.writeText('{{.URL}}');this.style.color='hsl(var(--primary))'">{{icon "copy"}}</button>
+            <button class="copy" title="Move / rename" onclick="soMove('{{.Path}}',true)">{{icon "restore"}}</button>
+            <button class="copy" title="Copy to a new path" onclick="soMove('{{.Path}}',false)">{{icon "copy"}}</button>
             <form method="post" action="/p/{{$.Slug}}/storage/delete" style="display:inline" onsubmit="return confirm('Delete this file?')"><input type="hidden" name="bucket" value="{{$.Sel}}"><input type="hidden" name="path" value="{{.Path}}"><button class="copy" style="color:hsl(var(--destructive))">{{icon "trash"}}</button></form>
           </td></tr>{{end}}</tbody>
       </table></div>
-      <p class="muted" style="font-size:11px;margin-top:.6rem">{{if .SelPublic}}Public URLs are permanent.{{else}}Signed URLs expire in 24h - regenerate by reloading this page.{{end}}</p>
+      <div style="display:flex;gap:.6rem;align-items:center;margin-top:.6rem">
+        <form id="sobulk" method="post" action="/p/{{.Slug}}/storage/bulk-delete" style="display:inline">
+          <input type="hidden" name="bucket" value="{{.Sel}}"><input type="hidden" name="paths" id="sopaths">
+          <button class="btn btn-danger btn-sm" type="button" id="sobtn" style="display:none" onclick="soBulk()">{{icon "trash"}} Delete selected (<span id="son">0</span>)</button>
+        </form>
+        <div class="spacer"></div>
+        <p class="muted" style="font-size:11px;margin:0">{{if .SelPublic}}Public URLs are permanent.{{else}}Signed URLs expire in 24h - regenerate by reloading this page.{{end}}</p>
+      </div>
+      <form id="somv" method="post" style="display:none"><input type="hidden" name="bucket" value="{{.Sel}}"><input type="hidden" name="from" id="somvfrom"><input type="hidden" name="to" id="somvto"></form>
       {{end}}
     </div>
     {{end}}
   </div>
-</div>`
+</div>
+<script>
+function soTickAll(cb){document.querySelectorAll('.sock').forEach(function(x){x.checked=cb.checked});soCount();}
+function soCount(){var n=document.querySelectorAll('.sock:checked').length;
+ var b=document.getElementById('sobtn');if(!b)return;
+ document.getElementById('son').textContent=n;b.style.display=n?'inline-flex':'none';}
+document.addEventListener('change',function(e){if(e.target.classList&&e.target.classList.contains('sock'))soCount();});
+function soBulk(){var ps=[];document.querySelectorAll('.sock:checked').forEach(function(x){ps.push(x.getAttribute('data-path'))});
+ if(!ps.length)return;if(!confirm('Delete '+ps.length+' object(s)?'))return;
+ document.getElementById('sopaths').value=JSON.stringify(ps);document.getElementById('sobulk').submit();}
+function soMove(p,move){var to=prompt((move?'Move/rename to path:':'Copy to path:'),p);
+ if(!to||to===p)return;
+ var f=document.getElementById('somv');
+ f.action='/p/'+location.pathname.split('/')[2]+'/storage/'+(move?'move':'copy');
+ document.getElementById('somvfrom').value=p;document.getElementById('somvto').value=to;f.submit();}
+</script>`
 
 const authPageBody = `
 <div class="pagehead"><h1>Auth</h1><p>Email + password authentication for <b>{{.Slug}}</b>'s end users, with JWTs your Data API trusts.</p></div>

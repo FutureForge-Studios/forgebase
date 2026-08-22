@@ -114,21 +114,51 @@ func (a *app) storagePage(w http.ResponseWriter, r *http.Request) {
 		FROM storage_objects WHERE slug=$1`, slug).Scan(&totObjects, &totSize)
 
 	sel := r.URL.Query().Get("b")
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	pfx := safeRel(r.URL.Query().Get("pfx"))
+	if pfx != "" {
+		pfx += "/"
+	}
 	type object struct {
-		Path, Size, Mime, Created, URL string
+		Path, Rel, Size, Mime, Created, URL string
 	}
 	var objects []object
+	var folders []string
 	var selPublic bool
 	var selMaxMB int
 	var selMime string
 	if sel != "" {
 		a.db.QueryRow(`SELECT public, max_size_mb, allowed_mime FROM storage_buckets WHERE slug=$1 AND bucket=$2`, slug, sel).Scan(&selPublic, &selMaxMB, &selMime)
-		orows, _ := a.db.Query(`SELECT path, pg_size_pretty(size), mime, to_char(created_at,'Mon DD, HH24:MI')
-			FROM storage_objects WHERE slug=$1 AND bucket=$2 ORDER BY path`, slug, sel)
+		// searching looks across the whole bucket; browsing stays inside the
+		// current folder and lists subfolders separately
+		q := `SELECT path, pg_size_pretty(size), mime, to_char(created_at,'Mon DD, HH24:MI')
+			FROM storage_objects WHERE slug=$1 AND bucket=$2`
+		args := []any{slug, sel}
+		if query != "" {
+			args = append(args, "%"+query+"%")
+			q += ` AND path ILIKE $3`
+		} else if pfx != "" {
+			args = append(args, pfx+"%")
+			q += ` AND path LIKE $3`
+		}
+		q += ` ORDER BY path LIMIT 2000`
+		orows, _ := a.db.Query(q, args...)
 		if orows != nil {
+			seenDir := map[string]bool{}
 			for orows.Next() {
 				var o object
 				orows.Scan(&o.Path, &o.Size, &o.Mime, &o.Created)
+				o.Rel = strings.TrimPrefix(o.Path, pfx)
+				if query == "" {
+					if i := strings.IndexByte(o.Rel, '/'); i >= 0 {
+						d := o.Rel[:i]
+						if !seenDir[d] {
+							seenDir[d] = true
+							folders = append(folders, d)
+						}
+						continue // shown via its folder, not as a file here
+					}
+				}
 				if selPublic {
 					o.URL = fmt.Sprintf("https://%s.%s/storage/v1/object/public/%s/%s", slug, a.cfg.domain, sel, escapePath(o.Path))
 				} else {
@@ -139,9 +169,18 @@ func (a *app) storagePage(w http.ResponseWriter, r *http.Request) {
 			orows.Close()
 		}
 	}
+	crumbs := []string{}
+	if pfx != "" {
+		crumbs = strings.Split(strings.TrimSuffix(pfx, "/"), "/")
+	}
+	parent := ""
+	if len(crumbs) > 1 {
+		parent = strings.Join(crumbs[:len(crumbs)-1], "/")
+	}
 	content := renderContent(storageBody, map[string]any{
 		"Slug": slug, "Buckets": buckets, "Sel": sel, "SelPublic": selPublic, "Objects": objects,
-		"SelMaxMB": selMaxMB, "SelMime": selMime,
+		"SelMaxMB": selMaxMB, "SelMime": selMime, "Folders": folders,
+		"Pfx": strings.TrimSuffix(pfx, "/"), "Parent": parent, "InFolder": pfx != "", "Query": query,
 		"NBuckets": len(buckets), "TotObjects": totObjects, "TotSize": totSize,
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Storage", Nav: "storage", Slug: slug,
@@ -296,6 +335,135 @@ func (a *app) deleteObject(w http.ResponseWriter, r *http.Request) {
 	a.db.Exec(`DELETE FROM storage_objects WHERE slug=$1 AND bucket=$2 AND path=$3`, slug, bucket, rel)
 	a.audit(r, "object-delete", slug+"/"+bucket+"/"+rel)
 	redirectMsg(w, r, "/p/"+slug+"/storage?b="+bucket, "Deleted "+rel+".")
+}
+
+// moveObject renames/moves an object within its bucket (disk + S3 + metadata).
+func (a *app) moveObject(w http.ResponseWriter, r *http.Request) {
+	a.transferObject(w, r, true)
+}
+
+// copyObject duplicates an object under a new path.
+func (a *app) copyObject(w http.ResponseWriter, r *http.Request) {
+	a.transferObject(w, r, false)
+}
+
+func (a *app) transferObject(w http.ResponseWriter, r *http.Request, move bool) {
+	slug := r.PathValue("slug")
+	if !a.projectExists(slug) {
+		http.NotFound(w, r)
+		return
+	}
+	bucket := r.FormValue("bucket")
+	verb := "Copied"
+	if move {
+		verb = "Moved"
+	}
+	back := "/p/" + slug + "/storage?b=" + bucket
+	if !a.bucketExists(slug, bucket) {
+		redirectErr(w, r, "/p/"+slug+"/storage", "Unknown bucket.")
+		return
+	}
+	from := safeRel(r.FormValue("from"))
+	to := safeRel(r.FormValue("to"))
+	if from == "" || to == "" || from == to {
+		redirectErr(w, r, back, "Give both a source and a distinct destination path.")
+		return
+	}
+	var size int64
+	var mime string
+	if err := a.db.QueryRow(`SELECT size, mime FROM storage_objects WHERE slug=$1 AND bucket=$2 AND path=$3`,
+		slug, bucket, from).Scan(&size, &mime); err != nil {
+		redirectErr(w, r, back, "Unknown object.")
+		return
+	}
+	var exists bool
+	a.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM storage_objects WHERE slug=$1 AND bucket=$2 AND path=$3)`,
+		slug, bucket, to).Scan(&exists)
+	if exists {
+		redirectErr(w, r, back, "Destination already exists.")
+		return
+	}
+	src := filepath.Join(storageRoot, slug, bucket, from)
+	dst := filepath.Join(storageRoot, slug, bucket, to)
+	// the local file may be evicted from cache; restore it from S3 first
+	if !a.ensureLocal(src, slug, bucket, from) {
+		redirectErr(w, r, back, "Object data unavailable (offline object storage?).")
+		return
+	}
+	os.MkdirAll(filepath.Dir(dst), 0o755)
+	if err := copyFile(src, dst); err != nil {
+		redirectErr(w, r, back, "Copy failed: "+err.Error())
+		return
+	}
+	if err := a.s3Push(dst, slug, bucket, to); err != nil {
+		os.Remove(dst)
+		redirectErr(w, r, back, "Object storage unreachable - nothing changed. "+err.Error())
+		return
+	}
+	a.db.Exec(`INSERT INTO storage_objects(slug,bucket,path,size,mime) VALUES ($1,$2,$3,$4,$5)`,
+		slug, bucket, to, size, mime)
+	if move {
+		os.Remove(src)
+		a.s3Delete(slug, bucket, from)
+		a.db.Exec(`DELETE FROM storage_objects WHERE slug=$1 AND bucket=$2 AND path=$3`, slug, bucket, from)
+	}
+	a.audit(r, "object-"+strings.ToLower(verb), slug+"/"+bucket+": "+from+" -> "+to)
+	redirectMsg(w, r, back, verb+" to "+to+".")
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(dst)
+		return err
+	}
+	return out.Close()
+}
+
+// bulkDeleteObjects removes many objects in one request (paths as JSON array).
+func (a *app) bulkDeleteObjects(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	if !a.projectExists(slug) {
+		http.NotFound(w, r)
+		return
+	}
+	bucket := r.FormValue("bucket")
+	back := "/p/" + slug + "/storage?b=" + bucket
+	if !a.bucketExists(slug, bucket) {
+		redirectErr(w, r, "/p/"+slug+"/storage", "Unknown bucket.")
+		return
+	}
+	var paths []string
+	if json.Unmarshal([]byte(r.FormValue("paths")), &paths) != nil || len(paths) == 0 || len(paths) > 500 {
+		redirectErr(w, r, back, "Nothing selected.")
+		return
+	}
+	n := 0
+	for _, p := range paths {
+		rel := safeRel(p)
+		if rel == "" {
+			continue
+		}
+		os.Remove(filepath.Join(storageRoot, slug, bucket, rel))
+		a.s3Delete(slug, bucket, rel)
+		res, _ := a.db.Exec(`DELETE FROM storage_objects WHERE slug=$1 AND bucket=$2 AND path=$3`, slug, bucket, rel)
+		if res != nil {
+			if aff, _ := res.RowsAffected(); aff > 0 {
+				n++
+			}
+		}
+	}
+	a.audit(r, "objects-bulk-delete", fmt.Sprintf("%s/%s x%d", slug, bucket, n))
+	redirectMsg(w, r, back, fmt.Sprintf("Deleted %d object(s).", n))
 }
 
 func (a *app) deleteBucket(w http.ResponseWriter, r *http.Request) {

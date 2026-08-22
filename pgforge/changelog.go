@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.17"
+const appVersion = "1.3.18"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,18 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.18", Date: "2026-08-22",
+		Summary: "A real storage explorer.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Folder navigation in Storage: objects with slashes in their paths browse as folders with an Up button, instead of one flat list.",
+				"Bucket-wide search across every object path.",
+				"Move/rename and copy for any object - metadata, disk and off-box object storage all stay in sync, and a move never loses data (the copy lands fully before the original goes).",
+				"Bulk selection with select-all and one-click delete of many objects.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.17", Date: "2026-08-22",
 		Summary: "Choose which changes each table publishes.",

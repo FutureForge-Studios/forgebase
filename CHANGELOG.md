@@ -13,6 +13,12 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.18] - 2026-08-22
+
+### Added
+- Storage explorer: folder navigation, bucket-wide search, move/rename,
+  copy, and bulk delete - disk, metadata and off-box storage kept in sync.
+
 ## [1.3.17] - 2026-08-22
 
 ### Added
@@ -833,7 +839,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.17...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.18...HEAD
+[1.3.18]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.17...v1.3.18
 [1.3.17]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.16...v1.3.17
 [1.3.16]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.15...v1.3.16
 [1.3.15]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.14...v1.3.15
