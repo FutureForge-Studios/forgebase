@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.3.1"
+const appVersion = "1.3.2"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,20 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.3.2", Date: "2026-08-22",
+		Summary: "A much stronger table editor.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Stacked filters on any table: combine conditions (=, not equals, greater/less, contains, in-list, is null) as removable chips - values always travel as bound parameters.",
+				"Click any column header to sort (click again for descending, again to clear), with multiple sort columns combining.",
+				"Bulk row selection with select-all and one-click delete of the selected rows (transactional - all or nothing).",
+				"Rows-per-page selector (25/100/500), with filters, sorts, and page size all preserved while you page through.",
+				"Export any table as SQL INSERT statements (restores anywhere with plain psql), alongside the existing CSV export.",
+				"Duplicate a table (structure with all indexes and constraints, optionally including data) in one click.",
+			}},
+		},
+	},
 	{
 		Version: "1.3.1", Date: "2026-08-22",
 		Summary: "A professional SQL editor.",

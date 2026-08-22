@@ -201,10 +201,43 @@ const tablesBody = `
       <h2 style="font-size:18px">{{.Sel}}</h2>
       <span class="muted" style="font-size:12px">{{if .EstUnknown}}~ rows{{else}}≈{{.Est}} rows{{end}}{{if not .HasPK}} · no primary key (read-only rows){{end}}</span>
       <div class="spacer"></div>
-      <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/export?t={{.Sel}}">{{icon "archive"}} Export CSV</a>
+      <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/export?t={{.Sel}}">{{icon "archive"}} CSV</a>
+      <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/export?t={{.Sel}}&fmt=sql" title="Download as INSERT statements">SQL</a>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('dup').style.display='flex'" title="Copy this table's structure (and optionally data) to a new table">{{icon "copy"}} Duplicate</button>
       {{if .Meta}}<button class="btn btn-ghost btn-sm" onclick="document.getElementById('ins').style.display='block'">{{icon "plus"}} Insert row</button>{{end}}
     </div>
     {{if .Error}}<div class="flash err">{{.Error}}</div>{{end}}
+
+    <form id="dup" class="card" method="post" action="/p/{{.Slug}}/table-duplicate" style="display:none;gap:.6rem;align-items:center;margin-bottom:.9rem">
+      <input type="hidden" name="table" value="{{.Sel}}">
+      <span class="label">Duplicate {{.Sel}} as</span>
+      <input type="text" name="name" placeholder="new table name" required style="width:200px">
+      <label style="display:flex;align-items:center;gap:.3rem;font-size:12.5px;cursor:pointer"><input type="checkbox" name="with_data" style="width:auto;margin:0"> copy data too</label>
+      <button class="btn btn-primary btn-sm" type="submit">Duplicate</button>
+      <button class="btn btn-ghost btn-sm" type="button" onclick="document.getElementById('dup').style.display='none'">Cancel</button>
+    </form>
+
+    <div class="card" style="padding:.6rem .8rem;margin-bottom:.8rem">
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+        <span class="label">Filters</span>
+        <div id="fchips" style="display:flex;gap:.35rem;flex-wrap:wrap">
+        {{range .Filters}}<span class="badge active" style="text-transform:none;gap:.35rem">{{.Col}} {{.Op}} {{.Val}}<a href="#" onclick="return dropFilter('{{.Col}}.{{.Op}}.{{.Val}}')" style="font-weight:700">&times;</a></span>{{end}}
+        </div>
+        <select id="fcol" style="width:auto;padding:.3rem .4rem;font-size:12px">{{range .Meta}}<option>{{.Name}}</option>{{end}}</select>
+        <select id="fop" style="width:auto;padding:.3rem .4rem;font-size:12px">
+          <option value="eq">=</option><option value="neq">&ne;</option><option value="gt">&gt;</option><option value="gte">&ge;</option><option value="lt">&lt;</option><option value="lte">&le;</option><option value="ilike">contains</option><option value="in">in (a,b)</option><option value="is">is null</option>
+        </select>
+        <input id="fval" type="text" placeholder="value" style="width:140px;padding:.3rem .5rem;font-size:12px" onkeydown="if(event.key==='Enter'){addFilter();return false}">
+        <button class="btn btn-ghost btn-sm" type="button" onclick="addFilter()">Add</button>
+        <div class="spacer"></div>
+        <span class="label">Rows</span>
+        <select onchange="setPS(this.value)" style="width:auto;padding:.3rem .4rem;font-size:12px">
+          <option value="25" {{if eq .PageSize 25}}selected{{end}}>25</option>
+          <option value="100" {{if eq .PageSize 100}}selected{{end}}>100</option>
+          <option value="500" {{if eq .PageSize 500}}selected{{end}}>500</option>
+        </select>
+      </div>
+    </div>
 
     <div id="ins" class="card" style="display:none;margin-bottom:.9rem">
       <form method="post" action="/p/{{.Slug}}/row-insert">
@@ -219,11 +252,12 @@ const tablesBody = `
 
     <div class="tblwrap">
       <table class="data">
-        <thead><tr>{{range .Cols}}<th>{{.}}</th>{{end}}{{if .HasPK}}<th></th>{{end}}</tr></thead>
+        <thead><tr>{{if .HasPK}}<th style="width:26px"><input type="checkbox" onclick="tickAll(this)" style="width:auto"></th>{{end}}{{range $cn := .Cols}}<th style="cursor:pointer" onclick="cycleSort('{{$cn}}')" title="Click to sort">{{$cn}}<span class="muted" style="font-weight:400">{{range $.Sorts}}{{if eq .Col $cn}} {{if eq .Dir "asc"}}&uarr;{{else}}&darr;{{end}}{{end}}{{end}}</span></th>{{end}}{{if .HasPK}}<th></th>{{end}}</tr></thead>
         <tbody>
         {{$s := .Slug}}{{$sel := .Sel}}{{$cols := .Cols}}{{$pk := .PK}}{{$haspk := .HasPK}}{{$types := .Types}}
         {{range $ri, $row := .Rows}}
           <tr>
+            {{if $haspk}}<td><input type="checkbox" class="rowck" style="width:auto" data-keys="{{range $ki,$k := $pk}}{{if $ki}}&amp;{{end}}{{$k}}={{range $ci,$cn := $cols}}{{if eq $cn $k}}{{(index $row $ci).Val}}{{end}}{{end}}{{end}}"></td>{{end}}
             {{range $ci, $c := $row}}
               <td {{if and $haspk (ne (index $types (index $cols $ci)) "bytea")}}data-c="{{index $cols $ci}}" ondblclick="editCell(this)"{{end}}>{{if $c.Null}}<span class="null">null</span>{{else}}{{$c.Val}}{{end}}</td>
             {{end}}
@@ -240,12 +274,16 @@ const tablesBody = `
       </table>
     </div>
     <div style="display:flex;align-items:center;gap:.6rem;margin-top:.7rem">
-      {{if .HasPK}}<span class="muted" style="font-size:11.5px">Double-click a cell to edit.</span>{{end}}
+      {{if .HasPK}}<span class="muted" style="font-size:11.5px">Double-click a cell to edit.</span>
+      <form id="bulkdel" method="post" action="/p/{{.Slug}}/rows-bulk-delete" style="display:inline">
+        <input type="hidden" name="table" value="{{.Sel}}"><input type="hidden" name="keys" id="bulkkeys">
+        <button class="btn btn-danger btn-sm" type="button" id="bulkbtn" style="display:none" onclick="bulkDelete()">{{icon "trash"}} Delete selected (<span id="bulkn">0</span>)</button>
+      </form>{{end}}
       <div class="spacer"></div>
       {{if .Rows}}<span class="muted" style="font-size:12px">rows {{.FirstRow}}-{{.LastRow}}</span>{{end}}
-      {{if .HasPrev}}<a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/tables?t={{.Sel}}&p={{.PrevPage}}">{{icon "back"}} Prev</a>{{else}}<button class="btn btn-ghost btn-sm" disabled style="opacity:.4">{{icon "back"}} Prev</button>{{end}}
+      {{if .HasPrev}}<a class="btn btn-ghost btn-sm" href="#" onclick="return goPage({{.PrevPage}})">{{icon "back"}} Prev</a>{{else}}<button class="btn btn-ghost btn-sm" disabled style="opacity:.4">{{icon "back"}} Prev</button>{{end}}
       <span class="muted" style="font-size:12px">page {{.Page}}</span>
-      {{if .HasNext}}<a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/tables?t={{.Sel}}&p={{.NextPage}}">Next {{icon "chevron"}}</a>{{else}}<button class="btn btn-ghost btn-sm" disabled style="opacity:.4">Next</button>{{end}}
+      {{if .HasNext}}<a class="btn btn-ghost btn-sm" href="#" onclick="return goPage({{.NextPage}})">Next {{icon "chevron"}}</a>{{else}}<button class="btn btn-ghost btn-sm" disabled style="opacity:.4">Next</button>{{end}}
     </div>
     {{if .Meta}}
     <div class="card" style="margin-top:1rem">
@@ -1736,6 +1774,26 @@ function askDel(s){document.getElementById('delName').textContent=s;document.get
 
 const editCellJS = `
 <script>
+// ---- filters / sort / paging url helpers (all state lives in the URL)
+function urlWith(mut){var u=new URL(location.href);mut(u.searchParams);return u.pathname+'?'+u.searchParams.toString();}
+function goPage(p){location.href=urlWith(function(q){q.set('p',p)});return false;}
+function setPS(v){location.href=urlWith(function(q){q.set('ps',v);q.delete('p')});}
+function addFilter(){var c=document.getElementById('fcol').value,o=document.getElementById('fop').value,v=document.getElementById('fval').value;
+ if(o==='is'){v=v||'null';}
+ if(!c||!o)return;location.href=urlWith(function(q){q.append('f',c+'.'+o+'.'+v);q.delete('p')});}
+function dropFilter(spec){location.href=urlWith(function(q){var all=q.getAll('f');q.delete('f');all.forEach(function(x){if(x!==spec)q.append('f',x)});q.delete('p')});return false;}
+function cycleSort(col){location.href=urlWith(function(q){var all=q.getAll('s');q.delete('s');var found=false;
+ all.forEach(function(x){var b=x.split('.');if(b[0]===col){found=true;if((b[1]||'asc')==='asc'){q.append('s',col+'.desc')}/*desc->remove*/}else{q.append('s',x)}});
+ if(!found)q.append('s',col+'.asc');q.delete('p')});}
+function tickAll(cb){document.querySelectorAll('.rowck').forEach(function(x){x.checked=cb.checked});bulkCount();}
+function bulkCount(){var n=document.querySelectorAll('.rowck:checked').length;
+ document.getElementById('bulkn').textContent=n;
+ document.getElementById('bulkbtn').style.display=n?'inline-flex':'none';}
+document.addEventListener('change',function(e){if(e.target.classList&&e.target.classList.contains('rowck'))bulkCount();});
+function bulkDelete(){var ks=[];document.querySelectorAll('.rowck:checked').forEach(function(x){
+ var o={};x.getAttribute('data-keys').split('&').forEach(function(kv){var i=kv.indexOf('=');o[kv.slice(0,i)]=kv.slice(i+1)});ks.push(o)});
+ if(!ks.length)return;if(!confirm('Delete '+ks.length+' selected row(s)?'))return;
+ document.getElementById('bulkkeys').value=JSON.stringify(ks);document.getElementById('bulkdel').submit();}
 function editCell(td){
   if(td.querySelector('input'))return;
   var old=td.textContent==='null'?'':td.textContent;

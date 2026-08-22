@@ -215,6 +215,8 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/row-insert", a.auth(proj(a.rowInsert)))
 	mux.HandleFunc("POST /p/{slug}/row-update", a.auth(proj(a.rowUpdate)))
 	mux.HandleFunc("POST /p/{slug}/row-delete", a.auth(proj(a.rowDelete)))
+	mux.HandleFunc("POST /p/{slug}/rows-bulk-delete", a.auth(proj(a.bulkDeleteRows)))
+	mux.HandleFunc("POST /p/{slug}/table-duplicate", a.auth(proj(a.duplicateTable)))
 	mux.HandleFunc("POST /p/{slug}/import", a.auth(proj(a.importCSV)))
 	mux.HandleFunc("GET /p/{slug}/export", a.auth(proj(a.exportCSV)))
 	mux.HandleFunc("POST /p/{slug}/table-create", a.auth(proj(a.createTable)))

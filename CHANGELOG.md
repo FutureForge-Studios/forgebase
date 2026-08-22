@@ -13,6 +13,21 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.3.2] - 2026-08-22
+
+### Added
+- Stacked filters on any table: combine conditions (=, not equals,
+  greater/less, contains, in-list, is null) as removable chips - values always
+  travel as bound parameters.
+- Click any column header to sort (again for descending, again to clear),
+  with multiple sort columns combining.
+- Bulk row selection with select-all and one-click transactional delete.
+- Rows-per-page selector (25/100/500); filters, sorts, and page size are
+  preserved while paging.
+- Export any table as SQL INSERT statements, alongside CSV.
+- Duplicate a table (structure with all indexes and constraints, optionally
+  including data) in one click.
+
 ## [1.3.1] - 2026-08-22
 
 ### Added
@@ -682,7 +697,8 @@ platform that runs as a single Go binary against a shared Postgres cluster.
 - Table editor: browse rows, insert, update, delete, and CSV import.
 - SQL editor: run queries against a project database with a statement timeout.
 
-[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.2...HEAD
+[1.3.2]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/FutureForge-Studios/forgebase/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.21...v1.3.0
 [1.2.21]: https://github.com/FutureForge-Studios/forgebase/compare/v1.2.20...v1.2.21

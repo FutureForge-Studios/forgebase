@@ -200,6 +200,176 @@ func (a *app) tableCols(db *sql.DB, table string) []tableCol {
 	return out
 }
 
+// filterView echoes an active filter back into the UI.
+type filterView struct{ Col, Op, Val string }
+
+// sortView echoes an active sort rule back into the UI.
+type sortView struct{ Col, Dir string }
+
+var filterOps = map[string]string{
+	"eq": "=", "neq": "<>", "gt": ">", "gte": ">=", "lt": "<", "lte": "<=",
+	"like": "LIKE", "ilike": "ILIKE",
+}
+
+// buildFilters turns repeated f=<col>.<op>.<value> params into a WHERE clause
+// with bind args. Unknown columns/operators are dropped silently.
+func buildFilters(params []string, colSet map[string]bool) (string, []any, []filterView) {
+	var conds []string
+	var args []any
+	var views []filterView
+	for _, p := range params {
+		parts := strings.SplitN(p, ".", 3)
+		if len(parts) < 2 || !colSet[parts[0]] {
+			continue
+		}
+		col, op := parts[0], parts[1]
+		val := ""
+		if len(parts) == 3 {
+			val = parts[2]
+		}
+		qi := pq.QuoteIdentifier(col)
+		switch {
+		case op == "is" && val == "null":
+			conds = append(conds, qi+" IS NULL")
+		case op == "is" && val == "notnull":
+			conds = append(conds, qi+" IS NOT NULL")
+		case op == "in":
+			items := strings.Split(val, ",")
+			ph := make([]string, len(items))
+			for i, it := range items {
+				args = append(args, strings.TrimSpace(it))
+				ph[i] = fmt.Sprintf("$%d", len(args))
+			}
+			conds = append(conds, qi+"::text IN ("+strings.Join(ph, ",")+")")
+		default:
+			sqlOp, ok := filterOps[op]
+			if !ok {
+				continue
+			}
+			args = append(args, val)
+			// compare as text so any column type works with any typed input
+			conds = append(conds, fmt.Sprintf("%s::text %s $%d", qi, sqlOp, len(args)))
+		}
+		views = append(views, filterView{col, op, val})
+	}
+	if len(conds) == 0 {
+		return "", nil, nil
+	}
+	return " WHERE " + strings.Join(conds, " AND "), args, views
+}
+
+// buildSort turns repeated s=<col>.asc|desc params into an ORDER BY.
+func buildSort(params []string, colSet map[string]bool) (string, []sortView) {
+	var parts []string
+	var views []sortView
+	for _, p := range params {
+		bits := strings.SplitN(p, ".", 2)
+		if !colSet[bits[0]] {
+			continue
+		}
+		dir := "ASC"
+		vd := "asc"
+		if len(bits) == 2 && bits[1] == "desc" {
+			dir, vd = "DESC", "desc"
+		}
+		parts = append(parts, pq.QuoteIdentifier(bits[0])+" "+dir)
+		views = append(views, sortView{bits[0], vd})
+	}
+	if len(parts) == 0 {
+		return "", nil
+	}
+	return " ORDER BY " + strings.Join(parts, ", "), views
+}
+
+// bulkDeleteRows deletes many rows in one transaction. The rows arrive as a
+// JSON array of {pkcol: value} objects; every column is validated against the
+// table's real primary key.
+func (a *app) bulkDeleteRows(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	table := r.FormValue("table")
+	db, err := a.dbFor(slug)
+	if err != nil || !contains(a.listTables(db), table) {
+		redirectErr(w, r, "/p/"+slug+"/tables", "Unknown table.")
+		return
+	}
+	pk := a.tablePK(db, table)
+	if len(pk) == 0 {
+		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Bulk delete needs a primary key.")
+		return
+	}
+	var keys []map[string]string
+	if json.Unmarshal([]byte(r.FormValue("keys")), &keys) != nil || len(keys) == 0 || len(keys) > 1000 {
+		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Nothing selected.")
+		return
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		redirectErr(w, r, "/p/"+slug+"/tables?t="+table, err.Error())
+		return
+	}
+	n := 0
+	for _, k := range keys {
+		var conds []string
+		var args []any
+		for _, col := range pk {
+			v, ok := k[col]
+			if !ok {
+				tx.Rollback()
+				redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Selection missing key column "+col+".")
+				return
+			}
+			args = append(args, v)
+			conds = append(conds, fmt.Sprintf("%s::text = $%d", pq.QuoteIdentifier(col), len(args)))
+		}
+		res, derr := tx.Exec(fmt.Sprintf(`DELETE FROM public.%s WHERE %s`,
+			pq.QuoteIdentifier(table), strings.Join(conds, " AND ")), args...)
+		if derr != nil {
+			tx.Rollback()
+			redirectErr(w, r, "/p/"+slug+"/tables?t="+table, "Delete failed: "+derr.Error())
+			return
+		}
+		if aff, _ := res.RowsAffected(); aff > 0 {
+			n++
+		}
+	}
+	tx.Commit()
+	a.audit(r, "rows-bulk-delete", fmt.Sprintf("%s/%s x%d", slug, table, n))
+	redirectMsg(w, r, "/p/"+slug+"/tables?t="+table, fmt.Sprintf("Deleted %d row(s).", n))
+}
+
+// duplicateTable copies a table's structure (LIKE ... INCLUDING ALL), and
+// optionally its data, into a new table.
+func (a *app) duplicateTable(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	src := r.FormValue("table")
+	dst := strings.TrimSpace(strings.ToLower(r.FormValue("name")))
+	db, err := a.dbFor(slug)
+	if err != nil || !contains(a.listTables(db), src) {
+		redirectErr(w, r, "/p/"+slug+"/tables", "Unknown table.")
+		return
+	}
+	dst = sanitizeIdent(dst)
+	if dst == "" {
+		redirectErr(w, r, "/p/"+slug+"/tables?t="+src, "Enter a valid new table name.")
+		return
+	}
+	if _, err := db.Exec(fmt.Sprintf(`CREATE TABLE public.%s (LIKE public.%s INCLUDING ALL)`,
+		pq.QuoteIdentifier(dst), pq.QuoteIdentifier(src))); err != nil {
+		redirectErr(w, r, "/p/"+slug+"/tables?t="+src, "Duplicate failed: "+err.Error())
+		return
+	}
+	if r.FormValue("with_data") == "on" {
+		if _, err := db.Exec(fmt.Sprintf(`INSERT INTO public.%s SELECT * FROM public.%s`,
+			pq.QuoteIdentifier(dst), pq.QuoteIdentifier(src))); err != nil {
+			redirectErr(w, r, "/p/"+slug+"/tables?t="+dst, "Structure copied, data copy failed: "+err.Error())
+			return
+		}
+	}
+	a.reloadPostgRESTSchema(slug)
+	a.audit(r, "table-duplicate", slug+"/"+src+" -> "+dst)
+	redirectMsg(w, r, "/p/"+slug+"/tables?t="+dst, "Table "+dst+" created from "+src+".")
+}
+
 func (a *app) tablesPage(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	if !a.projectExists(slug) {
@@ -262,27 +432,40 @@ func (a *app) tablesPage(w http.ResponseWriter, r *http.Request) {
 			selExpr = strings.Join(proj, ", ")
 		}
 		data["Types"] = types
-		// Pagination: order by the primary key (indexed, so it's cheap and
-		// stable across pages) when there is one; otherwise no ORDER BY - ordering
-		// by ctid used to force a full scan and made edited rows "vanish".
-		const pageSize = 100
-		page := 1
-		if p, e := strconv.Atoi(r.URL.Query().Get("p")); e == nil && p > 1 {
-			page = p
+		colSet := map[string]bool{}
+		for _, c := range cols {
+			colSet[c.Name] = true
 		}
-		orderBy := ""
-		if len(pk) > 0 {
+		// Stacked filters: repeated f=<col>.<op>.<value> params. Columns are
+		// validated against the real schema and values always travel as bind
+		// parameters - the operator set is a fixed whitelist.
+		where, args, filters := buildFilters(r.URL.Query()["f"], colSet)
+		data["Filters"] = filters
+		// Multi-sort: repeated s=<col>.asc|desc params (falls back to PK order).
+		orderBy, sorts := buildSort(r.URL.Query()["s"], colSet)
+		data["Sorts"] = sorts
+		if orderBy == "" && len(pk) > 0 {
 			qpk := make([]string, len(pk))
 			for i, k := range pk {
 				qpk[i] = pq.QuoteIdentifier(k)
 			}
 			orderBy = " ORDER BY " + strings.Join(qpk, ",")
 		}
+		// Page size selector (25/100/500)
+		pageSize := 100
+		if ps, e := strconv.Atoi(r.URL.Query().Get("ps")); e == nil && (ps == 25 || ps == 100 || ps == 500) {
+			pageSize = ps
+		}
+		data["PageSize"] = pageSize
+		page := 1
+		if p, e := strconv.Atoi(r.URL.Query().Get("p")); e == nil && p > 1 {
+			page = p
+		}
 		gctx, gcancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer gcancel()
-		q := fmt.Sprintf(`SELECT %s FROM public.%s%s LIMIT %d OFFSET %d`,
-			selExpr, pq.QuoteIdentifier(sel), orderBy, pageSize, (page-1)*pageSize)
-		rows, qerr := db.QueryContext(gctx, q)
+		q := fmt.Sprintf(`SELECT %s FROM public.%s%s%s LIMIT %d OFFSET %d`,
+			selExpr, pq.QuoteIdentifier(sel), where, orderBy, pageSize, (page-1)*pageSize)
+		rows, qerr := db.QueryContext(gctx, q, args...)
 		if qerr != nil {
 			data["Error"] = qerr.Error()
 		} else {
@@ -729,6 +912,50 @@ func detectDelimiter(br *bufio.Reader) rune {
 	return best
 }
 
+// exportSQLInserts streams a result set as INSERT statements - a portable dump
+// of the visible table that restores anywhere with plain psql.
+func exportSQLInserts(w http.ResponseWriter, rows *sql.Rows, table string) {
+	cols, _ := rows.Columns()
+	qcols := make([]string, len(cols))
+	for i, c := range cols {
+		qcols[i] = pq.QuoteIdentifier(c)
+	}
+	w.Header().Set("Content-Type", "application/sql")
+	w.Header().Set("Content-Disposition", "attachment; filename="+table+".sql")
+	fmt.Fprintf(w, "-- %s: exported by ForgeBase\n", table)
+	raw := make([]any, len(cols))
+	ptr := make([]any, len(cols))
+	for i := range raw {
+		ptr[i] = &raw[i]
+	}
+	for rows.Next() {
+		if rows.Scan(ptr...) != nil {
+			return
+		}
+		vals := make([]string, len(cols))
+		for i, v := range raw {
+			switch x := v.(type) {
+			case nil:
+				vals[i] = "NULL"
+			case bool:
+				vals[i] = fmt.Sprintf("%v", x)
+			case int64:
+				vals[i] = fmt.Sprintf("%d", x)
+			case float64:
+				vals[i] = fmt.Sprintf("%g", x)
+			case time.Time:
+				vals[i] = pq.QuoteLiteral(x.Format(time.RFC3339Nano))
+			case []byte:
+				vals[i] = pq.QuoteLiteral(string(x))
+			default:
+				vals[i] = pq.QuoteLiteral(fmt.Sprintf("%v", x))
+			}
+		}
+		fmt.Fprintf(w, "INSERT INTO public.%s (%s) VALUES (%s);\n",
+			pq.QuoteIdentifier(table), strings.Join(qcols, ", "), strings.Join(vals, ", "))
+	}
+}
+
 // importCSV creates a table from a CSV and loads every row inside one
 // transaction: either all rows land or none do, and any parse or insert error
 // is reported (with the row number) instead of silently truncating the import.
@@ -1109,6 +1336,10 @@ func (a *app) exportCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
+	if r.URL.Query().Get("fmt") == "sql" {
+		exportSQLInserts(w, rows, table)
+		return
+	}
 	cols, _ := rows.Columns()
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.csv"`, table))
