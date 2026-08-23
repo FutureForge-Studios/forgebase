@@ -1549,7 +1549,13 @@ const authPageBody = `
 {{else}}
 <div class="card" style="margin-bottom:1rem">
   <h2>Email templates</h2>
-  <p class="muted" style="font-size:12px;margin:.3rem 0 .6rem">Customize the four auth emails. Placeholders: <code>{{"{{link}}"}}</code> (confirm/magic/recover) and <code>{{"{{code}}"}}</code> (sign-in code). Empty fields keep the built-in wording. HTML allowed.</p>
+  <p class="muted" style="font-size:12px;margin:.3rem 0 .6rem">The built-in emails are already fully designed (branded card, button, code display) - click a Preview to see them. Only customize if you want your own look: placeholders <code>{{"{{link}}"}}</code> (confirm/magic/recover) and <code>{{"{{code}}"}}</code> (sign-in code); a custom body replaces the whole email, so author complete HTML. Empty fields keep the designed defaults.</p>
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.7rem">
+    <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/email-preview?kind=confirm" target="_blank">Preview: confirm</a>
+    <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/email-preview?kind=magic" target="_blank">Preview: magic link</a>
+    <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/email-preview?kind=recover" target="_blank">Preview: reset</a>
+    <a class="btn btn-ghost btn-sm" href="/p/{{.Slug}}/email-preview?kind=otp" target="_blank">Preview: sign-in code</a>
+  </div>
   <form method="post" action="/p/{{.Slug}}/auth-templates">
     <div class="grid g2">
       <div><div class="label">Confirm email</div>
@@ -1619,6 +1625,13 @@ const authPageBody = `
     <label style="display:flex;align-items:center;gap:.45rem;font-size:12.5px;margin:.5rem 0 .7rem;cursor:pointer"><input type="checkbox" name="confirm_email" {{if .ConfirmEmail}}checked{{end}}> Require email confirmation before sign-in</label>
     <button class="btn btn-primary btn-sm" type="submit">Save email settings</button>
   </form>
+  {{if .SMTPHost}}
+  <form method="post" action="/p/{{.Slug}}/email-test" style="display:flex;gap:.5rem;align-items:center;margin-top:.8rem;padding-top:.8rem;border-top:1px solid hsl(var(--border))">
+    <input type="email" name="to" placeholder="you@example.com" required style="flex:1;max-width:280px">
+    <button class="btn btn-ghost btn-sm" type="submit">Send test email</button>
+    <span class="muted" style="font-size:11px">sends the designed sign-in-code email through your SMTP - proves the whole pipeline</span>
+  </form>
+  {{end}}
 </div>
 <div class="card" style="margin-bottom:1rem">
   <h2>Social sign-in</h2>

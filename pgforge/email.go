@@ -137,31 +137,67 @@ func (a *app) saveEmailTemplates(w http.ResponseWriter, r *http.Request) {
 	redirectMsg(w, r, "/p/"+slug+"/auth", "Email templates saved - empty fields fall back to the defaults.")
 }
 
+// emailShell wraps content in the platform's email design: a centered cream
+// card with the project's name, built from tables and inline styles only so
+// it renders identically in Gmail, Outlook, Apple Mail and the rest. Custom
+// template overrides bypass this on purpose - what an operator authors is
+// sent verbatim.
+func emailShell(slug, preheader, content string) string {
+	return `<!doctype html><html><body style="margin:0;padding:0;background-color:#f5f2eb;">
+<span style="display:none;max-height:0;overflow:hidden;">` + preheader + `</span>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f2eb;padding:32px 12px;">
+<tr><td align="center">
+<table role="presentation" width="440" cellpadding="0" cellspacing="0" style="max-width:440px;width:100%;">
+<tr><td style="padding:0 8px 14px 8px;font-family:Georgia,'Times New Roman',serif;font-size:20px;color:#241f1a;letter-spacing:-0.2px;">` + slug + `</td></tr>
+<tr><td style="background-color:#fdfcf9;border:1px solid #e2dccc;border-radius:14px;padding:30px 30px 26px 30px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.65;color:#3a352e;">
+` + content + `
+</td></tr>
+<tr><td style="padding:14px 8px 0 8px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:11px;color:#8d8578;">
+Sent by ` + slug + ` &middot; powered by ForgeBase</td></tr>
+</table></td></tr></table></body></html>`
+}
+
+// emailButton renders the action button plus the plain-link fallback.
+func emailButton(link, label string) string {
+	return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px 0;"><tr>
+<td style="background-color:#22775f;border-radius:999px;">
+<a href="` + link + `" style="display:inline-block;padding:12px 28px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#fdfcf9;text-decoration:none;">` + label + `</a>
+</td></tr></table>
+<p style="margin:0;font-size:11.5px;color:#8d8578;">Button not working? Paste this into your browser:<br>
+<a href="` + link + `" style="color:#22775f;word-break:break-all;">` + link + `</a></p>`
+}
+
 func (a *app) sendConfirmationEmail(slug, email string) error {
 	link := "https://" + slug + "." + a.cfg.domain + "/auth/v1/verify?token=" + a.signAuthToken("confirm", slug, email, 24*time.Hour)
-	def := fmt.Sprintf(`<p>Confirm your email to finish signing up.</p>
-<p><a href="%s">Confirm my email</a></p>
-<p>Or paste this link into your browser:<br>%s</p>
-<p>This link expires in 24 hours.</p>`, link, link)
+	def := emailShell(slug, "Confirm your email to finish signing up.",
+		`<h1 style="margin:0 0 8px 0;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:500;color:#241f1a;">Confirm your email</h1>
+<p style="margin:0;">One click and your account is ready.</p>`+
+			emailButton(link, "Confirm my email")+
+			`<p style="margin:18px 0 0 0;font-size:11.5px;color:#8d8578;">This link expires in 24 hours. If you did not sign up, you can ignore this email.</p>`)
 	subj, body := a.emailTemplate(slug, "confirm", "Confirm your email", def)
 	return a.sendEmail(slug, email, subj, renderEmailTpl(body, link, ""))
 }
 
 func (a *app) sendRecoveryEmail(slug, email string) error {
 	link := "https://" + slug + "." + a.cfg.domain + "/auth/v1/recover?token=" + a.signAuthToken("recover", slug, email, 1*time.Hour)
-	def := fmt.Sprintf(`<p>Reset your password:</p>
-<p><a href="%s">Choose a new password</a></p>
-<p>Or paste this link into your browser:<br>%s</p>
-<p>This link expires in 1 hour. If you didn't request it, ignore this email.</p>`, link, link)
+	def := emailShell(slug, "Choose a new password.",
+		`<h1 style="margin:0 0 8px 0;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:500;color:#241f1a;">Reset your password</h1>
+<p style="margin:0;">Somebody (hopefully you) asked to reset the password for this account.</p>`+
+			emailButton(link, "Choose a new password")+
+			`<p style="margin:18px 0 0 0;font-size:11.5px;color:#8d8578;">This link expires in 1 hour. If you did not request it, ignore this email - nothing changes without the link.</p>`)
 	subj, body := a.emailTemplate(slug, "recover", "Reset your password", def)
 	return a.sendEmail(slug, email, subj, renderEmailTpl(body, link, ""))
 }
 
 // sendOTPEmail delivers a short-lived numeric sign-in code.
 func (a *app) sendOTPEmail(slug, email, code string) error {
-	def := fmt.Sprintf(`<p>Your sign-in code:</p>
-<p style="font-size:28px;letter-spacing:.3em;font-family:monospace"><b>%s</b></p>
-<p>It expires in 10 minutes. If you did not request it, ignore this email.</p>`, code)
+	def := emailShell(slug, "Your sign-in code: "+code,
+		`<h1 style="margin:0 0 8px 0;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:500;color:#241f1a;">Your sign-in code</h1>
+<p style="margin:0;">Enter this code to sign in:</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px 0;"><tr>
+<td style="background-color:#f5f2eb;border:1px solid #e2dccc;border-radius:10px;padding:16px 26px;font-family:'Courier New',monospace;font-size:30px;font-weight:700;letter-spacing:10px;color:#22775f;">`+code+`</td>
+</tr></table>
+<p style="margin:0;font-size:11.5px;color:#8d8578;">It expires in 10 minutes and works once. If you did not request it, ignore this email.</p>`)
 	subj, body := a.emailTemplate(slug, "otp", "Your sign-in code", def)
 	return a.sendEmail(slug, email, subj, renderEmailTpl(body, "", code))
 }
@@ -171,10 +207,73 @@ func (a *app) sendMagicLinkEmail(slug, email, redirectTo string) error {
 	if redirectTo != "" {
 		link += "&redirect_to=" + url.QueryEscape(redirectTo)
 	}
-	def := fmt.Sprintf(`<p>Click to sign in:</p>
-<p><a href="%s">Sign in</a></p>
-<p>Or paste this link into your browser:<br>%s</p>
-<p>This link expires in 1 hour.</p>`, link, link)
+	def := emailShell(slug, "Your one-click sign-in link.",
+		`<h1 style="margin:0 0 8px 0;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:500;color:#241f1a;">Sign in to `+slug+`</h1>
+<p style="margin:0;">No password needed - this link signs you straight in.</p>`+
+			emailButton(link, "Sign in")+
+			`<p style="margin:18px 0 0 0;font-size:11.5px;color:#8d8578;">This link expires in 1 hour and works once. If you did not request it, ignore this email.</p>`)
 	subj, body := a.emailTemplate(slug, "magic", "Your sign-in link", def)
 	return a.sendEmail(slug, email, subj, renderEmailTpl(body, link, ""))
+}
+
+// emailPreview renders a template exactly as it would be emailed - the
+// browser shows the real HTML, custom overrides included.
+func (a *app) emailPreview(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	kind := r.URL.Query().Get("kind")
+	link := "https://" + slug + "." + a.cfg.domain + "/auth/v1/verify?token=EXAMPLE"
+	var subj, body string
+	switch kind {
+	case "confirm":
+		def := emailShell(slug, "Confirm your email to finish signing up.",
+			`<h1 style="margin:0 0 8px 0;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:500;color:#241f1a;">Confirm your email</h1>
+<p style="margin:0;">One click and your account is ready.</p>`+
+				emailButton(link, "Confirm my email")+
+				`<p style="margin:18px 0 0 0;font-size:11.5px;color:#8d8578;">This link expires in 24 hours. If you did not sign up, you can ignore this email.</p>`)
+		subj, body = a.emailTemplate(slug, "confirm", "Confirm your email", def)
+	case "magic":
+		def := emailShell(slug, "Your one-click sign-in link.",
+			`<h1 style="margin:0 0 8px 0;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:500;color:#241f1a;">Sign in to `+slug+`</h1>
+<p style="margin:0;">No password needed - this link signs you straight in.</p>`+
+				emailButton(link, "Sign in")+
+				`<p style="margin:18px 0 0 0;font-size:11.5px;color:#8d8578;">This link expires in 1 hour and works once. If you did not request it, ignore this email.</p>`)
+		subj, body = a.emailTemplate(slug, "magic", "Your sign-in link", def)
+	case "recover":
+		def := emailShell(slug, "Choose a new password.",
+			`<h1 style="margin:0 0 8px 0;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:500;color:#241f1a;">Reset your password</h1>
+<p style="margin:0;">Somebody (hopefully you) asked to reset the password for this account.</p>`+
+				emailButton(link, "Choose a new password")+
+				`<p style="margin:18px 0 0 0;font-size:11.5px;color:#8d8578;">This link expires in 1 hour. If you did not request it, ignore this email - nothing changes without the link.</p>`)
+		subj, body = a.emailTemplate(slug, "recover", "Reset your password", def)
+	default:
+		def := emailShell(slug, "Your sign-in code: 483 921",
+			`<h1 style="margin:0 0 8px 0;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:500;color:#241f1a;">Your sign-in code</h1>
+<p style="margin:0;">Enter this code to sign in:</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px 0;"><tr>
+<td style="background-color:#f5f2eb;border:1px solid #e2dccc;border-radius:10px;padding:16px 26px;font-family:'Courier New',monospace;font-size:30px;font-weight:700;letter-spacing:10px;color:#22775f;">483921</td>
+</tr></table>
+<p style="margin:0;font-size:11.5px;color:#8d8578;">It expires in 10 minutes and works once. If you did not request it, ignore this email.</p>`)
+		subj, body = a.emailTemplate(slug, "otp", "Your sign-in code", def)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(renderEmailTpl(body, link, "483921")))
+	_ = subj
+}
+
+// sendTestEmail proves the SMTP settings end to end: it sends the sign-in
+// code template to an address the operator types, via this project's SMTP.
+func (a *app) sendTestEmail(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	back := "/p/" + slug + "/auth"
+	to := strings.TrimSpace(r.FormValue("to"))
+	if !strings.Contains(to, "@") {
+		redirectErr(w, r, back, "Enter the address to send the test to.")
+		return
+	}
+	if err := a.sendOTPEmail(slug, to, "483921"); err != nil {
+		redirectErr(w, r, back, "Test email failed: "+err.Error())
+		return
+	}
+	a.audit(r, "email-test", slug+" -> "+to)
+	redirectMsg(w, r, back, "Test email sent to "+to+" - check the inbox (and spam, the first time).")
 }

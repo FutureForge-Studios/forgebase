@@ -356,6 +356,8 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/storage-rule-delete", a.auth(admin(a.storageRuleDelete)))
 	mux.HandleFunc("POST /p/{slug}/jwks", a.auth(admin(a.jwksToggle)))
 	mux.HandleFunc("POST /p/{slug}/saml", a.auth(admin(a.saveSAML)))
+	mux.HandleFunc("GET /p/{slug}/email-preview", a.auth(proj(a.emailPreview)))
+	mux.HandleFunc("POST /p/{slug}/email-test", a.auth(admin(a.sendTestEmail)))
 	mux.HandleFunc("POST /p/{slug}/realtime-rls", a.auth(admin(a.setRealtimeRLS)))
 	mux.HandleFunc("POST /p/{slug}/s3-key-create", a.auth(admin(a.s3KeyCreate)))
 	mux.HandleFunc("POST /p/{slug}/s3-key-revoke", a.auth(admin(a.s3KeyRevoke)))

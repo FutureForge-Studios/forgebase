@@ -13,6 +13,15 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.20] - 2026-08-23
+
+### Added
+- Designed default auth emails (confirm / magic link / reset / sign-in
+  code): branded card, action button with plain-link fallback, spaced
+  code digits; email-safe tables + inline styles.
+- Per-template Preview buttons and a Send-test-email button on the Auth
+  page (test proves the SMTP pipeline end to end).
+
 ## [1.4.19] - 2026-08-23
 
 ### Fixed

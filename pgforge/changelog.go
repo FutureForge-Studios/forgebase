@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.19"
+const appVersion = "1.4.20"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,17 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.20", Date: "2026-08-23",
+		Summary: "Auth emails that look like you meant them.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"The four built-in auth emails (confirm, magic link, password reset, sign-in code) are now fully designed out of the box: a branded card carrying your project's name, a proper action button with a plain-link fallback, big spaced digits for codes, and a quiet footer - built email-safe (tables + inline styles) so Gmail, Outlook and Apple Mail all render it the same.",
+				"Preview buttons on the Auth page open each email exactly as it will be sent - custom overrides included.",
+				"A Send-test-email button (visible once SMTP is configured) delivers the designed sign-in-code email to any address through your SMTP, proving the whole pipeline in one click.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.19", Date: "2026-08-23",
 		Summary: "The assistant stays on topic and answers one question at a time.",
