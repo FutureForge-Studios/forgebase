@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.13"
+const appVersion = "1.4.14"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,16 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.14", Date: "2026-08-23",
+		Summary: "AI replies from reasoning models were invisible - fixed.",
+		Sections: []changeSection{
+			{"Fixed", []string{
+				"AI assistant and Ask-AI replies showed up empty when the configured model does extended thinking (Claude Opus and friends): those models return a reasoning block BEFORE the answer, and the panel read only the first block. It now collects every text block, so the actual answer arrives. Conversations that already collected empty bubbles heal themselves - the server skips the empty entries.",
+				"The infra apply script had a broken header (a v1.4.1 edit landed mid-comment), which silently stopped the startup reconciler ever since - the warm edge-function runner and the improved WAL alert were built but never installed on the box. Repaired and re-applied; everything is current now.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.13", Date: "2026-08-23",
 		Summary: "The AI assistant is everywhere now.",

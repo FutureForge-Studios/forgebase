@@ -129,17 +129,29 @@ func callAI(base, key, model, system string, messages []map[string]string) (stri
 	}
 	defer resp.Body.Close()
 	var out struct {
-		Content []struct{ Text string } `json:"content"`
+		// Anthropic returns a LIST of typed blocks - reasoning models (Opus,
+		// extended thinking) put a "thinking" block FIRST, so taking block 0
+		// blindly yields an empty reply. Collect every text block.
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
 		Choices []struct {
 			Message struct{ Content string } `json:"message"`
 		} `json:"choices"`
 		Error struct{ Message string } `json:"error"`
 	}
 	json.NewDecoder(resp.Body).Decode(&out)
-	if len(out.Content) > 0 {
-		return out.Content[0].Text, nil
+	var text strings.Builder
+	for _, c := range out.Content {
+		if c.Type == "text" || (c.Type == "" && c.Text != "") {
+			text.WriteString(c.Text)
+		}
 	}
-	if len(out.Choices) > 0 {
+	if text.Len() > 0 {
+		return text.String(), nil
+	}
+	if len(out.Choices) > 0 && out.Choices[0].Message.Content != "" {
 		return out.Choices[0].Message.Content, nil
 	}
 	msg := out.Error.Message
@@ -187,14 +199,26 @@ func (a *app) aiChat(w http.ResponseWriter, r *http.Request) {
 	if len(body.Messages) > 12 {
 		body.Messages = body.Messages[len(body.Messages)-12:]
 	}
+	// drop empty messages (a failed earlier exchange leaves them in the
+	// client's history, and providers reject empty content blocks)
+	kept := body.Messages[:0]
 	for _, m := range body.Messages {
 		if m["role"] != "user" && m["role"] != "assistant" {
 			writeJSON(w, 400, map[string]string{"message": "bad message role"})
 			return
 		}
+		if strings.TrimSpace(m["content"]) == "" {
+			continue
+		}
 		if len(m["content"]) > 8000 {
 			m["content"] = m["content"][:8000]
 		}
+		kept = append(kept, m)
+	}
+	body.Messages = kept
+	if len(body.Messages) == 0 {
+		writeJSON(w, 400, map[string]string{"message": "say something first"})
+		return
 	}
 	var schema strings.Builder
 	for _, t := range a.schemaTree(slug) {
@@ -259,53 +283,10 @@ func (a *app) aiSQL(w http.ResponseWriter, r *http.Request) {
 	system := "You write PostgreSQL for this schema:\n" + schema.String() +
 		"\nAnswer with ONLY the SQL statement - no prose, no code fences."
 
-	var req *http.Request
-	if strings.Contains(base, "anthropic") {
-		payload, _ := json.Marshal(map[string]any{
-			"model": model, "max_tokens": 1024, "system": system,
-			"messages": []map[string]string{{"role": "user", "content": body.Prompt}},
-		})
-		req, _ = http.NewRequest(http.MethodPost, base+"/v1/messages", bytes.NewReader(payload))
-		req.Header.Set("x-api-key", key)
-		req.Header.Set("anthropic-version", "2023-06-01")
-	} else {
-		payload, _ := json.Marshal(map[string]any{
-			"model": model,
-			"messages": []map[string]string{
-				{"role": "system", "content": system},
-				{"role": "user", "content": body.Prompt},
-			},
-		})
-		req, _ = http.NewRequest(http.MethodPost, base+"/chat/completions", bytes.NewReader(payload))
-		req.Header.Set("Authorization", "Bearer "+key)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{Timeout: 60 * time.Second}).Do(req)
+	text, err := callAI(base, key, model, system,
+		[]map[string]string{{"role": "user", "content": body.Prompt}})
 	if err != nil {
-		writeJSON(w, 502, map[string]string{"message": "AI endpoint unreachable: " + err.Error()})
-		return
-	}
-	defer resp.Body.Close()
-	var out struct {
-		Content []struct{ Text string } `json:"content"` // anthropic
-		Choices []struct {
-			Message struct{ Content string } `json:"message"`
-		} `json:"choices"` // openai
-		Error struct{ Message string } `json:"error"`
-	}
-	json.NewDecoder(resp.Body).Decode(&out)
-	text := ""
-	if len(out.Content) > 0 {
-		text = out.Content[0].Text
-	} else if len(out.Choices) > 0 {
-		text = out.Choices[0].Message.Content
-	}
-	if text == "" {
-		msg := out.Error.Message
-		if msg == "" {
-			msg = resp.Status
-		}
-		writeJSON(w, 502, map[string]string{"message": "AI returned nothing: " + msg})
+		writeJSON(w, 502, map[string]string{"message": err.Error()})
 		return
 	}
 	// strip stray code fences the model may add despite instructions

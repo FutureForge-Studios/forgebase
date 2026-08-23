@@ -9,18 +9,8 @@
 #                                  daemon-reload, enable timers. Never restarts
 #                                  pgforged or any container.
 #   apply-infra.sh --with-compose  additionally sync server/ -> the stack dir,
-#                                  write docker log defaults, and
-#                                  `
-# PgBouncer client TLS: the pooler container runs unprivileged (uid 70), so it
-# gets its own copies of the server cert/key it can actually read. Without
-# this, sslmode=require on port 6543 fails and drivers refuse to connect.
-mkdir -p /opt/pgforge/pgbouncer/tls
-cp -f /opt/pgforge/certs/server.crt /opt/pgforge/certs/server.key /opt/pgforge/pgbouncer/tls/ 2>/dev/null || true
-chown -R 70:70 /opt/pgforge/pgbouncer/tls 2>/dev/null || true
-chmod 700 /opt/pgforge/pgbouncer/tls 2>/dev/null || true
-chmod 600 /opt/pgforge/pgbouncer/tls/server.key 2>/dev/null || true
-chmod 644 /opt/pgforge/pgbouncer/tls/server.crt 2>/dev/null || true
-docker compose up -d` (recreates changed
+#                                  write docker log defaults, and run
+#                                  "docker compose up -d" (recreates changed
 #                                  containers; the DB restarts for ~15-30s when
 #                                  its definition changed). Never run this
 #                                  automatically - it is an operator action.
@@ -58,6 +48,17 @@ for rn in edge-runner.ts edge-server.ts; do
   [ -f "$REPO/server/$rn" ] && install -m 0644 "$REPO/server/$rn" "/opt/pgforge/$rn"
 done
 log "edge runners installed"
+
+# ---- PgBouncer client TLS: the pooler container runs unprivileged (uid 70),
+# so it gets its own copies of the server cert/key it can actually read.
+# Without this, sslmode=require on port 6543 fails and drivers refuse.
+mkdir -p /opt/pgforge/pgbouncer/tls
+cp -f /opt/pgforge/certs/server.crt /opt/pgforge/certs/server.key /opt/pgforge/pgbouncer/tls/ 2>/dev/null || true
+chown -R 70:70 /opt/pgforge/pgbouncer/tls 2>/dev/null || true
+chmod 700 /opt/pgforge/pgbouncer/tls 2>/dev/null || true
+chmod 600 /opt/pgforge/pgbouncer/tls/server.key 2>/dev/null || true
+chmod 644 /opt/pgforge/pgbouncer/tls/server.crt 2>/dev/null || true
+log "pgbouncer tls copies refreshed"
 
 # ---- systemd units: install ALL of them, then enable the timers that exist.
 for u in "$REPO"/systemd/*; do

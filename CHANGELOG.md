@@ -13,6 +13,17 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.14] - 2026-08-23
+
+### Fixed
+- AI replies were empty with extended-thinking models (Claude Opus etc.):
+  the panel read only the first content block, which is the reasoning
+  block on those models. All text blocks are collected now, and the
+  server skips empty history entries so broken conversations self-heal.
+- apply-infra.sh had a corrupted header since v1.4.1 that silently broke
+  the startup reconciler; repaired, and the missed installs (warm edge
+  runner, WAL-alert attribution) are now applied.
+
 ## [1.4.13] - 2026-08-23
 
 ### Added
