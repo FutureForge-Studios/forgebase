@@ -1374,6 +1374,10 @@ func (a *app) authPage(w http.ResponseWriter, r *http.Request) {
 			return v
 		}(),
 		"OIDCIssuer": a.oauthIssuer(slug),
+		"PlatformSMTP": func() bool {
+			_, _, _, _, _, ok := a.platformSMTP()
+			return ok
+		}(),
 		"SMSHook": func() string {
 			var v string
 			a.db.QueryRow(`SELECT coalesce(sms_webhook_url,'') FROM auth_config WHERE slug=$1`, slug).Scan(&v)

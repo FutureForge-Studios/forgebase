@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -120,6 +121,10 @@ func (a *app) systemPage(w http.ResponseWriter, r *http.Request) {
 		"Checked": checked, "Upd": upd, "UpdateLog": updLog, "UpdateRunning": updateRunning,
 		"Alerts": alerts, "ActiveIncident": incTitle, "ActiveIncidentNote": incNote, "StorageRemote": a.storageRemote(),
 		"Replica": a.replicaState(),
+		"SMTP": func() map[string]string {
+			h, p, u, _, fr, _ := a.platformSMTP()
+			return map[string]string{"Host": h, "Port": strconv.Itoa(p), "User": u, "From": fr}
+		}(),
 		"AutoUpd": a.settingOn("auto_update"), "Domain": a.cfg.domain, "StatusDomain": a.statusCustomDomain(), "SecondaryDomain": a.secondaryDomain(), "PanelRedirect": a.panelRedirectOn(), "StatusTitle": func() string {
 			var v string
 			a.db.QueryRow(`SELECT value FROM settings WHERE key='status_title'`).Scan(&v)

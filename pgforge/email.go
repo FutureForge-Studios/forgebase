@@ -15,14 +15,36 @@ import (
 // SMTP host + from-address on the Auth page; nothing about the no-SMTP flows
 // changes when it is unset.
 
-// smtpConfig returns a project's SMTP settings; ok is true only when a host and
-// from-address are set (i.e. email sending is actually configured).
+// platformSMTP returns the platform-wide SMTP settings (System page) - the
+// default sender for every project that has not configured its own.
+func (a *app) platformSMTP() (host string, port int, user, pass, from string, ok bool) {
+	get := func(k string) string {
+		var v string
+		a.db.QueryRow(`SELECT value FROM settings WHERE key=$1`, k).Scan(&v)
+		return strings.TrimSpace(v)
+	}
+	host, user, from = get("smtp_host"), get("smtp_user"), get("smtp_from")
+	port, _ = strconv.Atoi(get("smtp_port"))
+	if port == 0 {
+		port = 587
+	}
+	a.db.QueryRow(`SELECT coalesce(pgp_sym_decrypt(decode(value,'hex'),$1),'')
+		FROM settings WHERE key='smtp_pass'`, string(a.cfg.secret)).Scan(&pass)
+	ok = host != "" && from != ""
+	return
+}
+
+// smtpConfig resolves the SMTP settings a project sends with: its OWN
+// settings when configured (host + from set on the Auth page), otherwise
+// the platform-wide default from the System page.
 func (a *app) smtpConfig(slug string) (host string, port int, user, pass, from string, ok bool) {
 	a.db.QueryRow(`SELECT smtp_host, smtp_port, smtp_user,
 		coalesce(pgp_sym_decrypt(smtp_pass_enc,$2),''), smtp_from
 		FROM auth_config WHERE slug=$1`, slug, string(a.cfg.secret)).Scan(&host, &port, &user, &pass, &from)
-	ok = host != "" && from != ""
-	return
+	if host != "" && from != "" {
+		return host, port, user, pass, from, true
+	}
+	return a.platformSMTP()
 }
 
 func (a *app) authConfirmEmail(slug string) bool {
@@ -276,4 +298,72 @@ func (a *app) sendTestEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	a.audit(r, "email-test", slug+" -> "+to)
 	redirectMsg(w, r, back, "Test email sent to "+to+" - check the inbox (and spam, the first time).")
+}
+
+// saveSystemSMTP stores the platform-wide default sender (System page).
+func (a *app) saveSystemSMTP(w http.ResponseWriter, r *http.Request) {
+	host := strings.TrimSpace(r.FormValue("smtp_host"))
+	port, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("smtp_port")))
+	if port == 0 {
+		port = 587
+	}
+	user := strings.TrimSpace(r.FormValue("smtp_user"))
+	from := strings.TrimSpace(r.FormValue("smtp_from"))
+	pass := r.FormValue("smtp_pass")
+	set := func(k, v string) {
+		a.db.Exec(`INSERT INTO settings(key,value) VALUES ($1,$2)
+			ON CONFLICT (key) DO UPDATE SET value=$2`, k, v)
+	}
+	set("smtp_host", host)
+	set("smtp_port", strconv.Itoa(port))
+	set("smtp_user", user)
+	set("smtp_from", from)
+	if pass != "" { // blank keeps the stored password
+		a.db.Exec(`INSERT INTO settings(key,value)
+			VALUES ('smtp_pass', encode(pgp_sym_encrypt($1,$2),'hex'))
+			ON CONFLICT (key) DO UPDATE SET value=encode(pgp_sym_encrypt($1,$2),'hex')`,
+			pass, string(a.cfg.secret))
+	}
+	if host == "" {
+		a.db.Exec(`DELETE FROM settings WHERE key IN ('smtp_host','smtp_port','smtp_user','smtp_from','smtp_pass')`)
+		a.audit(r, "system-smtp", "cleared")
+		redirectMsg(w, r, "/system", "Platform email cleared - projects without their own SMTP stop sending.")
+		return
+	}
+	a.audit(r, "system-smtp", host)
+	redirectMsg(w, r, "/system", "Platform email saved - every project without its own SMTP now sends through it. Use the test button to prove it.")
+}
+
+// testSystemSMTP sends the designed sign-in-code email via the PLATFORM
+// sender, regardless of any per-project overrides.
+func (a *app) testSystemSMTP(w http.ResponseWriter, r *http.Request) {
+	to := strings.TrimSpace(r.FormValue("to"))
+	if !strings.Contains(to, "@") {
+		redirectErr(w, r, "/system", "Enter the address to send the test to.")
+		return
+	}
+	host, port, user, pass, from, ok := a.platformSMTP()
+	if !ok {
+		redirectErr(w, r, "/system", "Set the platform SMTP host and from-address first.")
+		return
+	}
+	body := emailShell("ForgeBase", "Your sign-in code: 483 921",
+		`<h1 style="margin:0 0 8px 0;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:500;color:#241f1a;">Your sign-in code</h1>
+<p style="margin:0;">This is a test of the platform email pipeline. A real sign-in code email looks exactly like this:</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px 0;"><tr>
+<td style="background-color:#f5f2eb;border:1px solid #e2dccc;border-radius:10px;padding:16px 26px;font-family:'Courier New',monospace;font-size:30px;font-weight:700;letter-spacing:10px;color:#22775f;">483921</td>
+</tr></table>
+<p style="margin:0;font-size:11.5px;color:#8d8578;">If this landed in spam, verify the from-address domain with your email provider (SPF/DKIM).</p>`)
+	msg := "From: " + from + "\r\nTo: " + to + "\r\nSubject: Platform email test\r\n" +
+		"MIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n" + body
+	var auth smtp.Auth
+	if user != "" {
+		auth = smtp.PlainAuth("", user, pass, host)
+	}
+	if err := smtp.SendMail(fmt.Sprintf("%s:%d", host, port), auth, from, []string{to}, []byte(msg)); err != nil {
+		redirectErr(w, r, "/system", "Test failed: "+err.Error())
+		return
+	}
+	a.audit(r, "system-smtp-test", to)
+	redirectMsg(w, r, "/system", "Test email sent to "+to+" via the platform SMTP - check the inbox (and spam, the first time).")
 }

@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.20"
+const appVersion = "1.4.21"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,16 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.21", Date: "2026-08-23",
+		Summary: "One SMTP for the whole platform.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Platform-wide email: set ONE SMTP sender on the System page and every project's auth emails (confirmations, magic links, password resets, sign-in codes) send through it automatically - no per-project setup. A project can still configure its own SMTP on its Auth page to send from a different address; project settings always win over the platform default.",
+				"The System page card includes its own send-test button, and each project's Auth page now says which sender it is actually using.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.20", Date: "2026-08-23",
 		Summary: "Auth emails that look like you meant them.",

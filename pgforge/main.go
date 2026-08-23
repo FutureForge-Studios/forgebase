@@ -193,6 +193,8 @@ func main() {
 	mux.HandleFunc("POST /system/incident-resolve", a.auth(a.requireRole("owner", a.resolveIncident)))
 	mux.HandleFunc("POST /system/storage-remote", a.auth(a.requireRole("owner", a.setStorageRemote)))
 	mux.HandleFunc("POST /system/replica", a.auth(a.requireRole("owner", a.replicaToggle)))
+	mux.HandleFunc("POST /system/smtp", a.auth(a.requireRole("owner", a.saveSystemSMTP)))
+	mux.HandleFunc("POST /system/smtp-test", a.auth(a.requireRole("owner", a.testSystemSMTP)))
 	// team (owner-only management)
 	mux.HandleFunc("GET /people", a.auth(a.peoplePage))
 	mux.HandleFunc("POST /people/add", a.auth(a.requireRole("owner", a.addMember)))

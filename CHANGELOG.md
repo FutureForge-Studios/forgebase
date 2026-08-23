@@ -13,6 +13,14 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.21] - 2026-08-23
+
+### Added
+- Platform-wide SMTP (System page): one sender for every project's auth
+  emails, with per-project SMTP as an optional override that always wins.
+  Includes a platform-level send-test button; Auth pages show which
+  sender is active.
+
 ## [1.4.20] - 2026-08-23
 
 ### Added

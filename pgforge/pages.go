@@ -1612,8 +1612,8 @@ const authPageBody = `
   <p class="muted" style="font-size:11.5px;margin-top:.7rem">Login returns an <code>access_token</code> (role <code>authenticated</code>). Send it to the Data API as <code>Authorization: Bearer</code> to act as that user under your RLS policies.</p>
 </div>
 <div class="card" style="margin-bottom:1rem">
-  <h2>Email (SMTP)</h2>
-  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .7rem">Optional. Point at an SMTP server to send confirmation, password-reset and magic-link emails. Leave blank to keep the simple no-email flow.</p>
+  <h2>Email (SMTP) - project override</h2>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .7rem">{{if .PlatformSMTP}}This project already sends through the platform SMTP (System page) - leave these empty unless it should send from a DIFFERENT address.{{else}}No platform SMTP is set (System page) - configure one there for every project at once, or set project-specific SMTP here.{{end}}</p>
   <form method="post" action="/p/{{.Slug}}/auth-smtp">
     <div class="grid g2">
       <label class="fld"><span class="lt">SMTP host</span><input type="text" name="smtp_host" value="{{.SMTPHost}}" placeholder="smtp.sendgrid.net"></label>
@@ -2260,6 +2260,36 @@ const systemBody = `
     <button class="btn btn-ghost btn-sm" type="submit">Save</button>
   </form>
   <p class="muted" style="font-size:11px;margin:.4rem 0 0">Saving sends a test message. Save empty to disable.</p>
+  {{end}}
+</div>
+<div class="card" style="margin-bottom:1rem">
+  <div style="display:flex;align-items:center;gap:.6rem"><h2>Platform email (SMTP)</h2>
+    {{if .SMTP.Host}}<span class="badge active">configured</span>{{else}}<span class="badge paused">not set</span>{{end}}</div>
+  <p class="muted" style="font-size:12.5px;margin:.4rem 0 .6rem">The default sender for EVERY project: confirmations, magic links, password resets and sign-in codes all go through it. A project can still set its own SMTP on its Auth page to send from a different address - its settings win over these.</p>
+  {{if .IsOwner}}
+  <form method="post" action="/system/smtp">
+    <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end">
+      <label class="fld" style="margin:0;flex:1;min-width:180px"><span class="lt">SMTP host</span>
+        <input type="text" name="smtp_host" value="{{.SMTP.Host}}" placeholder="smtp.resend.com"></label>
+      <label class="fld" style="margin:0"><span class="lt">Port</span>
+        <input type="number" name="smtp_port" value="{{.SMTP.Port}}" style="width:90px"></label>
+      <label class="fld" style="margin:0;min-width:140px"><span class="lt">Username</span>
+        <input type="text" name="smtp_user" value="{{.SMTP.User}}" placeholder="resend"></label>
+      <label class="fld" style="margin:0;min-width:150px"><span class="lt">Password / API key</span>
+        <input type="password" name="smtp_pass" placeholder="{{if .SMTP.Host}}leave blank to keep{{else}}re_...{{end}}"></label>
+      <label class="fld" style="margin:0;min-width:190px"><span class="lt">From address</span>
+        <input type="text" name="smtp_from" value="{{.SMTP.From}}" placeholder="no-reply@{{.Domain}}"></label>
+      <button class="btn btn-primary btn-sm" type="submit">Save</button>
+    </div>
+  </form>
+  {{if .SMTP.Host}}
+  <form method="post" action="/system/smtp-test" style="display:flex;gap:.5rem;align-items:center;margin-top:.7rem">
+    <input type="email" name="to" placeholder="you@example.com" required style="max-width:260px">
+    <button class="btn btn-ghost btn-sm" type="submit">Send test email</button>
+    <span class="muted" style="font-size:11px">clearing the host field and saving turns platform email off</span>
+  </form>
+  {{end}}
+  <p class="muted" style="font-size:11px;margin:.5rem 0 0">Deliverability: verify the from-address domain with your provider (SPF + DKIM records) or mail lands in spam.</p>
   {{end}}
 </div>
 <div class="card" style="margin-bottom:1rem">
