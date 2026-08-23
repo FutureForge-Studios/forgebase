@@ -68,8 +68,18 @@ if [ "${WAL_KB:-0}" -gt "$CAP_KB" ]; then
   echo "wal-prune: archive exceeded ${CAP_GB}GB cap - oldest segments dropped (PITR window shortened)"
   mkdir -p /opt/pgforge/alerts
   if [ ! -f /opt/pgforge/alerts/wal_cap ]; then
-    echo "WAL archive exceeded ${CAP_GB}GB and was cut to the cap - point-in-time recovery reaches less far back today. A heavy-write tenant is churning; see Logs > Slow statements." > /opt/pgforge/alerts/wal_cap
-    sh /opt/pgforge/bin/alert-notify.sh "WARNING ForgeBase: WAL archive hit the ${CAP_GB}GB cap and was trimmed. A tenant is writing heavily." || true
+    # NAME the churner: sample per-database write counters 15s apart and report
+    # the database generating the most rows right now (the 2026-08-23 lesson:
+    # a generic "a tenant is churning" alert costs a manual investigation).
+    CHURNER="$(docker exec pgforge-db psql -U postgres -Atc "
+      CREATE TEMP TABLE _w1 AS SELECT datname, tup_inserted+tup_updated+tup_deleted w FROM pg_stat_database WHERE datname IS NOT NULL;
+      SELECT pg_sleep(15);
+      SELECT d.datname || ' (+' || (d.tup_inserted+d.tup_updated+d.tup_deleted - w1.w) || ' rows/15s)'
+      FROM pg_stat_database d JOIN _w1 w1 USING (datname)
+      ORDER BY d.tup_inserted+d.tup_updated+d.tup_deleted - w1.w DESC LIMIT 1" 2>/dev/null | tail -1)"
+    [ -n "$CHURNER" ] || CHURNER="unknown - see the Usage page per project"
+    echo "WAL archive exceeded ${CAP_GB}GB and was cut to the cap - point-in-time recovery reaches less far back today. Top writer right now: ${CHURNER}. Check that project's Usage page and Advisors." > /opt/pgforge/alerts/wal_cap
+    sh /opt/pgforge/bin/alert-notify.sh "WARNING ForgeBase: WAL archive hit the ${CAP_GB}GB cap and was trimmed. Top writer right now: ${CHURNER}." || true
   fi
 else
   rm -f /opt/pgforge/alerts/wal_cap 2>/dev/null || true

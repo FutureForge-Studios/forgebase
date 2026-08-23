@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.11"
+const appVersion = "1.4.12"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,22 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.12", Date: "2026-08-23",
+		Summary: "The last two: read replicas and SAML SSO. Plus a visible AI panel.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Read replica (System page, one click): a hot standby of the whole cluster in its own container, streaming through a replication slot and serving READ-ONLY connections on port 5434 - same databases, same credentials, same TLS. Point dashboards, reports and exports at it and the primary never feels them. Live replication lag shows on the System page; removal is one click and returns the disk.",
+				"SAML 2.0 SSO for your app's users: point the Auth page at any IdP's metadata (Okta, Azure AD, OneLogin, Keycloak, ADFS...) and users sign in there, landing back with normal tokens. Signature verification comes from the battle-tested crewjam/saml library - never hand-rolled. The SP metadata and login URLs to register are shown right on the card.",
+				"The SQL editor's Ask AI is now a proper panel: a visible purple button opens an inline bar where you describe the query, see progress, and get the SQL inserted into the editor - with a pointer to Account settings when no key is configured yet.",
+			}},
+			{"Fixed", []string{
+				"The WAL-cap alert now names the database writing the most at that moment, instead of a generic \"a tenant is churning\" - no detective work needed.",
+				"A new Advisor rule detects TOAST write churn (a large column rewritten constantly, the pattern that filled the WAL archive) and explains how to fix it in the app.",
+				"The replica engine refuses to start without twice the cluster's size in free disk, and the standby container matches the primary's connection limit (a mismatch refuses recovery).",
+			}},
+		},
+	},
 	{
 		Version: "1.4.11", Date: "2026-08-23",
 		Summary: "S3-protocol storage access with scoped keys.",

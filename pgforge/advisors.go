@@ -237,6 +237,34 @@ func (a *app) runAdvisors(slug string) []advisory {
 		}
 	}
 
+	// ---- performance: TOAST write churn (large values rewritten constantly).
+	// The signature is a toast table with huge, roughly-matched insert and
+	// delete counts: some column holds a big value (raw API payloads, blobs
+	// of JSON) that the app rewrites on every sync even when unchanged. This
+	// is the class of problem that filled the WAL archive on 2026-08-23.
+	if rows, err := db.Query(`SELECT c.relname, st.n_tup_ins, st.n_tup_del,
+			pg_size_pretty(pg_total_relation_size(c.reltoastrelid))
+		FROM pg_stat_sys_tables st
+		JOIN pg_class tc ON tc.relname = st.relname AND st.schemaname = 'pg_toast'
+		JOIN pg_class c ON c.reltoastrelid = tc.oid
+		JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+		WHERE st.n_tup_ins > 500000 AND st.n_tup_del > st.n_tup_ins/2
+		ORDER BY st.n_tup_ins DESC LIMIT 5`); err == nil {
+		var hits []string
+		for rows.Next() {
+			var t, sz string
+			var ins, del int64
+			rows.Scan(&t, &ins, &del, &sz)
+			hits = append(hits, fmt.Sprintf("%s (%d large-value writes, %d deletes, %s of TOAST)", t, ins, del, sz))
+		}
+		rows.Close()
+		if len(hits) > 0 {
+			add("WARN", "performance", "Large values rewritten constantly (TOAST churn)",
+				fmt.Sprintf("%s - an oversized column on these tables is rewritten over and over, generating write-ahead log far faster than the data actually changes. This shortens the point-in-time recovery window for the whole server.", summarize(hits, 3)),
+				"In the app, skip writes when the content is unchanged (compare before updating), and avoid re-storing volatile raw payloads on every sync - store them once keyed by content hash, or strip timestamps/etags before saving.")
+		}
+	}
+
 	// ---- performance: duplicate indexes (same table, same leading definition)
 	if rows, err := db.Query(`SELECT array_agg(ic.relname ORDER BY ic.relname)
 		FROM pg_index i

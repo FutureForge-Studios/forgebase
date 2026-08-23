@@ -13,6 +13,22 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.12] - 2026-08-23
+
+### Added
+- Read replica: one-click hot standby of the whole cluster in its own
+  container, read-only on port 5434 with the same credentials and TLS;
+  live lag on the System page; disk-guarded setup, one-click removal.
+- SAML 2.0 SSO per project via crewjam/saml (never hand-rolled XML-DSig):
+  any IdP metadata URL or pasted XML; SP metadata + login URLs on the
+  Auth page; assertions land as normal user tokens.
+- The SQL editor's Ask AI became a visible inline panel with progress,
+  clear errors, and a pointer to Account settings when no key is set.
+
+### Fixed
+- The WAL-cap alert names the top-writing database at alert time.
+- New Advisor rule detects TOAST write churn (the WAL-filling pattern).
+
 ## [1.4.11] - 2026-08-23
 
 ### Added

@@ -49,9 +49,8 @@ happy path.
 - [x] TOTP MFA with recovery codes and aal assurance claims; panel 2FA.
 - [x] Asymmetric JWT signing with JWKS and key rotation.
 - [x] Per-project email template editor.
-- [x] Phone OTP via a bring-your-own SMS webhook adapter. SAML-only SSO
-      stays future work - most IdPs (Okta, Azure, Keycloak) connect today
-      through the generic OIDC provider.
+- [x] SAML SSO (crewjam/saml, any IdP metadata) and phone OTP via a
+      bring-your-own SMS webhook adapter.
 - [x] Admin depth: impersonation, rich search, per-user sessions/identities.
 
 ## Phase 4 - Storage depth
@@ -85,7 +84,8 @@ happy path.
 - [x] Per-instance compute controls (live memory/CPU limits).
 - [x] Per-database activity attribution in Monitoring (transactions,
       writes, cache hit, temp spill, backends, deadlocks).
-- [ ] Read replicas with a read-only connection string.
+- [x] Read replicas with a read-only connection string (one-click hot
+      standby, port 5434, live lag on the System page).
 - [x] Anonymized branches (PII scrubbing rules).
 - [x] Logical replication publications UI.
 - [x] Adaptive instance sizing within owner-set bounds.
@@ -108,13 +108,10 @@ happy path.
 - [x] Usage reports.
 - [x] Foreign-data wrappers UI for external sources.
 
-## Next (1.4.x)
-The remaining unchecked items are read replicas and SAML SSO - one is a
-second database server, the other an enterprise XML protocol that
-deserves a battle-tested library rather than a hand-rolled verifier.
-Both are planned; most SSO needs are covered today by the generic OIDC
-provider, and time-travel branches cover many read-scaling reporting
-workloads. Each needs
+## Done
+Every item above is shipped. Tracked follow-ups live in the changelog:
+S3 multipart + presigned URLs, TUS expiration headers, and auth
+send-override hook points. Each needs
 its own design pass and ships as focused 1.4.x releases, in the order they
 unlock the most for real projects.
 

@@ -14,7 +14,7 @@ import (
 // revision differs, the reconciler runs scripts/apply-infra.sh --safe from the
 // repo checkout to bring them current. Bump this whenever scripts/ or systemd/
 // change in a release.
-const infraRev = "4"
+const infraRev = "5"
 
 // reconcileInfra runs apply-infra.sh --safe when the box's installed infra is
 // out of date, then applies zero-downtime Postgres safety settings. Runs in a

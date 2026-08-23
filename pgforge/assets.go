@@ -481,8 +481,9 @@ type shellData struct {
 }
 
 var funcs = template.FuncMap{
-	"icon": icon,
-	"add":  func(a, b int) int { return a + b },
+	"icon":      icon,
+	"add":       func(a, b int) int { return a + b },
+	"hasPrefix": strings.HasPrefix,
 	// ERD text baselines: row i sits erdRowH per row below the header
 	"rowy":  func(b *erdBox, i int) int { return b.Y + b.HeadH + i*erdRowH + 14 },
 	"morey": func(b *erdBox) int { return b.Y + b.HeadH + len(b.Rows)*erdRowH + 14 },

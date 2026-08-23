@@ -694,6 +694,9 @@ func (a *app) serveAuth(w http.ResponseWriter, r *http.Request, slug string) {
 	case strings.HasPrefix(path, "/factors/") && r.Method == http.MethodPost:
 		a.serveAuthMFA(w, r, db, secret, slug, strings.TrimPrefix(path, "/factors/"))
 
+	case strings.HasPrefix(path, "/saml/"):
+		a.serveSAML(w, r, secret, slug, strings.TrimPrefix(path, "/saml/"))
+
 	case path == "/user" && r.Method == http.MethodGet:
 		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		claims, ok := verifyUserJWT([]byte(secret), tok)
@@ -1375,6 +1378,18 @@ func (a *app) authPage(w http.ResponseWriter, r *http.Request) {
 			var v string
 			a.db.QueryRow(`SELECT coalesce(sms_webhook_url,'') FROM auth_config WHERE slug=$1`, slug).Scan(&v)
 			return v
+		}(),
+		"SAMLOn": func() bool {
+			on, _, _, _, _ := a.samlConfig(slug)
+			return on
+		}(),
+		"SAMLIdpURL": func() string {
+			_, u, _, _, _ := a.samlConfig(slug)
+			return u
+		}(),
+		"SAMLIdpXML": func() string {
+			_, _, x, _, _ := a.samlConfig(slug)
+			return x
 		}(),
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Auth", Nav: "authn", Slug: slug,

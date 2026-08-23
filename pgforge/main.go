@@ -192,6 +192,7 @@ func main() {
 	mux.HandleFunc("POST /system/incident", a.auth(a.requireRole("owner", a.saveIncident)))
 	mux.HandleFunc("POST /system/incident-resolve", a.auth(a.requireRole("owner", a.resolveIncident)))
 	mux.HandleFunc("POST /system/storage-remote", a.auth(a.requireRole("owner", a.setStorageRemote)))
+	mux.HandleFunc("POST /system/replica", a.auth(a.requireRole("owner", a.replicaToggle)))
 	// team (owner-only management)
 	mux.HandleFunc("GET /people", a.auth(a.peoplePage))
 	mux.HandleFunc("POST /people/add", a.auth(a.requireRole("owner", a.addMember)))
@@ -353,6 +354,7 @@ func main() {
 	mux.HandleFunc("POST /p/{slug}/storage-rule-add", a.auth(admin(a.storageRuleAdd)))
 	mux.HandleFunc("POST /p/{slug}/storage-rule-delete", a.auth(admin(a.storageRuleDelete)))
 	mux.HandleFunc("POST /p/{slug}/jwks", a.auth(admin(a.jwksToggle)))
+	mux.HandleFunc("POST /p/{slug}/saml", a.auth(admin(a.saveSAML)))
 	mux.HandleFunc("POST /p/{slug}/realtime-rls", a.auth(admin(a.setRealtimeRLS)))
 	mux.HandleFunc("POST /p/{slug}/s3-key-create", a.auth(admin(a.s3KeyCreate)))
 	mux.HandleFunc("POST /p/{slug}/s3-key-revoke", a.auth(admin(a.s3KeyRevoke)))
@@ -531,6 +533,11 @@ func (a *app) ensureSchema() error {
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS single_session boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS leaked_check boolean NOT NULL DEFAULT false`,
 		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS sms_webhook_url text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS saml_enabled boolean NOT NULL DEFAULT false`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS saml_idp_url text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS saml_idp_xml text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS saml_sp_cert text NOT NULL DEFAULT ''`,
+		`ALTER TABLE auth_config ADD COLUMN IF NOT EXISTS saml_sp_key_enc bytea`,
 		`ALTER TABLE oauth_providers ADD COLUMN IF NOT EXISTS issuer text NOT NULL DEFAULT ''`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS instance_mem_mb integer NOT NULL DEFAULT 0`,
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS instance_cpus real NOT NULL DEFAULT 0`,

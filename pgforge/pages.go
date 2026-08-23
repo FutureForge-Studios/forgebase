@@ -451,7 +451,7 @@ const sqlBody = `
         <button class="btn btn-primary" type="submit">{{icon "play"}} Run</button>
         <button class="btn btn-ghost btn-sm" type="button" onclick="runExplain()" title="Visual query plan (never executes writes)">Explain</button>
         <button class="btn btn-ghost btn-sm" type="button" onclick="fmtSQL()" title="Format SQL">Format</button>
-        <button class="btn btn-ghost btn-sm" type="button" onclick="askAI()" title="Turn a plain-language request into SQL (uses the AI key from Account settings)">{{icon "sparkle"}} Ask AI</button>
+        <button class="btn btn-primary btn-sm" type="button" onclick="aiToggle()" title="Describe what you want in plain language and get SQL for this schema" style="background:hsl(262 60% 45%)">{{icon "sparkle"}} Ask AI</button>
         <label class="muted" style="font-size:12px;display:flex;align-items:center;gap:.3rem">rows
           <select name="limit" style="padding:.25rem .4rem;font-size:12px">
             <option value="100" {{if eq .Limit 100}}selected{{end}}>100</option>
@@ -470,6 +470,15 @@ const sqlBody = `
         {{if .Took}}<div class="spacer"></div><span class="muted" style="font-size:12px">{{if .RunAs}}as {{.RunAs}} · {{end}}{{if .Ok}}{{.Affected}} row(s) affected · {{else}}{{.Count}} row(s){{if .Capped}} (first {{.Count}} shown){{end}} · {{end}}{{.Took}}</span>{{end}}
       </div>
     </form>
+    <div id="aipanel" style="display:none;margin-top:.7rem;border:1px solid hsl(262 60% 45% / .4);border-radius:.7rem;padding:.8rem;background:hsl(262 60% 45% / .05)">
+      <div style="display:flex;gap:.5rem;align-items:flex-end;flex-wrap:wrap">
+        <label class="fld" style="margin:0;flex:1;min-width:280px"><span class="lt">Describe the query you want - the AI sees this project's real schema</span>
+          <input type="text" id="aiq" placeholder="e.g. top 10 customers by total order value this month" onkeydown="if(event.key==='Enter'){event.preventDefault();aiGo();}"></label>
+        <button class="btn btn-primary btn-sm" type="button" id="aigo" onclick="aiGo()" style="background:hsl(262 60% 45%)">Generate SQL</button>
+        <button class="btn btn-ghost btn-sm" type="button" onclick="aiToggle()">Close</button>
+      </div>
+      <div id="aimsg" class="muted" style="font-size:12px;margin-top:.5rem;display:none"></div>
+    </div>
     {{if .Plan}}
     <div class="label" style="margin-top:1rem">Query plan</div>
     <div class="card" style="margin-top:.4rem;padding:.8rem;font-family:var(--mono);font-size:12px;line-height:1.7;overflow-x:auto">
@@ -586,13 +595,25 @@ document.getElementById('sqlform').addEventListener('submit',function(){
  TS.tabs[TS.a].q=document.getElementById('buf').value||q.value;tsave();});
 trender();
 tsave();
-function askAI(){var p=prompt('Describe the query you want:');if(!p)return;
- var btns=document.querySelectorAll('button');
+function aiToggle(){var p=document.getElementById('aipanel');
+ p.style.display=p.style.display==='none'?'block':'none';
+ if(p.style.display==='block'){document.getElementById('aiq').focus();}}
+function aiMsg(t,isLink){var m=document.getElementById('aimsg');m.style.display='block';
+ if(isLink){m.innerHTML=t;}else{m.textContent=t;}}
+function aiGo(){var p=document.getElementById('aiq').value.trim();if(!p)return;
+ var b=document.getElementById('aigo');b.disabled=true;b.textContent='Thinking...';
+ aiMsg('Asking the model with your live schema as context...');
  fetch(location.pathname.replace(/\/sql.*/,'')+'/ai-sql',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:p})})
   .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j}})})
-  .then(function(x){if(!x.ok){alert(x.j.message||'AI request failed');return;}
-   q.value=x.j.sql;paint();q.focus();})
-  .catch(function(){alert('AI request failed')});}
+  .then(function(x){b.disabled=false;b.textContent='Generate SQL';
+   if(!x.ok){
+    var msg=x.j.message||'AI request failed';
+    if(msg.indexOf('configure')>=0){aiMsg('No AI key set up yet - add your provider and key on the <a href="/account" style="color:hsl(262 60% 45%)">Account page</a>, then come back.',true);}
+    else{aiMsg(msg);}
+    return;}
+   q.value=x.j.sql;paint();q.focus();
+   aiMsg('SQL inserted into the editor - review it, then Run.');})
+  .catch(function(){b.disabled=false;b.textContent='Generate SQL';aiMsg('Could not reach the panel.');});}
 function fmtSQL(){var v=q.value;
  v=v.replace(KW,function(m){return m.toUpperCase()});
  v=v.replace(/[ \t]+(FROM|WHERE|ORDER BY|GROUP BY|HAVING|LIMIT|LEFT JOIN|RIGHT JOIN|INNER JOIN|JOIN|UNION|VALUES|SET|RETURNING)\b/g,'\n$1');
@@ -675,6 +696,7 @@ const databaseBody = `
   <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.9rem">
     <div><div class="label">Direct (session, TLS)</div><div style="font-size:14px">{{.Domain}}<b>:5432</b></div><div class="muted" style="font-size:11px">Prisma, migrations, long sessions</div></div>
     <div><div class="label">Pooled (transaction)</div><div style="font-size:14px">{{.Domain}}<b>:6543</b></div><div class="muted" style="font-size:11px">serverless, high concurrency</div></div>
+    {{if .ReplicaOn}}<div><div class="label">Read-only replica</div><div style="font-size:14px">{{.Domain}}<b>:5434</b></div><div class="muted" style="font-size:11px">same credentials; writes refused - dashboards, reports, exports</div></div>{{end}}
   </div>
   <div style="display:flex;gap:2.5rem;flex-wrap:wrap;margin-top:1.1rem;padding-top:1rem;border-top:1px solid hsl(var(--border))">
     <form method="post" action="/p/{{.Slug}}/db-timeouts" style="display:flex;gap:.6rem;align-items:flex-end;flex-wrap:wrap">
@@ -1612,6 +1634,25 @@ const authPageBody = `
   {{end}}
   </div>
 </div>
+<div class="card" style="margin-bottom:1rem">
+  <div style="display:flex;align-items:center;gap:.6rem"><h2>SAML SSO (enterprise)</h2>{{if .SAMLOn}}<span class="badge active">on</span>{{end}}</div>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .6rem">Sign users in through Okta, Azure AD, OneLogin, Keycloak, ADFS or any SAML 2.0 IdP. Point this at the IdP's metadata, register the SP metadata URL below with the IdP, then send users to the login URL.</p>
+  <form method="post" action="/p/{{.Slug}}/saml">
+    <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end">
+      <label class="fld" style="margin:0;flex:1;min-width:280px"><span class="lt">IdP metadata URL</span>
+        <input type="text" name="saml_idp_url" value="{{.SAMLIdpURL}}" placeholder="https://your-idp.example.com/app/metadata"></label>
+      <label style="display:flex;align-items:center;gap:.35rem;font-size:12.5px;cursor:pointer;margin:0 0 .45rem">
+        <input type="checkbox" name="saml_enabled" {{if .SAMLOn}}checked{{end}}> enabled</label>
+      <button class="btn btn-primary btn-sm" type="submit">Save SAML</button>
+    </div>
+    <details style="margin-top:.5rem"><summary class="muted" style="font-size:12px;cursor:pointer">...or paste the IdP metadata XML instead</summary>
+      <textarea name="saml_idp_xml" rows="4" placeholder="<EntityDescriptor ...>" style="font-family:var(--mono);font-size:11px;margin-top:.4rem">{{.SAMLIdpXML}}</textarea></details>
+  </form>
+  {{if .SAMLOn}}
+  <div class="cs" style="margin-top:.7rem"><span class="tag">SP metadata</span><code id="smlm">{{.Base}}/saml/metadata</code><button class="copy" onclick="cp('smlm')">{{icon "copy"}}</button></div>
+  <div class="cs"><span class="tag">Login</span><code id="smll">{{.Base}}/saml/login?redirect_to=YOUR_APP</code><button class="copy" onclick="cp('smll')">{{icon "copy"}}</button></div>
+  {{end}}
+</div>
 <div class="card">
   <div style="display:flex;align-items:center;gap:.6rem"><h2>Users <span class="muted" style="font-family:var(--serif);font-size:15px">· {{.Count}}</span></h2>
     <div class="spacer"></div>
@@ -2155,6 +2196,21 @@ const systemBody = `
   </form>
   <p class="muted" style="font-size:11px;margin:.4rem 0 0">Saving sends a test message. Save empty to disable.</p>
   {{end}}
+</div>
+<div class="card" style="margin-bottom:1rem">
+  <div style="display:flex;align-items:center;gap:.6rem"><h2>Read replica</h2>
+    {{if hasPrefix .Replica "streaming"}}<span class="badge active">{{.Replica}}</span>{{else}}<span class="badge paused">{{.Replica}}</span>{{end}}
+    <div class="spacer"></div>
+    {{if .IsOwner}}
+    {{if hasPrefix .Replica "streaming"}}
+    <form method="post" action="/system/replica" onsubmit="return confirm('Remove the read replica? Its data copy and replication slot are deleted; apps using port 5434 lose their connection.')">
+      <input type="hidden" name="op" value="disable"><button class="btn btn-ghost btn-sm" type="submit" style="color:hsl(var(--destructive))">Remove replica</button></form>
+    {{else}}
+    <form method="post" action="/system/replica" onsubmit="return confirm('Stand up a streaming read replica? It copies the whole cluster once (a few minutes) and then holds a full second copy on disk.')">
+      <input type="hidden" name="op" value="enable"><button class="btn btn-primary btn-sm" type="submit">Enable read replica</button></form>
+    {{end}}{{end}}
+  </div>
+  <p class="muted" style="font-size:12.5px;margin:.4rem 0 0">A hot standby of the whole cluster in its own container: every project gets a READ-ONLY connection string on port <b>5434</b> with its normal credentials - move dashboards and reporting queries off the primary with one URL change. Writes are refused by Postgres itself; replication lag shows live above.</p>
 </div>
 <div class="card" style="margin-bottom:1rem">
   <h2>Incident notes</h2>

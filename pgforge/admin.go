@@ -238,6 +238,7 @@ func (a *app) databasePage(w http.ResponseWriter, r *http.Request) {
 		"StmtTimeout": stmtT, "IdleTimeout": idleT,
 		"Pubs":       a.listPublications(slug),
 		"FDW":        a.listFDWServers(slug),
+		"ReplicaOn":  replicaOn(a.replicaState()),
 		"NInstalled": nInstalled, "NAvail": len(exts),
 		"MaxConns": maxConns, "ConnLimit": connLimit, "Version": version,
 		"Roles": dbRoles, "Domain": a.cfg.domain, "CanAdmin": a.atLeast(r, "admin"),
