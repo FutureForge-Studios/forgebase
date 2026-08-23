@@ -1871,6 +1871,52 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</pre>
     <div class="label">Response</div><pre class="doc-resp">200 with file bytes  ·  403 if the token is expired or tampered</pre>
   </div>
 </div>
+
+<div class="card" style="margin-bottom:1rem">
+  <h2>More auth doors</h2>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .8rem">All under <code>{{.AuthURL}}</code>. Enable each on the Auth page first.</p>
+  <div class="doc-h"><span class="badge paused" style="text-transform:none">POST</span> Email or phone sign-in code</div>
+  <pre class="doc-code">POST /otp          {"email":"a@b.co"}  or  {"phone":"+4917..."}
+POST /verify       {"email":"a@b.co","token":"123456"}  (or "phone")</pre>
+  <div class="doc-h"><span class="badge paused" style="text-transform:none">POST</span> Two-factor (TOTP) for signed-in users</div>
+  <pre class="doc-code">POST /factors/enroll     -&gt; {"secret","uri"}   (show the uri as a QR)
+POST /factors/verify     {"code":"123456"}   -&gt; recovery codes, shown once
+POST /token?grant_type=password  + "totp_code" once enrolled</pre>
+  <div class="doc-h"><span class="badge paused" style="text-transform:none">GET</span> Social, OIDC and SAML sign-in</div>
+  <pre class="doc-code">GET /authorize?provider=google|github|...|oidc&amp;redirect_to=YOUR_APP
+GET /saml/login?redirect_to=YOUR_APP        (SP metadata: /saml/metadata)</pre>
+  <div class="doc-h"><span class="badge paused" style="text-transform:none">GET</span> Verify tokens without the secret (RS256 mode)</div>
+  <pre class="doc-code">GET https://{{.Slug}}.{{.Domain}}/.well-known/jwks.json</pre>
+</div>
+<div class="card" style="margin-bottom:1rem">
+  <h2>More storage doors</h2>
+  <div class="doc-h"><span class="badge paused" style="text-transform:none">POST</span> Resumable uploads (tus 1.0.0 - tus-js-client, Uppy)</div>
+  <pre class="doc-code">https://{{.Slug}}.{{.Domain}}/storage/v1/tus/&lt;bucket&gt;</pre>
+  <div class="doc-h"><span class="badge paused" style="text-transform:none">S3</span> S3-compatible access (rclone, AWS CLI, SDKs)</div>
+  <pre class="doc-code">endpoint https://{{.Slug}}.{{.Domain}}  (path-style; keys on the Storage page)</pre>
+  <div class="doc-h"><span class="badge paused" style="text-transform:none">GET</span> Image transformations (cached renditions)</div>
+  <pre class="doc-code">{{.StoreURL}}/public/&lt;bucket&gt;/&lt;path&gt;?width=400&amp;height=300</pre>
+  <p class="muted" style="font-size:11.5px">Path access rules (public / authenticated / owner / private per prefix) are configured on the Storage page and enforced on reads and uploads.</p>
+</div>
+<div class="card" style="margin-bottom:1rem">
+  <h2>Channels, queues, vault</h2>
+  <div class="doc-h"><span class="badge paused" style="text-transform:none">WS</span> Broadcast + presence channels</div>
+  <pre class="doc-code">wss://{{.Slug}}.{{.Domain}}/realtime/v1?apikey=&lt;key&gt;&amp;channel=room1&amp;presence_key=user42
+send: {"type":"broadcast","channel":"room1","payload":{...}}
+from SQL: SELECT forgebase.broadcast('room1', '{"hi":1}');</pre>
+  <div class="doc-h"><span class="badge paused" style="text-transform:none">SQL</span> Durable queues</div>
+  <pre class="doc-code">SELECT forgebase.queue_send('jobs', '{"task":"resize"}');
+SELECT * FROM forgebase.queue_read('jobs', vt =&gt; 30, qty =&gt; 10);
+SELECT forgebase.queue_delete_msg('jobs', msg_id);</pre>
+  <div class="doc-h"><span class="badge paused" style="text-transform:none">SQL</span> Encrypted secrets vault</div>
+  <pre class="doc-code">SELECT forgebase.secret_set('stripe_key','sk_live_...');
+SELECT forgebase.secret_get('stripe_key');</pre>
+</div>
+<div class="card">
+  <h2>Read-only replica</h2>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .5rem">When the owner enables the read replica (System page), every project gets a read-only connection on port <b>5434</b> with its normal credentials - point dashboards and reports there.</p>
+  <pre class="doc-code">postgresql://{{.Slug}}:&lt;password&gt;@{{.Domain}}:5434/{{.Slug}}?sslmode=require</pre>
+</div>
 ` + docCSS + copyJS
 
 const docCSS = `<style>
@@ -1894,16 +1940,17 @@ const guideBody = `
   <div class="card">
     <h2>Everything a project can do</h2>
     <ul class="muted" style="font-size:13px;line-height:1.75;padding-left:1.1rem;margin:.5rem 0 0">
-      <li><b>Tables / SQL Editor</b> - schema, edit data, CSV import, saved queries.</li>
-      <li><b>Data API</b> - instant REST (PostgREST) with anon/service keys.</li>
-      <li><b>GraphQL</b> - a GraphQL API over your schema (pg_graphql).</li>
-      <li><b>Auth</b> - email+password + Google/GitHub OAuth for your app's users.</li>
-      <li><b>Storage</b> - file buckets with public and signed URLs.</li>
-      <li><b>Realtime</b> - WebSocket streams of row changes.</li>
-      <li><b>Webhooks</b> - POST to a URL on every insert/update/delete.</li>
-      <li><b>Edge Functions</b> - deploy Deno functions, invoked over HTTPS.</li>
-      <li><b>Branches</b> - instant database copies for staging or tests.</li>
-      <li><b>Monitoring</b> - 7-day charts, cache hit, top queries.</li>
+      <li><b>Tables / SQL Editor</b> - full schema editing, type-aware grid, CSV import, saved queries, visual EXPLAIN, run-as-role, and an AI assistant on every page (corner button - bring your own key in Account).</li>
+      <li><b>Data API</b> - instant REST (PostgREST) + GraphQL, anon/service keys, optional RS256 + JWKS, TypeScript types, OpenAPI, in-panel explorer, IP allowlists.</li>
+      <li><b>Auth</b> - email+password, magic links, email/phone OTP, anonymous sign-ins, 12 OAuth providers + OIDC + SAML SSO, TOTP MFA, captcha, rate limits, SQL hooks, templates, impersonation.</li>
+      <li><b>Storage</b> - buckets, folders, quotas, signed + resumable (tus) uploads, S3-protocol access, path access rules, image transformations.</li>
+      <li><b>Realtime</b> - row-change streams (optionally RLS-filtered per subscriber), channels with broadcast + presence, private channels.</li>
+      <li><b>Webhooks</b> - POST on insert/update/delete, with replay.</li>
+      <li><b>Edge Functions</b> - warm Deno handlers with streaming, WebSockets, secrets and cron.</li>
+      <li><b>Queues + Cron + Vault</b> - durable SQL message queues, pg_cron scheduling, encrypted secrets callable from SQL.</li>
+      <li><b>Branches</b> - instant copies, branch from any past instant (time travel), anonymized branches, diff, reset, expiry.</li>
+      <li><b>Monitoring / Usage / Advisors / Logs</b> - charts, per-database attribution, usage reports, live advice, saved log views, log shipping.</li>
+      <li><b>Platform</b> - migrate to a dedicated instance, compute limits with adaptive sizing, read replica on port 5434, foreign-data wrappers, CLI with personal API keys.</li>
       <li><b>Backup &amp; Restore</b> - nightly dumps + WAL archive, off-box S3, one-click restore.</li>
       <li><b>Logs</b> - per-project audit trail + live sessions; platform-wide Audit log.</li>
       <li><b>Docs</b> (inside each project) - copy-paste examples for every endpoint.</li>

@@ -77,10 +77,10 @@ Useful env toggles: `PANEL_PASS` (set the admin password), `SKIP_FIREWALL=1`,
 
 ## 4. Backups & recovery
 
-Backups run automatically every night at 03:30 UTC:
+Backups run automatically every night (21:30 UTC):
 
 - **Logical dumps** of every database + globals -> `/opt/pgforge-backups/dumps`
-  (30-day retention, editable per platform in any project's Backups page).
+  (tiered: 7 daily + 4 weekly per database; unchanged databases are skipped).
 - **Physical basebackups** + a continuous, gzip-compressed **WAL archive** ->
   point-in-time recovery (7-day basebackup retention; WAL is pruned to exactly
   what the oldest kept basebackup needs, with an emergency prune at 85% disk).
@@ -96,7 +96,12 @@ apt install rclone && rclone config          # add a remote, e.g. S3
 echo '<remote>:<path>' > /opt/pgforge/backup_remote
 ```
 
-After each nightly run everything is synced to that remote.
+After each nightly run everything is synced to that remote - including an
+**encrypted disaster kit** (stack secrets, TLS certs, proxy config) so a
+destroyed server can be rebuilt from the remote alone. Store the kit
+passphrase from `/opt/pgforge/recovery.pass` somewhere OFF the server, and
+see [DISASTER-RECOVERY.md](DISASTER-RECOVERY.md) for the full rebuild
+procedure.
 
 **Point-in-time restore** (advanced): restore the newest basebackup from
 `/opt/pgforge-backups/physical`, then replay the WAL archive with a
@@ -156,7 +161,8 @@ external DB connections that **require** TLS. After install:
 | 80   | HTTP -> HTTPS redirect + ACME | public |
 | 443  | Panel + project APIs (TLS) | public |
 | 5432 | Postgres direct (TLS, session use: Prisma, migrations) | public, TLS-only |
-| 6543 | PgBouncer transaction pooler | public |
+| 6543 | PgBouncer transaction pooler (TLS) | public |
+| 5434 | Read-only replica (optional, one click on the System page) | public, when enabled |
 
 Project APIs are served on `https://<project>.base.example.com` (`/rest/v1`,
 `/graphql/v1`, `/auth/v1`, `/storage/v1`, `/realtime/v1`, `/functions/v1`).

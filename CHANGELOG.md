@@ -13,6 +13,20 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.15] - 2026-08-23
+
+### Added
+- Encrypted disaster kit synced off-box nightly (stack secrets, certs,
+  proxy config; AES-256). Rebuild procedure: docs/DISASTER-RECOVERY.md.
+- Documentation caught up everywhere: README, in-panel Guide, project
+  Docs pages, self-hosting runbook.
+
+### Fixed
+- WAL-cap alert named the wrong database (frozen stats snapshot); the
+  sampler now uses two sessions.
+- The updater cleans stray local edits in the deploy checkout, so the
+  Update button cannot be wedged by an on-box hotfix.
+
 ## [1.4.14] - 2026-08-23
 
 ### Fixed

@@ -246,6 +246,34 @@ for dc in /opt/pgforge/deno-cache /root/.cache/deno; do
   fi
 done
 
+# ---- disaster kit: everything a REPLACEMENT box needs beyond the data -
+# stack config incl. secrets (.env holds SESSION_SECRET, which decrypts the
+# stored project passwords and keys), proxy/pooler config, TLS certs and the
+# rclone remote name. Encrypted (AES-256, pbkdf2) with a recovery passphrase
+# generated once and kept root-only at /opt/pgforge/recovery.pass - the owner
+# must store a copy of that passphrase OFF this server, or the kit is useless
+# exactly when it is needed. The encrypted kit syncs off-box with the rest.
+if [ ! -f /opt/pgforge/recovery.pass ]; then
+  head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > /opt/pgforge/recovery.pass
+  chmod 600 /opt/pgforge/recovery.pass
+  echo "  disaster kit: NEW recovery passphrase generated - copy /opt/pgforge/recovery.pass somewhere safe OFF this server"
+fi
+KIT=/tmp/forgebase-kit-$$.tar.gz
+tar czf "$KIT" -C / \
+  opt/pgforge/stack \
+  opt/pgforge/certs \
+  opt/pgforge/pgbouncer \
+  opt/pgforge/caddy \
+  opt/pgforge/backup_remote \
+  opt/pgforge/repo_dir \
+  root/.config/rclone/rclone.conf \
+  2>/dev/null || true
+openssl enc -aes-256-cbc -pbkdf2 -salt -pass file:/opt/pgforge/recovery.pass \
+  -in "$KIT" -out "$OUT/disaster-kit.tar.gz.enc" 2>/dev/null \
+  && echo "  disaster kit refreshed ($(du -h "$OUT/disaster-kit.tar.gz.enc" | cut -f1))" \
+  || echo "  disaster kit: openssl encryption failed"
+rm -f "$KIT"
+
 # ---- off-box (optional). pitr/ holds transient restore products and .trash
 # holds deleted projects' grace-period dumps - neither belongs off-box.
 REMOTE="$(cat /opt/pgforge/backup_remote 2>/dev/null || true)"

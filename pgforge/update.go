@@ -348,6 +348,10 @@ export PATH="$PATH:/usr/local/go/bin:/usr/local/bin"
 LISTEN="$(sed -n 's/^LISTEN=//p' /opt/pgforge/pgforged.env | head -1)"
 [ -z "$LISTEN" ] && LISTEN=127.0.0.1:8080
 cd "` + repoDir + `" || { echo "!! repo dir missing"; exit 1; }
+# The checkout is a deploy artifact, not a working copy - stray local edits
+# (hotfixes applied directly on the box) must never block an update. Discard
+# them and take upstream verbatim.
+git checkout -- . 2>/dev/null || true
 git pull --ff-only || { echo "!! git pull failed"; exit 1; }
 VER="$(git rev-parse --short HEAD)"
 echo ">> building $VER"

@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.14"
+const appVersion = "1.4.15"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,20 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.15", Date: "2026-08-23",
+		Summary: "Disaster-proof backups and a documentation catch-up.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Encrypted disaster kit in the nightly off-box sync: stack secrets, TLS certs and proxy config, AES-256 encrypted with a recovery passphrase kept at /opt/pgforge/recovery.pass - copy that passphrase somewhere OFF the server and a destroyed box can be rebuilt entirely from the S3 mirror (procedure: docs/DISASTER-RECOVERY.md).",
+				"Documentation caught up with the platform everywhere: the README feature table, the in-panel Guide, every project's Docs page (OTP, MFA factors, OIDC/SAML, JWKS, tus, S3 access, image transforms, channels, queues, vault, replica port) and the self-hosting runbook.",
+			}},
+			{"Fixed", []string{
+				"The WAL-cap alert named the wrong database (statistics are snapshot-frozen inside a single transaction, so every delta read as zero) - the sampler now uses two sessions and names the real top writer.",
+				"The panel updater discards stray local edits in the deploy checkout before pulling, so an on-box hotfix can never wedge the Update button again.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.14", Date: "2026-08-23",
 		Summary: "AI replies from reasoning models were invisible - fixed.",

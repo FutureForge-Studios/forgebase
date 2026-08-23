@@ -36,19 +36,19 @@ footprint is ~800 MB; a dozen projects still fit on a 4 GB VPS.
 
 | Area | What you get |
 |------|--------------|
-| **Projects** | Create / pause / resume / delete in ~1s; overview with copy-paste connection strings (direct TLS + transaction pooler); idle projects auto-suspend (login blocked, API sidecar stopped) and resume instantly on the next request. |
-| **Table editor** | Browse, insert, inline-edit and delete rows; blob-safe grid; CSV import with type inference and all-or-nothing loading. |
-| **SQL editor** | Full Postgres - DDL, DML, functions - with a schema browser, saved queries, safety timeouts and result caps. |
-| **Data API** | Auto REST (PostgREST) + GraphQL (`pg_graphql`) per project on `https://<project>.<domain>`, with anon/service JWT keys. |
-| **Auth** | End-user email+password and Google/GitHub OAuth issuing JWTs your Data API trusts; roles, invite-only team management. |
-| **Storage** | Public and private file buckets with signed URLs. |
-| **Realtime & Webhooks** | Live row-change streams over WebSockets and outbound webhooks on insert/update/delete. |
-| **Edge Functions** | Per-project Deno functions on `/functions/v1/<name>`. |
-| **Branches** | Dedicated-instance projects branch instantly (~2s copy-on-write snapshots that share storage with the parent); shared-cluster projects get full copies with their own credentials. |
-| **Clone & Sync** | Import any external Postgres from a connection string and optionally keep it live-synced via logical replication. |
-| **Database admin** | Rotate credentials, enable extensions (~50-item catalog), tune connection limits. |
-| **Backups & recovery** | Nightly logical dumps + basebackups + continuous WAL archive; per-project "back up now" and one-click restore; real point-in-time recovery to any second into a new project; off-box S3 sync. |
-| **Monitoring, Logs & Audit** | Per-project size/connections/cache-hit and 7-day charts; live session view; a platform-wide audit trail with actor + source IP. |
+| **Projects** | Create / pause / resume / delete in ~1s; connection strings for direct TLS (5432), transaction pooler (6543, TLS) and the optional read-only replica (5434); idle projects sleep and wake on any request; per-project member scoping for teams. |
+| **Table editor** | Type-aware cell editors, JSON editor, row panel, stacked filters, multi-sort, bulk actions, CSV import/export, full schema editing with FK management, saved layouts. |
+| **SQL editor** | Tabs, schema-aware autocomplete, visual EXPLAIN, run-as-role for policy testing, history, formatter, safety guards - plus a built-in AI assistant (bring your own key) on every project page. |
+| **Data API** | Auto REST (PostgREST) + GraphQL (`pg_graphql`) per project, anon/service JWT keys, optional RS256 signing with a public JWKS endpoint and one-click key rotation, per-project row caps, exposed schemas, IP allowlists, TypeScript type generation, OpenAPI, in-panel API explorer. |
+| **Auth** | Email+password, magic links, email OTP, phone OTP (bring-your-own SMS webhook), anonymous sign-ins, 12 OAuth providers + generic OIDC + SAML 2.0 SSO, TOTP MFA with recovery codes, captcha, configurable rate limits, leaked-password screening, single-session mode, custom-claims + before-create SQL hooks, email templates, per-user session control, admin impersonation. |
+| **Storage** | Buckets with folders, drag-drop, quotas and usage meters, signed URLs and signed uploads, resumable tus uploads, S3-compatible protocol access with scoped keys, path-level access rules (public/authenticated/owner/private), image transformations with cached renditions, ETag caching. |
+| **Realtime & Webhooks** | Row-change streams over WebSockets with optional per-subscriber RLS filtering, named channels with broadcast + presence (also from SQL), private channels, logical-replication publications UI, outbound webhooks with replay. |
+| **Edge Functions** | Deno handlers with warm processes (no cold starts), streaming responses, WebSocket support, background work, per-function secrets, timeouts, memory caps and cron schedules, full invocation logs. |
+| **Queues & Cron** | Durable at-least-once message queues in SQL (`forgebase.queue_*`) with a panel UI; `pg_cron` job scheduler. |
+| **Branches** | Instant copy-on-write branches (dedicated instances) or full copies; branch from any point in time via WAL replay; anonymized branches (PII scrub rules); schema diff; reset from parent; auto-expiry. |
+| **Platform depth** | One-click migration from shared cluster to a dedicated instance; live memory/CPU limits with adaptive sizing; one-click streaming read replica; encrypted secrets vault callable from SQL; foreign-data wrappers UI; `forgebase` CLI with personal API keys. |
+| **Backups & recovery** | Nightly logical dumps + basebackups + continuous WAL archive; point-in-time recovery to any second into a new project; off-box S3 sync of everything including an encrypted disaster-recovery kit; verified restore drills. |
+| **Monitoring, Logs & Audit** | Per-project charts, per-database activity attribution, usage reports, 11 live advisor rules, logs with saved views and daily log shipping, platform-wide audit trail. |
 
 We would rather tell you exactly what each feature does than oversell it - the
 docs describe real behavior, and the build plan lives in
@@ -71,15 +71,18 @@ finishes it prints the panel URL and admin password. Re-run any time to upgrade
 - it's idempotent and preserves your data and secrets.
 
 Full walkthrough, backup/restore runbook and security checklist:
-**[docs/SELF-HOSTING.md](docs/SELF-HOSTING.md)**.
+**[docs/SELF-HOSTING.md](docs/SELF-HOSTING.md)** - and the
+box-is-gone rebuild procedure: **[docs/DISASTER-RECOVERY.md](docs/DISASTER-RECOVERY.md)**.
 
 ## Use
 
 - **Panel**: `https://yourdomain`
 - **Direct Postgres** (TLS, Prisma-safe): `yourdomain:5432`, `sslmode=require`
 - **Pooled** (transaction mode): `yourdomain:6543`
+- **Read replica** (optional, one click): `yourdomain:5434`, read-only
 - **Project API**: `https://<project>.yourdomain/rest/v1` (and `/graphql/v1`,
-  `/auth/v1`, `/storage/v1`, `/realtime/v1`, `/functions/v1`)
+  `/auth/v1`, `/storage/v1`, `/realtime/v1`, `/functions/v1`, `/s3/`-style
+  object access, `/.well-known/jwks.json`)
 
 ---
 
