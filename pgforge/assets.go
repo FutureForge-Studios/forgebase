@@ -629,8 +629,18 @@ function render(){
  for(var i=0;i<h.length;i++){m.appendChild(bubble(h[i].role,h[i].content));}
  m.scrollTop=m.scrollHeight;
 }
+var aidBusy=false;
 window.aidSend=function(){
  var inp=document.getElementById('aidin');var txt=inp.value.trim();if(!txt)return;
+ if(aidBusy){
+  var m0=document.getElementById('aidmsgs');
+  var note=document.createElement('div');note.className='muted';note.style.cssText='font-size:11.5px;align-self:center';
+  note.textContent='One moment - still answering the previous question. Your text is kept in the box.';
+  m0.appendChild(note);m0.scrollTop=m0.scrollHeight;
+  setTimeout(function(){if(note.parentNode){note.parentNode.removeChild(note);}},2500);
+  return;
+ }
+ aidBusy=true;
  var go=document.getElementById('aidgo');
  var h=hist();h.push({role:'user',content:txt});saveHist(h);inp.value='';render();
  var m=document.getElementById('aidmsgs');
@@ -640,7 +650,7 @@ window.aidSend=function(){
  go.disabled=true;
  var acc='';
  function done(finalText){
-  go.disabled=false;
+  go.disabled=false;aidBusy=false;
   var h2=hist();h2.push({role:'assistant',content:finalText});saveHist(h2);render();
  }
  fetch('/p/'+slug+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:hist()})})

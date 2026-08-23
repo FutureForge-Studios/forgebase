@@ -256,7 +256,8 @@ const forgebaseCheatSheet = `ForgeBase panel map (every path is under the projec
 - Queues (/queues): forgebase.queue_send/read/delete_msg/archive. Cron (/cron): pg_cron jobs. Vault (Settings): forgebase.secret_set/get/list/delete.
 - Branches (/branches): copy-on-write or full-copy branches, time-travel (from any past instant), anonymized branches, schema diff, reset, expiry.
 - Monitoring, Usage, Advisors, Logs (+saved views, log shipping), Migrations, Backups (PITR restore to a new project), Sync/Clone, Settings (compute limits, vault, migrate to dedicated instance).
-Connection strings live on the project home page. The panel Account page holds personal API keys and AI settings.`
+Connection strings live on the project home page. The panel Account page holds personal API keys and AI settings.
+Facts that are often guessed wrong - use THESE: "Migrate to dedicated instance" (Settings page, one button) copies the project onto its own Postgres container ON THE SAME SERVER - no DNS change, no new host; the shared copy is parked (renamed <slug>_premig) until deleted; dedicated instances are reached through the cold-start proxy on port 5433 and support instant copy-on-write branches and scale-to-zero. The optional read replica is port 5434, read-only, same credentials. Direct Postgres is port 5432 (TLS), the transaction pooler is 6543 (TLS).`
 
 // aiChat is the panel-wide assistant: multi-turn, schema-aware, and briefed
 // on the platform itself, so it can answer feature questions AND data
@@ -317,7 +318,12 @@ func (a *app) aiChat(w http.ResponseWriter, r *http.Request) {
 	}
 	system := "You are the built-in assistant of ForgeBase, a self-hosted Postgres platform. " +
 		"You are helping with the project '" + slug + "'. Be concise and practical. " +
-		"When you produce SQL, put it in a ```sql fence so the panel can offer to run it.\n\n" +
+		"When you produce SQL, put it in a ```sql fence so the panel can offer to run it.\n" +
+		"STRICT SCOPE: you help ONLY with this project (its data, schema, SQL, APIs, configuration) " +
+		"and ForgeBase platform features. If a question is unrelated - general knowledge, math, " +
+		"news, anything else - reply with one short sentence saying you only help with this " +
+		"project and ForgeBase, and answer nothing else. Answer only the LATEST user message; " +
+		"earlier messages are context, not open questions.\n\n" +
 		forgebaseCheatSheet + "\n\nThis project's live schema (public):\n" + schema.String()
 	// Stream the reply as plain text chunks so the panel shows it while the
 	// model is still writing. Errors BEFORE the first chunk go out as JSON

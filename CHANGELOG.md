@@ -13,6 +13,15 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.19] - 2026-08-23
+
+### Fixed
+- The AI assistant declines off-topic questions instead of answering them.
+- Sending during a streaming reply no longer merges two questions into
+  one answer - the drawer serializes sends.
+- The assistant's platform briefing corrected on instance-migration
+  mechanics (same server, no DNS change) and the 5433/5434 ports.
+
 ## [1.4.18] - 2026-08-23
 
 ### Changed

@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.18"
+const appVersion = "1.4.19"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,17 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.19", Date: "2026-08-23",
+		Summary: "The assistant stays on topic and answers one question at a time.",
+		Sections: []changeSection{
+			{"Fixed", []string{
+				"The AI assistant now sticks strictly to your project and ForgeBase - unrelated questions get a one-line decline instead of an answer.",
+				"Sending another question while a reply was still streaming merged both into one answer; the drawer now finishes the current reply first (your text stays in the box, with a small note).",
+				"The assistant's platform briefing gained the facts it used to guess wrong: instance migration stays on the same server with no DNS change, port 5433 is the instance proxy, 5434 the read replica.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.18", Date: "2026-08-23",
 		Summary: "The WAL cap heals itself now.",
