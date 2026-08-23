@@ -8,6 +8,7 @@ package main
 // only ever sent to the endpoint the user configured.
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -161,6 +162,85 @@ func callAI(base, key, model, system string, messages []map[string]string) (stri
 	return "", fmt.Errorf("AI returned nothing: %s", msg)
 }
 
+// streamAI is callAI's streaming twin: it requests server-sent events from
+// the provider and hands each text delta to emit as it arrives, so the
+// panel can show the reply while it is being written.
+func streamAI(base, key, model, system string, messages []map[string]string, emit func(string)) error {
+	var req *http.Request
+	if strings.Contains(base, "anthropic") {
+		payload, _ := json.Marshal(map[string]any{
+			"model": model, "max_tokens": 1500, "system": system,
+			"messages": messages, "stream": true,
+		})
+		req, _ = http.NewRequest(http.MethodPost, base+"/v1/messages", bytes.NewReader(payload))
+		req.Header.Set("x-api-key", key)
+		req.Header.Set("anthropic-version", "2023-06-01")
+	} else {
+		all := append([]map[string]string{{"role": "system", "content": system}}, messages...)
+		payload, _ := json.Marshal(map[string]any{"model": model, "messages": all, "stream": true})
+		req, _ = http.NewRequest(http.MethodPost, base+"/chat/completions", bytes.NewReader(payload))
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
+	if err != nil {
+		return fmt.Errorf("AI endpoint unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		var e struct {
+			Error struct{ Message string } `json:"error"`
+		}
+		json.Unmarshal(raw, &e)
+		if e.Error.Message != "" {
+			return fmt.Errorf("%s", e.Error.Message)
+		}
+		return fmt.Errorf("AI endpoint answered %s", resp.Status)
+	}
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
+	got := false
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+		var ev struct {
+			// anthropic content_block_delta
+			Delta struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"delta"`
+			// openai chat.completion.chunk
+			Choices []struct {
+				Delta struct{ Content string } `json:"delta"`
+			} `json:"choices"`
+		}
+		if json.Unmarshal([]byte(data), &ev) != nil {
+			continue
+		}
+		if ev.Delta.Type == "text_delta" && ev.Delta.Text != "" {
+			emit(ev.Delta.Text)
+			got = true
+		}
+		for _, c := range ev.Choices {
+			if c.Delta.Content != "" {
+				emit(c.Delta.Content)
+				got = true
+			}
+		}
+	}
+	if !got {
+		return fmt.Errorf("AI returned nothing")
+	}
+	return nil
+}
+
 // forgebaseCheatSheet is what the assistant knows about the PLATFORM, so it
 // can answer "how do I..." questions, not just write SQL.
 const forgebaseCheatSheet = `ForgeBase panel map (every path is under the project):
@@ -239,13 +319,29 @@ func (a *app) aiChat(w http.ResponseWriter, r *http.Request) {
 		"You are helping with the project '" + slug + "'. Be concise and practical. " +
 		"When you produce SQL, put it in a ```sql fence so the panel can offer to run it.\n\n" +
 		forgebaseCheatSheet + "\n\nThis project's live schema (public):\n" + schema.String()
-	reply, err := callAI(base, key, model, system, body.Messages)
-	if err != nil {
+	// Stream the reply as plain text chunks so the panel shows it while the
+	// model is still writing. Errors BEFORE the first chunk go out as JSON
+	// (the client branches on Content-Type); after the first chunk the text
+	// path is committed and the client shows whatever arrived.
+	fl, _ := w.(http.Flusher)
+	first := true
+	err := streamAI(base, key, model, system, body.Messages, func(chunk string) {
+		if first {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("X-Accel-Buffering", "no")
+			first = false
+		}
+		io.WriteString(w, chunk)
+		if fl != nil {
+			fl.Flush()
+		}
+	})
+	if err != nil && first {
 		writeJSON(w, 502, map[string]string{"message": err.Error()})
 		return
 	}
 	a.audit(r, "ai-chat", slug)
-	writeJSON(w, 200, map[string]string{"reply": reply})
 }
 
 // aiSQL answers a natural-language prompt with SQL for this project.

@@ -556,36 +556,68 @@ var shellTmpl = template.Must(template.New("shell").Funcs(funcs).Parse(`<!doctyp
 (function(){
 var slug={{.Slug}};
 var KEY='aichat-'+slug;
-function hist(){try{return JSON.parse(sessionStorage.getItem(KEY)||'[]')}catch(e){return []}}
+var BT=String.fromCharCode(96), FENCE=BT+BT+BT;
+function hist(){try{
+ return (JSON.parse(sessionStorage.getItem(KEY)||'[]')).filter(function(m){return m&&m.content&&String(m.content).trim()});
+}catch(e){return []}}
 function saveHist(h){try{sessionStorage.setItem(KEY,JSON.stringify(h.slice(-12)))}catch(e){}}
 window.aidTog=function(){var d=document.getElementById('aidrawer');
  if(d.style.display==='none'){d.style.display='flex';render();document.getElementById('aidin').focus();}
  else{d.style.display='none';}};
 window.aidClear=function(){saveHist([]);render();};
-function bubble(role,text){
- var b=document.createElement('div');
- b.style.cssText=role==='user'
-  ?'align-self:flex-end;max-width:88%;background:hsl(262 60% 45%);color:#fff;padding:.5rem .7rem;border-radius:.8rem .8rem .2rem .8rem;white-space:pre-wrap;word-break:break-word'
-  :'align-self:flex-start;max-width:92%;background:hsl(var(--bg));padding:.5rem .7rem;border-radius:.8rem .8rem .8rem .2rem;word-break:break-word';
- if(role==='user'){b.textContent=text;return b;}
- var FENCE=String.fromCharCode(96,96,96); // three backticks (cannot appear literally in this Go raw string)
+function inline(parent,s){
+ var parts=s.split('**');
+ for(var i=0;i<parts.length;i++){
+  var host=(i%2===1)?document.createElement('b'):document.createDocumentFragment();
+  var cs=parts[i].split(BT);
+  for(var j=0;j<cs.length;j++){
+   if(j%2===1){var c=document.createElement('code');
+    c.style.cssText='font-family:var(--mono);font-size:.92em;background:hsl(var(--bg));padding:0 .25em;border-radius:.3em';
+    c.textContent=cs[j];host.appendChild(c);}
+   else if(cs[j]){host.appendChild(document.createTextNode(cs[j]));}
+  }
+  parent.appendChild(host);
+ }
+}
+function mdBlock(b,txt){
+ var lines=txt.split('\n');
+ for(var i=0;i<lines.length;i++){
+  var ln=lines[i], d=document.createElement('div');
+  if(/^#{1,4} /.test(ln)){d.style.cssText='font-weight:700;font-size:13.5px;margin:.55rem 0 .2rem';inline(d,ln.replace(/^#+ /,''));}
+  else if(/^\s*[-*] /.test(ln)){d.style.cssText='padding-left:1.1em;text-indent:-0.7em;margin:.1rem 0';inline(d,'• '+ln.replace(/^\s*[-*] /,''));}
+  else if(/^\s*\d+\. /.test(ln)){d.style.cssText='padding-left:1.1em;text-indent:-0.9em;margin:.1rem 0';inline(d,ln);}
+  else if(/^---+\s*$/.test(ln)){d.style.cssText='border-top:1px solid hsl(var(--border));margin:.55rem 0';}
+  else if(ln.trim()===''){d.style.height='.45rem';}
+  else{inline(d,ln);}
+  b.appendChild(d);
+ }
+}
+function fillAssistant(b,text){
+ b.innerHTML='';
  var parts=text.split(FENCE);
  for(var i=0;i<parts.length;i++){
-  if(i%2===0){
-   if(parts[i]){var t=document.createElement('div');t.style.whiteSpace='pre-wrap';t.textContent=parts[i].trim();b.appendChild(t);}
-  }else{
-   var code=parts[i].replace(/^[a-z]*\n/,'');
-   var wrap=document.createElement('div');wrap.style.cssText='margin:.4rem 0;border:1px solid hsl(var(--border));border-radius:.5rem;overflow:hidden';
-   var pre=document.createElement('pre');pre.style.cssText='margin:0;padding:.5rem .6rem;font-size:11.5px;overflow-x:auto;font-family:var(--mono)';pre.textContent=code.trim();
+  if(i%2===0){ if(parts[i].trim()){mdBlock(b,parts[i].replace(/^\n+|\n+$/g,''));} }
+  else{
+   var code=parts[i].replace(/^[a-z]*\n/,'').trim();
+   var wrap=document.createElement('div');wrap.style.cssText='margin:.45rem 0;border:1px solid hsl(var(--border));border-radius:.5rem;overflow:hidden';
+   var pre=document.createElement('pre');pre.style.cssText='margin:0;padding:.5rem .6rem;font-size:11.5px;overflow-x:auto;font-family:var(--mono);line-height:1.5';pre.textContent=code;
    var bar=document.createElement('div');bar.style.cssText='display:flex;gap:.4rem;padding:.25rem .5rem;border-top:1px solid hsl(var(--border));background:hsl(var(--bg))';
    var cp=document.createElement('button');cp.className='btn btn-ghost btn-sm';cp.style.cssText='padding:.15rem .5rem;font-size:11px';cp.textContent='Copy';
-   cp.onclick=(function(c){return function(){navigator.clipboard.writeText(c);this.textContent='Copied';};})(code.trim());
+   cp.onclick=(function(c){return function(){navigator.clipboard.writeText(c);this.textContent='Copied';};})(code);
    var run=document.createElement('button');run.className='btn btn-ghost btn-sm';run.style.cssText='padding:.15rem .5rem;font-size:11px';run.textContent='Open in SQL editor';
-   run.onclick=(function(c){return function(){try{sessionStorage.setItem('ai-handoff-'+slug,c)}catch(e){};location='/p/'+slug+'/sql';};})(code.trim());
+   run.onclick=(function(c){return function(){try{sessionStorage.setItem('ai-handoff-'+slug,c)}catch(e){};location='/p/'+slug+'/sql';};})(code);
    bar.appendChild(cp);bar.appendChild(run);
    wrap.appendChild(pre);wrap.appendChild(bar);b.appendChild(wrap);
   }
  }
+}
+function bubble(role,text){
+ var b=document.createElement('div');
+ b.style.cssText=role==='user'
+  ?'align-self:flex-end;max-width:88%;background:hsl(262 60% 45%);color:#fff;padding:.5rem .7rem;border-radius:.8rem .8rem .2rem .8rem;white-space:pre-wrap;word-break:break-word'
+  :'align-self:flex-start;max-width:94%;background:hsl(var(--bg)/.6);border:1px solid hsl(var(--border));padding:.5rem .7rem;border-radius:.8rem .8rem .8rem .2rem;word-break:break-word';
+ if(role==='user'){b.textContent=text;return b;}
+ fillAssistant(b,text);
  return b;
 }
 function render(){
@@ -602,19 +634,44 @@ window.aidSend=function(){
  var go=document.getElementById('aidgo');
  var h=hist();h.push({role:'user',content:txt});saveHist(h);inp.value='';render();
  var m=document.getElementById('aidmsgs');
- var th=document.createElement('div');th.className='muted';th.style.fontSize='12px';th.textContent='Thinking...';m.appendChild(th);m.scrollTop=m.scrollHeight;
+ var live=bubble('assistant','');
+ var dots=document.createElement('div');dots.className='muted';dots.style.fontSize='12px';dots.textContent='Thinking...';
+ live.appendChild(dots);m.appendChild(live);m.scrollTop=m.scrollHeight;
  go.disabled=true;
+ var acc='';
+ function done(finalText){
+  go.disabled=false;
+  var h2=hist();h2.push({role:'assistant',content:finalText});saveHist(h2);render();
+ }
  fetch('/p/'+slug+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:hist()})})
-  .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j}})})
-  .then(function(x){go.disabled=false;
-   var h2=hist();
-   if(!x.ok){
-    var msg=x.j.message||'request failed';
-    if(msg.indexOf('Account')>=0||msg.indexOf('configure')>=0){msg='No AI key set up yet - add your provider and key on the Account page (top-right avatar), then ask again.';}
-    h2.push({role:'assistant',content:msg});
-   }else{h2.push({role:'assistant',content:x.j.reply});}
-   saveHist(h2);render();})
-  .catch(function(){go.disabled=false;var h2=hist();h2.push({role:'assistant',content:'Could not reach the panel - try again.'});saveHist(h2);render();});
+  .then(function(r){
+   var ct=(r.headers.get('content-type')||'');
+   if(!r.ok||ct.indexOf('json')>=0){
+    return r.json().then(function(j){throw new Error(j.message||'request failed');});
+   }
+   var rd=r.body.getReader(), dec=new TextDecoder();
+   function pump(){
+    return rd.read().then(function(x){
+     if(x.done){return;}
+     acc+=dec.decode(x.value,{stream:true});
+     fillAssistant(live,acc);
+     m.scrollTop=m.scrollHeight;
+     return pump();
+    });
+   }
+   return pump();
+  })
+  .then(function(){
+   if(acc.trim()){done(acc);}
+   else{done('The model sent nothing back - try again.');}
+  })
+  .catch(function(e){
+   var msg=(e&&e.message)||'Could not reach the panel - try again.';
+   if(msg.indexOf('Account')>=0||msg.indexOf('configure')>=0||msg.indexOf('key')>=0){
+    msg='No AI key set up yet - add your provider and key on the Account page (top-right avatar), then ask again.';
+   }
+   done(msg);
+  });
 };
 })();
 </script>

@@ -177,6 +177,20 @@ func (a *app) auth(next http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 		}
+		// Legacy cookie (pre session-rows, 3 parts): upgrade it in place by
+		// minting a session row + a fresh cookie, so this device shows up in
+		// Devices & sessions and becomes individually revocable. One-time
+		// per device - every device upgrades on its next request.
+		if c, cerr := r.Cookie("pgforge_session"); cerr == nil && strings.Count(c.Value, ".") == 2 &&
+			r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/html") {
+			remember := false
+			if parts := strings.SplitN(c.Value, ".", 3); len(parts) == 3 {
+				if e, perr := strconv.ParseInt(parts[1], 10, 64); perr == nil {
+					remember = time.Until(time.Unix(e, 0)) > 24*time.Hour
+				}
+			}
+			a.setSession(w, r, name, remember)
+		}
 		r = r.WithContext(ctxWith(r, userKey, name))
 		next(w, r)
 	}

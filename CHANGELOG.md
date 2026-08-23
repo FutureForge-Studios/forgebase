@@ -13,6 +13,19 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.16] - 2026-08-23
+
+### Added
+- AI replies stream live and render as real formatting (headings, bold,
+  bullets, inline code) instead of raw markdown markers.
+
+### Fixed
+- Pre-tracking panel sessions upgrade themselves on their next page load,
+  so every signed-in device appears under Devices & sessions and can be
+  revoked individually.
+- Empty leftovers from earlier failed AI exchanges are dropped from the
+  conversation history on both ends.
+
 ## [1.4.15] - 2026-08-23
 
 ### Added

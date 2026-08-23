@@ -158,7 +158,7 @@ const accountBody = `
     <div style="display:flex;align-items:center;gap:.6rem"><h2>Devices &amp; sessions</h2><div class="spacer"></div>
       {{if .Sessions}}<form method="post" action="/account/session-revoke"><input type="hidden" name="others" value="1">
         <button class="btn btn-ghost btn-sm" type="submit">Sign out everywhere else</button></form>{{end}}</div>
-    {{if not .Sessions}}<p class="muted" style="font-size:12.5px;margin:.4rem 0 0">Sessions appear here after your next sign-in.</p>
+    {{if not .Sessions}}<p class="muted" style="font-size:12.5px;margin:.4rem 0 0">Each signed-in device appears here on its next page load - refresh once and yours shows up; other devices appear as soon as they open any page.</p>
     {{else}}
     <div class="tblwrap" style="margin-top:.7rem"><table class="data">
       <thead><tr><th>Device</th><th>IP</th><th>Signed in</th><th>Last seen</th><th></th></tr></thead>

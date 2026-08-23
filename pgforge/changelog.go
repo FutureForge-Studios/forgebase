@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.15"
+const appVersion = "1.4.16"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,20 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.16", Date: "2026-08-23",
+		Summary: "The assistant streams, renders, and every session is now visible.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"AI replies now STREAM - text appears as the model writes it instead of arriving all at once at the end.",
+				"Replies render properly: headings, bold, bullets, dividers and inline code display as formatting instead of raw markdown markers; code blocks keep their Copy and Open-in-SQL-editor buttons.",
+			}},
+			{"Fixed", []string{
+				"Devices & sessions showed nothing for sign-ins that predate session tracking - those sessions now upgrade themselves on their next page load, so every signed-in device (including ones you lent your login to) appears in the list and can be revoked individually.",
+				"Empty leftovers from earlier failed AI exchanges no longer confuse the conversation - they are dropped from the history on both ends.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.15", Date: "2026-08-23",
 		Summary: "Disaster-proof backups and a documentation catch-up.",
