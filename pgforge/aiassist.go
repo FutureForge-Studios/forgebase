@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -102,6 +103,125 @@ func (a *app) aiModels(w http.ResponseWriter, r *http.Request) {
 		models = append(models, model{m.ID, name})
 	}
 	writeJSON(w, 200, map[string]any{"models": models})
+}
+
+// callAI sends a chat to the user's configured endpoint (Anthropic Messages
+// or any OpenAI-compatible /chat/completions) and returns the reply text.
+func callAI(base, key, model, system string, messages []map[string]string) (string, error) {
+	var req *http.Request
+	if strings.Contains(base, "anthropic") {
+		payload, _ := json.Marshal(map[string]any{
+			"model": model, "max_tokens": 1500, "system": system, "messages": messages,
+		})
+		req, _ = http.NewRequest(http.MethodPost, base+"/v1/messages", bytes.NewReader(payload))
+		req.Header.Set("x-api-key", key)
+		req.Header.Set("anthropic-version", "2023-06-01")
+	} else {
+		all := append([]map[string]string{{"role": "system", "content": system}}, messages...)
+		payload, _ := json.Marshal(map[string]any{"model": model, "messages": all})
+		req, _ = http.NewRequest(http.MethodPost, base+"/chat/completions", bytes.NewReader(payload))
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 90 * time.Second}).Do(req)
+	if err != nil {
+		return "", fmt.Errorf("AI endpoint unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Content []struct{ Text string } `json:"content"`
+		Choices []struct {
+			Message struct{ Content string } `json:"message"`
+		} `json:"choices"`
+		Error struct{ Message string } `json:"error"`
+	}
+	json.NewDecoder(resp.Body).Decode(&out)
+	if len(out.Content) > 0 {
+		return out.Content[0].Text, nil
+	}
+	if len(out.Choices) > 0 {
+		return out.Choices[0].Message.Content, nil
+	}
+	msg := out.Error.Message
+	if msg == "" {
+		msg = resp.Status
+	}
+	return "", fmt.Errorf("AI returned nothing: %s", msg)
+}
+
+// forgebaseCheatSheet is what the assistant knows about the PLATFORM, so it
+// can answer "how do I..." questions, not just write SQL.
+const forgebaseCheatSheet = `ForgeBase panel map (every path is under the project):
+- Table Editor (/tables): browse/edit rows, type-aware editors, filters, sort, CSV export, schema editing, FK management.
+- SQL Editor (/sql): tabs, autocomplete, Explain plans, run-as-role, history, format; the Ask AI button generates SQL.
+- Objects (/objects): functions, triggers, enum types, indexes, constraints. Policies (/policies): full RLS editor + column grants.
+- Schema diagram (/erd). Database (/database): extensions, roles, publications (logical replication), foreign servers (postgres_fdw), timeouts, connection info (direct 5432, pooled 6543, read replica 5434 when enabled).
+- Data API (/api): auto REST (PostgREST) at https://<project>.<domain>/rest/v1 with anon/service keys, GraphQL at /graphql/v1, OpenAPI, TypeScript types, API explorer, IP allowlist, RS256/JWKS signing.
+- Auth (/auth): email+password, magic links, email OTP, phone OTP via SMS webhook, anonymous sign-ins, 12 OAuth providers + generic OIDC + SAML SSO, TOTP MFA with recovery codes, captcha, rate limits, leaked-password check, email templates, user management + impersonation. Endpoints under /auth/v1.
+- Storage (/storage): buckets, folders, drag-drop, quotas, signed URLs, resumable tus uploads at /storage/v1/tus, S3-protocol access with scoped keys, path access rules, image transforms (?width=&height=).
+- Realtime (/realtime): change streams over WebSocket at /realtime/v1, channels/broadcast/presence, per-subscriber RLS filtering. Webhooks (/webhooks): table-change HTTP calls with replay.
+- Edge Functions (/functions): Deno handlers at /functions/v1/<name>, warm processes, streaming, WebSockets, secrets, cron schedules.
+- Queues (/queues): forgebase.queue_send/read/delete_msg/archive. Cron (/cron): pg_cron jobs. Vault (Settings): forgebase.secret_set/get/list/delete.
+- Branches (/branches): copy-on-write or full-copy branches, time-travel (from any past instant), anonymized branches, schema diff, reset, expiry.
+- Monitoring, Usage, Advisors, Logs (+saved views, log shipping), Migrations, Backups (PITR restore to a new project), Sync/Clone, Settings (compute limits, vault, migrate to dedicated instance).
+Connection strings live on the project home page. The panel Account page holds personal API keys and AI settings.`
+
+// aiChat is the panel-wide assistant: multi-turn, schema-aware, and briefed
+// on the platform itself, so it can answer feature questions AND data
+// questions for this project.
+func (a *app) aiChat(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	base, key, model := a.aiConfigFor(currentUser(r))
+	if base == "" || key == "" {
+		writeJSON(w, 400, map[string]string{"message": "no AI key configured - add one on the Account page"})
+		return
+	}
+	var body struct {
+		Messages []map[string]string `json:"messages"`
+	}
+	json.NewDecoder(io.LimitReader(r.Body, 256<<10)).Decode(&body)
+	if len(body.Messages) == 0 {
+		writeJSON(w, 400, map[string]string{"message": "say something first"})
+		return
+	}
+	if len(body.Messages) > 12 {
+		body.Messages = body.Messages[len(body.Messages)-12:]
+	}
+	for _, m := range body.Messages {
+		if m["role"] != "user" && m["role"] != "assistant" {
+			writeJSON(w, 400, map[string]string{"message": "bad message role"})
+			return
+		}
+		if len(m["content"]) > 8000 {
+			m["content"] = m["content"][:8000]
+		}
+	}
+	var schema strings.Builder
+	for _, t := range a.schemaTree(slug) {
+		fmt.Fprintf(&schema, "%s(", t.Name)
+		for i, c := range t.Cols {
+			if i > 0 {
+				schema.WriteString(", ")
+			}
+			schema.WriteString(c.Name + " " + c.Type)
+		}
+		schema.WriteString(")\n")
+		if schema.Len() > 10000 {
+			schema.WriteString("... (more tables omitted)\n")
+			break
+		}
+	}
+	system := "You are the built-in assistant of ForgeBase, a self-hosted Postgres platform. " +
+		"You are helping with the project '" + slug + "'. Be concise and practical. " +
+		"When you produce SQL, put it in a ```sql fence so the panel can offer to run it.\n\n" +
+		forgebaseCheatSheet + "\n\nThis project's live schema (public):\n" + schema.String()
+	reply, err := callAI(base, key, model, system, body.Messages)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"message": err.Error()})
+		return
+	}
+	a.audit(r, "ai-chat", slug)
+	writeJSON(w, 200, map[string]string{"reply": reply})
 }
 
 // aiSQL answers a natural-language prompt with SQL for this project.

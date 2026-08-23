@@ -345,6 +345,7 @@ func main() {
 	mux.HandleFunc("POST /people/signout", a.auth(a.requireRole("owner", a.signOutMember)))
 	mux.HandleFunc("POST /p/{slug}/auth-impersonate", a.auth(admin(a.impersonateUser)))
 	mux.HandleFunc("POST /p/{slug}/ai-sql", a.auth(proj(a.aiSQL)))
+	mux.HandleFunc("POST /p/{slug}/ai-chat", a.auth(proj(a.aiChat)))
 	mux.HandleFunc("GET /api/cli/projects", a.auth(a.cliProjects))
 	mux.HandleFunc("GET /p/{slug}/usage", a.auth(proj(a.usagePage)))
 	mux.HandleFunc("POST /p/{slug}/fdw-create", a.auth(admin(a.fdwCreate)))

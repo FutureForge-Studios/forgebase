@@ -13,6 +13,14 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.13] - 2026-08-23
+
+### Added
+- A floating AI assistant on every project page: multi-turn chat that
+  knows the project's live schema and the whole platform - data questions
+  and how-do-I questions alike. SQL replies carry Copy and
+  Open-in-SQL-editor buttons. Same bring-your-own-key model.
+
 ## [1.4.12] - 2026-08-23
 
 ### Added

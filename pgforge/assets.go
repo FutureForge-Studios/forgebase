@@ -537,6 +537,88 @@ var shellTmpl = template.Must(template.New("shell").Funcs(funcs).Parse(`<!doctyp
     </div>
   </div>
 </div>
+{{if .IsProj}}
+<button id="aifab" onclick="aidTog()" title="AI Assistant - ask about your data or any ForgeBase feature" style="position:fixed;right:1.2rem;bottom:1.2rem;z-index:60;width:48px;height:48px;border-radius:50%;border:none;background:hsl(262 60% 45%);color:#fff;cursor:pointer;box-shadow:0 4px 14px hsl(262 60% 45% / .45);display:flex;align-items:center;justify-content:center">{{icon "sparkle"}}</button>
+<div id="aidrawer" style="display:none;position:fixed;right:1.2rem;bottom:5.2rem;z-index:60;width:min(400px,calc(100vw - 2.4rem));height:min(560px,calc(100vh - 8rem));background:hsl(var(--card));border:1px solid hsl(262 60% 45% / .4);border-radius:1rem;box-shadow:0 12px 40px rgb(0 0 0 / .18);flex-direction:column;overflow:hidden">
+  <div style="display:flex;align-items:center;gap:.5rem;padding:.7rem .9rem;border-bottom:1px solid hsl(var(--border));background:hsl(262 60% 45% / .06)">
+    <b style="font-size:13.5px">AI Assistant</b><span class="muted" style="font-size:11.5px">· {{.Slug}}</span>
+    <div class="spacer"></div>
+    <button class="copy" onclick="aidClear()" title="Clear conversation">{{icon "trash"}}</button>
+    <button class="copy" onclick="aidTog()" title="Close">✕</button>
+  </div>
+  <div id="aidmsgs" style="flex:1;overflow-y:auto;padding:.8rem;display:flex;flex-direction:column;gap:.6rem;font-size:13px;line-height:1.55"></div>
+  <div style="padding:.6rem;border-top:1px solid hsl(var(--border));display:flex;gap:.4rem">
+    <textarea id="aidin" rows="2" placeholder="Ask about your data or any feature... (Enter sends)" style="flex:1;resize:none;font-size:13px" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();aidSend();}"></textarea>
+    <button id="aidgo" class="btn btn-primary btn-sm" onclick="aidSend()" style="background:hsl(262 60% 45%);align-self:flex-end">Send</button>
+  </div>
+</div>
+<script>
+(function(){
+var slug={{.Slug}};
+var KEY='aichat-'+slug;
+function hist(){try{return JSON.parse(sessionStorage.getItem(KEY)||'[]')}catch(e){return []}}
+function saveHist(h){try{sessionStorage.setItem(KEY,JSON.stringify(h.slice(-12)))}catch(e){}}
+window.aidTog=function(){var d=document.getElementById('aidrawer');
+ if(d.style.display==='none'){d.style.display='flex';render();document.getElementById('aidin').focus();}
+ else{d.style.display='none';}};
+window.aidClear=function(){saveHist([]);render();};
+function bubble(role,text){
+ var b=document.createElement('div');
+ b.style.cssText=role==='user'
+  ?'align-self:flex-end;max-width:88%;background:hsl(262 60% 45%);color:#fff;padding:.5rem .7rem;border-radius:.8rem .8rem .2rem .8rem;white-space:pre-wrap;word-break:break-word'
+  :'align-self:flex-start;max-width:92%;background:hsl(var(--bg));padding:.5rem .7rem;border-radius:.8rem .8rem .8rem .2rem;word-break:break-word';
+ if(role==='user'){b.textContent=text;return b;}
+ var FENCE=String.fromCharCode(96,96,96); // three backticks (cannot appear literally in this Go raw string)
+ var parts=text.split(FENCE);
+ for(var i=0;i<parts.length;i++){
+  if(i%2===0){
+   if(parts[i]){var t=document.createElement('div');t.style.whiteSpace='pre-wrap';t.textContent=parts[i].trim();b.appendChild(t);}
+  }else{
+   var code=parts[i].replace(/^[a-z]*\n/,'');
+   var wrap=document.createElement('div');wrap.style.cssText='margin:.4rem 0;border:1px solid hsl(var(--border));border-radius:.5rem;overflow:hidden';
+   var pre=document.createElement('pre');pre.style.cssText='margin:0;padding:.5rem .6rem;font-size:11.5px;overflow-x:auto;font-family:var(--mono)';pre.textContent=code.trim();
+   var bar=document.createElement('div');bar.style.cssText='display:flex;gap:.4rem;padding:.25rem .5rem;border-top:1px solid hsl(var(--border));background:hsl(var(--bg))';
+   var cp=document.createElement('button');cp.className='btn btn-ghost btn-sm';cp.style.cssText='padding:.15rem .5rem;font-size:11px';cp.textContent='Copy';
+   cp.onclick=(function(c){return function(){navigator.clipboard.writeText(c);this.textContent='Copied';};})(code.trim());
+   var run=document.createElement('button');run.className='btn btn-ghost btn-sm';run.style.cssText='padding:.15rem .5rem;font-size:11px';run.textContent='Open in SQL editor';
+   run.onclick=(function(c){return function(){try{sessionStorage.setItem('ai-handoff-'+slug,c)}catch(e){};location='/p/'+slug+'/sql';};})(code.trim());
+   bar.appendChild(cp);bar.appendChild(run);
+   wrap.appendChild(pre);wrap.appendChild(bar);b.appendChild(wrap);
+  }
+ }
+ return b;
+}
+function render(){
+ var m=document.getElementById('aidmsgs');m.innerHTML='';
+ var h=hist();
+ if(!h.length){var e=document.createElement('div');e.className='muted';e.style.fontSize='12px';
+  e.textContent='Ask anything: "which customers signed up this week?", "how do I enable RLS on orders?", "what does the pooled port do?" - I can see this project\'s schema and I know every ForgeBase feature.';
+  m.appendChild(e);}
+ for(var i=0;i<h.length;i++){m.appendChild(bubble(h[i].role,h[i].content));}
+ m.scrollTop=m.scrollHeight;
+}
+window.aidSend=function(){
+ var inp=document.getElementById('aidin');var txt=inp.value.trim();if(!txt)return;
+ var go=document.getElementById('aidgo');
+ var h=hist();h.push({role:'user',content:txt});saveHist(h);inp.value='';render();
+ var m=document.getElementById('aidmsgs');
+ var th=document.createElement('div');th.className='muted';th.style.fontSize='12px';th.textContent='Thinking...';m.appendChild(th);m.scrollTop=m.scrollHeight;
+ go.disabled=true;
+ fetch('/p/'+slug+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:hist()})})
+  .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j}})})
+  .then(function(x){go.disabled=false;
+   var h2=hist();
+   if(!x.ok){
+    var msg=x.j.message||'request failed';
+    if(msg.indexOf('Account')>=0||msg.indexOf('configure')>=0){msg='No AI key set up yet - add your provider and key on the Account page (top-right avatar), then ask again.';}
+    h2.push({role:'assistant',content:msg});
+   }else{h2.push({role:'assistant',content:x.j.reply});}
+   saveHist(h2);render();})
+  .catch(function(){go.disabled=false;var h2=hist();h2.push({role:'assistant',content:'Could not reach the panel - try again.'});saveHist(h2);render();});
+};
+})();
+</script>
+{{end}}
 </body></html>`))
 
 // renderShell wraps page content in the full dashboard chrome.

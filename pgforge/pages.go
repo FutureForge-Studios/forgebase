@@ -595,6 +595,11 @@ document.getElementById('sqlform').addEventListener('submit',function(){
  TS.tabs[TS.a].q=document.getElementById('buf').value||q.value;tsave();});
 trender();
 tsave();
+(function(){try{
+ var hk='ai-handoff-'+location.pathname.split('/')[2];
+ var v=sessionStorage.getItem(hk);
+ if(v){sessionStorage.removeItem(hk);q.value=v;paint();}
+}catch(e){}})();
 function aiToggle(){var p=document.getElementById('aipanel');
  p.style.display=p.style.display==='none'?'block':'none';
  if(p.style.display==='block'){document.getElementById('aiq').focus();}}
