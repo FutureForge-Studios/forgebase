@@ -80,15 +80,16 @@ func (a *app) setSecondaryDomain(w http.ResponseWriter, r *http.Request) {
 		redirectMsg(w, r, "/system", "Secondary domain removed. The primary domain keeps serving everything.")
 		return
 	}
-	redirectMsg(w, r, "/system", "Secondary domain active: point "+d+", *."+d+" (and keep db."+d+" un-proxied) at this server. Certificates are issued automatically on first visit.")
+	redirectMsg(w, r, "/system", "Legacy domain alias active: "+d+" and *."+d+" keep serving existing links and connection strings; with the redirect on, browsers landing on its panel move to the primary. Certificates are issued automatically on first visit.")
 }
 
-// dbHostForDisplay is the hostname shown in connection strings: db.<secondary>
-// once a secondary domain is set (so HTTP hostnames can be proxied later
-// without touching database traffic), else the legacy apex.
+// dbHostForDisplay is the hostname shown in connection strings. With a
+// secondary (legacy) domain configured, database traffic standardizes on
+// db.<primary> - a plain DNS record that stays direct even if the HTTP
+// hostnames move behind a proxy. Single-domain installs keep the apex.
 func (a *app) dbHostForDisplay() string {
-	if sec := a.secondaryDomain(); sec != "" {
-		return "db." + sec
+	if a.secondaryDomain() != "" {
+		return "db." + a.cfg.domain
 	}
 	return a.cfg.domain
 }

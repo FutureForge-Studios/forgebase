@@ -42,6 +42,10 @@ if [ -t 0 ]; then
   if [ -z "$ACME_EMAIL" ]; then
     read -rp " Email for Let's Encrypt TLS certificates: " ACME_EMAIL
   fi
+  if [ -z "${LEGACY_DOMAIN:-}" ]; then
+    read -rp " Legacy domain alias to keep serving old links (optional, Enter to skip): " LEGACY_DOMAIN || LEGACY_DOMAIN=""
+    LEGACY_DOMAIN="$(echo "${LEGACY_DOMAIN:-}" | tr 'A-Z' 'a-z' | tr -d ' ')"
+  fi
 fi
 [ -z "$DOMAIN" ] && { echo "Set DOMAIN=<your.domain> (with sudo -E)"; exit 1; }
 [ -z "$ACME_EMAIL" ] && { echo "Set ACME_EMAIL=<you@example.com> (with sudo -E)"; exit 1; }
@@ -249,6 +253,20 @@ if [ -z "${SKIP_FIREWALL:-}" ]; then
   sh "$REPO_DIR/scripts/setup-firewall.sh"
 fi
 
+# ----------------------------------------------------------------- legacy alias
+# Optional second domain that keeps old links + connection strings working
+# (panel redirects its apex to the primary). Stored in the meta DB settings.
+if [ -n "${LEGACY_DOMAIN:-}" ] && [ "$LEGACY_DOMAIN" != "$DOMAIN" ]; then
+  docker exec pgforge-db psql -U pgforge -d pgforge -c     "INSERT INTO settings(key,value) VALUES ('domain_secondary','$LEGACY_DOMAIN')
+     ON CONFLICT (key) DO UPDATE SET value='$LEGACY_DOMAIN';
+     INSERT INTO settings(key,value) VALUES ('panel_redirect','1')
+     ON CONFLICT (key) DO UPDATE SET value='1'" >/dev/null 2>&1   || docker exec pgforge-db psql -U postgres -d pgforge -c     "INSERT INTO settings(key,value) VALUES ('domain_secondary','$LEGACY_DOMAIN')
+     ON CONFLICT (key) DO UPDATE SET value='$LEGACY_DOMAIN';
+     INSERT INTO settings(key,value) VALUES ('panel_redirect','1')
+     ON CONFLICT (key) DO UPDATE SET value='1'" >/dev/null 2>&1 || true
+  echo "==> Legacy alias: $LEGACY_DOMAIN (+ *.$LEGACY_DOMAIN) keeps old links working"
+fi
+
 # ----------------------------------------------------------------- hardening
 install -m 0755 "$REPO_DIR/scripts/harden-server.sh" /opt/pgforge/bin/harden-server.sh
 if [ -z "${SKIP_HARDENING:-}" ]; then
@@ -270,9 +288,15 @@ echo "     password : ${PANEL_PASS}"
 echo "   Postgres   : ${DOMAIN}:5432 (TLS)   Pooler: ${DOMAIN}:6543"
 echo "   pgforged   : $(systemctl is-active pgforged)"
 echo
-echo " Save PANEL_PASS into your local .env. Off-box backups:"
+echo " Save PANEL_PASS into your local .env."
+echo
+echo " Off-box backups (STRONGLY recommended - full disaster recovery):"
 echo "   apt install rclone && rclone config"
 echo "   echo '<remote>:<path>' > /opt/pgforge/backup_remote"
+echo "   The nightly sync then mirrors dumps, basebackups, WAL and an"
+echo "   ENCRYPTED disaster kit. Copy /opt/pgforge/recovery.pass (created"
+echo "   on the first backup run) somewhere OFF this server - it opens the"
+echo "   kit. Rebuild procedure: docs/DISASTER-RECOVERY.md"
 echo "=================================================================="
 echo " ForgeBase by FutureForge Studios Private Limited (ffstudios.io)"
 echo " Made with care in India."

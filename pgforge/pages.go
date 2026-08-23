@@ -2278,15 +2278,15 @@ const systemBody = `
 </div>
 <div class="card" style="margin-bottom:1rem">
   <h2>Domains</h2>
-  <p class="muted" style="font-size:12.5px;margin:.4rem 0 .6rem">Primary: <code>{{.Domain}}</code> (always keeps working). Add a secondary domain to serve the panel, project APIs, and the status page there too - certificates are automatic on first visit. Connection strings then show <code>db.&lt;secondary&gt;</code> for Postgres so the web hostnames can sit behind a proxy later; the old strings keep working forever.</p>
+  <p class="muted" style="font-size:12.5px;margin:.4rem 0 .6rem">Primary: <code>{{.Domain}}</code>. A legacy domain alias keeps every old link and connection string working - the panel, project APIs and status page answer on both, certificates are automatic on first visit, and connection strings standardize on <code>db.{{.Domain}}</code> for Postgres.</p>
   {{if .IsOwner}}
   <form method="post" action="/system/secondary-domain" style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center">
-    <input type="text" name="domain" placeholder="base.example.com" value="{{.SecondaryDomain}}" style="flex:1;min-width:220px">
+    <input type="text" name="domain" placeholder="old.example.com" value="{{.SecondaryDomain}}" style="flex:1;min-width:220px">
     <label style="display:flex;align-items:center;gap:.35rem;font-size:12px;cursor:pointer">
-      <input type="checkbox" name="redirect" {{if .PanelRedirect}}checked{{end}} style="width:auto;margin:0"> redirect old panel here</label>
+      <input type="checkbox" name="redirect" {{if .PanelRedirect}}checked{{end}} style="width:auto;margin:0"> redirect its panel to the primary</label>
     <button class="btn btn-ghost btn-sm" type="submit">Save</button>
   </form>
-  <p class="muted" style="font-size:11px;margin:.4rem 0 0">DNS needed: <code>@</code> and <code>*</code> A-records for the secondary domain pointing at this server. Keep <code>db.&lt;secondary&gt;</code> un-proxied (direct DNS) - database traffic cannot pass through a web proxy.</p>
+  <p class="muted" style="font-size:11px;margin:.4rem 0 0">DNS: keep the alias's <code>@</code> and <code>*</code> A-records pointing here for as long as old links should work. Keep <code>db.{{.Domain}}</code> un-proxied (direct DNS) - database traffic cannot pass through a web proxy. Clearing the field drops the alias.</p>
   {{end}}
 </div>
 <div class="card" style="margin-bottom:1rem">

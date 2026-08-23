@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.16"
+const appVersion = "1.4.17"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.17", Date: "2026-08-23",
+		Summary: "Primary-domain move, first-class.",
+		Sections: []changeSection{
+			{"Changed", []string{
+				"The dual-domain model now treats the PRIMARY as home and the second domain as a legacy alias: the alias keeps every old link, API call and connection string working forever, its panel redirects browsers to the primary, and connection strings standardize on db.<primary>. The installer asks for an optional legacy alias on fresh installs and the System page wording matches.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.16", Date: "2026-08-23",
 		Summary: "The assistant streams, renders, and every session is now visible.",

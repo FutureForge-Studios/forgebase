@@ -428,11 +428,12 @@ func (a *app) rootHandler(panel http.Handler) http.Handler {
 					return
 				}
 			case sub == "":
-				// apex = the panel. Optionally move browsers from the old
-				// domain to the new one (GET only; APIs and forms untouched).
-				if dom == a.cfg.domain && sec != "" && r.Method == http.MethodGet &&
+				// apex = the panel. Optionally move browsers from the LEGACY
+				// (secondary) apex to the primary (GET only; APIs and forms
+				// untouched - the alias keeps serving them forever).
+				if dom == sec && sec != "" && r.Method == http.MethodGet &&
 					a.panelRedirectOn() && r.URL.Path != "/healthz" && !strings.HasPrefix(r.URL.Path, "/internal/") {
-					http.Redirect(w, r, "https://"+sec+r.URL.RequestURI(), http.StatusFound)
+					http.Redirect(w, r, "https://"+a.cfg.domain+r.URL.RequestURI(), http.StatusFound)
 					return
 				}
 			}

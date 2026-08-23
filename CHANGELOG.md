@@ -13,6 +13,14 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.17] - 2026-08-23
+
+### Changed
+- Dual-domain model inverted to primary + legacy alias: the alias keeps
+  old links and connection strings alive and redirects its panel to the
+  primary; connection strings standardize on db.<primary>. install.sh
+  gained an optional legacy-alias prompt and a disaster-recovery summary.
+
 ## [1.4.16] - 2026-08-23
 
 ### Added
