@@ -52,13 +52,43 @@ if [ "${USED_PCT:-0}" -ge 80 ]; then
   find "$OUT/wal" -maxdepth 1 -type f -name '*.part' -mmin +10 -delete 2>/dev/null || true
 fi
 
-# 2b) hard size cap: a write-churn-heavy tenant can produce dead WAL faster
-# than any anchor logic reclaims it. Above WAL_ARCHIVE_MAX_GB (default 8) the
-# oldest segments go regardless - shrinking the PITR window, loudly, beats
-# the box dying of a full disk (the 2026-08-22 lesson, twice).
+# 2b) hard size cap -> COMPACTION, not amputation. Above WAL_ARCHIVE_MAX_GB
+# (default 8) the archive is no longer blindly trimmed: we take a FRESH
+# basebackup and re-anchor the WAL archive to it, so point-in-time recovery
+# stays CONTINUOUS (recent base + small tail) and the archive collapses.
+# A busy-but-honest tenant writing hundreds of MB of WAL per hour then costs
+# one automatic basebackup every day or two instead of a shrinking PITR
+# window and an alert. Guards: at most one auto-basebackup per 12h, and only
+# with 3GB+ free disk. Only if compaction cannot run - or the archive is
+# STILL over the cap afterwards (true runaway) - does the old trim-oldest
+# path fire, loudly.
 CAP_GB="${WAL_ARCHIVE_MAX_GB:-8}"
 WAL_KB="$(du -sk "$OUT/wal" 2>/dev/null | cut -f1)"
 CAP_KB=$((CAP_GB * 1024 * 1024))
+# compact proactively from 75% of the cap - waiting for a hard overrun just
+# leaves the archive hovering at the cap with hourly trims and alerts
+if [ "${WAL_KB:-0}" -gt $((CAP_KB * 3 / 4)) ]; then
+  STAMP=/opt/pgforge/last_auto_basebackup
+  NOW="$(date +%s)"
+  LAST="$(cat "$STAMP" 2>/dev/null || echo 0)"
+  FREE_KB="$(df --output=avail "$OUT" 2>/dev/null | tail -1 | tr -dc '0-9')"
+  if [ $((NOW - LAST)) -ge 43200 ] && [ "${FREE_KB:-0}" -gt $((3 * 1024 * 1024)) ]; then
+    BB="base-$(date -u +%F-%H%M%S)"
+    echo "wal-prune: archive over ${CAP_GB}GB - compacting (fresh basebackup $BB + re-anchor)"
+    if docker exec "$CONT" sh -c "rm -rf /physical/$BB && pg_basebackup -U postgres -D /physical/$BB -Ft -z -X none" 2>/dev/null; then
+      echo "$NOW" > "$STAMP"
+      # keep the newest 2 basebackups (same rule as the nightly retention)
+      ls -d "$OUT"/physical/base-* 2>/dev/null | sort | head -n -2 | while read -r d; do rm -rf "$d"; done
+      NEWSEG="$(manifest_cutseg "$OUT/physical/$BB")" || true
+      [ -n "$NEWSEG" ] && docker exec "$CONT" pg_archivecleanup -x .gz /wal-archive "$NEWSEG" 2>/dev/null || true
+      WAL_KB="$(du -sk "$OUT/wal" | cut -f1)"
+      echo "wal-prune: compacted - archive now $((WAL_KB / 1024))MB, PITR continuous from $BB"
+      sh /opt/pgforge/bin/alert-notify.sh "ForgeBase: WAL archive auto-compacted (fresh basebackup, PITR stays continuous). A tenant is writing heavily - see per-project Usage pages." || true
+    else
+      echo "wal-prune: auto-basebackup FAILED - falling back to trim"
+    fi
+  fi
+fi
 if [ "${WAL_KB:-0}" -gt "$CAP_KB" ]; then
   for f in $(ls "$OUT"/wal/0*.gz 2>/dev/null | sort); do
     rm -f "$f"

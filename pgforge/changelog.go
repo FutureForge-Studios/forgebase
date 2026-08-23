@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.17"
+const appVersion = "1.4.18"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,18 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.18", Date: "2026-08-23",
+		Summary: "The WAL cap heals itself now.",
+		Sections: []changeSection{
+			{"Changed", []string{
+				"When the WAL archive grows past three quarters of its cap, the platform now COMPACTS instead of trimming: it takes a fresh basebackup, re-anchors the archive to it, and point-in-time recovery stays continuous from a recent base with a small tail - no shrinking window, no recurring alert. Guarded to at most one automatic basebackup per 12 hours and only with disk to spare; the loud trim-oldest path remains strictly as the runaway fallback. First live run collapsed an 8GB archive to 2.5MB and freed 7GB of disk.",
+			}},
+			{"Added", []string{
+				"A new Advisor rule spots the delete-everything-reinsert-everything sync pattern (matched insert and delete counts) and shows the upsert-with-change-detection alternative that writes only what actually changed.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.17", Date: "2026-08-23",
 		Summary: "Primary-domain move, first-class.",

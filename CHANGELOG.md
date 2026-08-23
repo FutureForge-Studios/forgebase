@@ -13,6 +13,18 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.18] - 2026-08-23
+
+### Changed
+- The WAL-archive cap compacts instead of trimming: past 75% of the cap a
+  fresh basebackup is taken and the archive re-anchors to it - PITR stays
+  continuous, the alert stops recurring. At most one auto-basebackup per
+  12h, disk-guarded; trim-oldest remains only as the runaway fallback.
+
+### Added
+- Advisor rule for the delete-all-reinsert-all sync pattern, with the
+  upsert-with-change-detection fix spelled out.
+
 ## [1.4.17] - 2026-08-23
 
 ### Changed

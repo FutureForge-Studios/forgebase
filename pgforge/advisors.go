@@ -237,6 +237,29 @@ func (a *app) runAdvisors(slug string) []advisory {
 		}
 	}
 
+	// ---- performance: full-refresh sync pattern (delete-all + reinsert-all).
+	// Matched insert and delete counts on a table mean a job wipes and
+	// reloads it repeatedly - every run writes WAL for every row even when
+	// nothing changed (the 2026-08-23 profitzon pattern).
+	if rows, err := db.Query(`SELECT relname, n_tup_ins, n_tup_del FROM pg_stat_user_tables
+		WHERE schemaname='public' AND n_tup_ins > 10000
+			AND n_tup_del > n_tup_ins*8/10 AND n_tup_del < n_tup_ins*12/10
+		ORDER BY n_tup_ins DESC LIMIT 5`); err == nil {
+		var hits []string
+		for rows.Next() {
+			var t string
+			var ins, del int64
+			rows.Scan(&t, &ins, &del)
+			hits = append(hits, fmt.Sprintf("%s (%d inserted, %d deleted)", t, ins, del))
+		}
+		rows.Close()
+		if len(hits) > 0 {
+			add("INFO", "performance", "Tables refreshed by delete-and-reinsert",
+				fmt.Sprintf("%s - matching insert and delete counts suggest a sync job wipes and reloads these tables on every run, generating write-ahead log for every row even when nothing changed.", summarize(hits, 3)),
+				"Upsert with change detection instead: INSERT ... ON CONFLICT (key) DO UPDATE SET ... WHERE (t.*) IS DISTINCT FROM (excluded.*) - only changed rows get written, and the WAL volume drops to what actually changed.")
+		}
+	}
+
 	// ---- performance: TOAST write churn (large values rewritten constantly).
 	// The signature is a toast table with huge, roughly-matched insert and
 	// delete counts: some column holds a big value (raw API payloads, blobs
