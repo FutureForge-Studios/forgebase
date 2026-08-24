@@ -13,6 +13,14 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.22] - 2026-08-25
+
+### Fixed
+- Outgoing mail had no Message-ID or Date header; Gmail (and other strict
+  providers) reject such messages outright with 550-5.7.1
+  RfcMessageNonCompliant. All mail now carries a unique Message-ID, a
+  Date header and a Q-encoded Subject.
+
 ## [1.4.21] - 2026-08-23
 
 ### Added

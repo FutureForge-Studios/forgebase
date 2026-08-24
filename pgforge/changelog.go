@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.21"
+const appVersion = "1.4.22"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.22", Date: "2026-08-25",
+		Summary: "Auth emails now reach Gmail (missing Message-ID header).",
+		Sections: []changeSection{
+			{"Fixed", []string{
+				"Outgoing emails carried no Message-ID or Date header, so strict providers refused them outright - Gmail answers \"550-5.7.1 Messages missing a valid Message-ID header are not accepted\" and the mail bounces. Every message now carries a unique Message-ID, a proper Date, and a correctly encoded Subject (non-ASCII subjects included). If your auth emails were vanishing, this was why.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.21", Date: "2026-08-23",
 		Summary: "One SMTP for the whole platform.",

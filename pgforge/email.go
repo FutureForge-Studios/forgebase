@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"mime"
 	"net/http"
 	"net/smtp"
 	"net/url"
@@ -53,6 +54,32 @@ func (a *app) authConfirmEmail(slug string) bool {
 	return v
 }
 
+// buildMessage assembles an RFC 5322 compliant HTML message. Message-ID and
+// Date are NOT optional in practice: Gmail rejects mail without a Message-ID
+// outright ("550-5.7.1 Messages missing a valid Message-ID header are not
+// accepted"), which silently bounced every auth email until 2026-08-25.
+// Subjects are Q-encoded so non-ASCII characters survive.
+func buildMessage(from, to, subject, htmlBody string) []byte {
+	domain := from
+	if i := strings.LastIndex(domain, "@"); i >= 0 {
+		domain = domain[i+1:]
+	}
+	domain = strings.Trim(domain, "<> ")
+	if domain == "" {
+		domain = "localhost"
+	}
+	now := time.Now()
+	msgID := fmt.Sprintf("<%s.%d@%s>", randHex(10), now.UnixNano(), domain)
+	return []byte("From: " + from + "\r\n" +
+		"To: " + to + "\r\n" +
+		"Subject: " + mime.QEncoding.Encode("UTF-8", subject) + "\r\n" +
+		"Message-ID: " + msgID + "\r\n" +
+		"Date: " + now.Format(time.RFC1123Z) + "\r\n" +
+		"MIME-Version: 1.0\r\n" +
+		"Content-Type: text/html; charset=UTF-8\r\n" +
+		"Content-Transfer-Encoding: 8bit\r\n\r\n" + htmlBody)
+}
+
 // sendEmail delivers an HTML email via the project's configured SMTP server
 // (PLAIN auth + STARTTLS). Returns an error if SMTP isn't configured.
 func (a *app) sendEmail(slug, to, subject, htmlBody string) error {
@@ -60,16 +87,12 @@ func (a *app) sendEmail(slug, to, subject, htmlBody string) error {
 	if !ok {
 		return fmt.Errorf("email (SMTP) is not configured for this project")
 	}
-	msg := "From: " + from + "\r\n" +
-		"To: " + to + "\r\n" +
-		"Subject: " + subject + "\r\n" +
-		"MIME-Version: 1.0\r\n" +
-		"Content-Type: text/html; charset=UTF-8\r\n\r\n" + htmlBody
 	var auth smtp.Auth
 	if user != "" {
 		auth = smtp.PlainAuth("", user, pass, host)
 	}
-	return smtp.SendMail(fmt.Sprintf("%s:%d", host, port), auth, from, []string{to}, []byte(msg))
+	return smtp.SendMail(fmt.Sprintf("%s:%d", host, port), auth, from, []string{to},
+		buildMessage(from, to, subject, htmlBody))
 }
 
 // signAuthToken makes a signed, project-scoped, time-limited token of the given
@@ -354,13 +377,12 @@ func (a *app) testSystemSMTP(w http.ResponseWriter, r *http.Request) {
 <td style="background-color:#f5f2eb;border:1px solid #e2dccc;border-radius:10px;padding:16px 26px;font-family:'Courier New',monospace;font-size:30px;font-weight:700;letter-spacing:10px;color:#22775f;">483921</td>
 </tr></table>
 <p style="margin:0;font-size:11.5px;color:#8d8578;">If this landed in spam, verify the from-address domain with your email provider (SPF/DKIM).</p>`)
-	msg := "From: " + from + "\r\nTo: " + to + "\r\nSubject: Platform email test\r\n" +
-		"MIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n" + body
 	var auth smtp.Auth
 	if user != "" {
 		auth = smtp.PlainAuth("", user, pass, host)
 	}
-	if err := smtp.SendMail(fmt.Sprintf("%s:%d", host, port), auth, from, []string{to}, []byte(msg)); err != nil {
+	if err := smtp.SendMail(fmt.Sprintf("%s:%d", host, port), auth, from, []string{to},
+		buildMessage(from, to, "Platform email test", body)); err != nil {
 		redirectErr(w, r, "/system", "Test failed: "+err.Error())
 		return
 	}
