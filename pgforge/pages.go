@@ -2016,7 +2016,7 @@ const realtimeBody = `
       <input type="checkbox" id="lvpause" style="width:auto;margin:0"> pause</label>
     <button class="btn btn-ghost btn-sm" onclick="lvClear()">Clear</button></div>
   <p class="muted" style="font-size:12.5px;margin:.3rem 0 .6rem">Every insert, update and delete as it happens - the same stream your app receives. Watch a row change in the Table editor and it appears here instantly.</p>
-  <div id="lvlist" style="max-height:330px;overflow-y:auto;border:1px solid hsl(var(--border));border-radius:.6rem"></div>
+  <div id="lvlist" style="height:460px;overflow-y:auto;border:1px solid hsl(var(--border));border-radius:.6rem"></div>
 </div>
 <script>
 (function(){
@@ -2042,7 +2042,8 @@ const realtimeBody = `
   body.textContent=rec?JSON.stringify(rec):'';
   d.appendChild(t);d.appendChild(kind);d.appendChild(tbl);d.appendChild(body);
   list.insertBefore(d,list.firstChild);
-  if(++n>200){list.removeChild(list.lastChild);n--;}
+  if(++n>100){list.removeChild(list.lastChild);n--;}
+  state.textContent='listening · '+n;
  }
  function connect(){
   var ws;
