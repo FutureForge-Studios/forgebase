@@ -2088,22 +2088,12 @@ const realtimeBody = `
   </form>
   <p class="muted" style="font-size:11.5px;margin-top:.5rem">With RLS filtering on, every INSERT/UPDATE event is delivered only to subscribers whose token could SELECT that row under your policies - exactly as the REST API would answer them. Costs one lightweight visibility query per distinct subscriber token per event; DELETE events (the row is gone) and <code>service_role</code> subscribers pass through. Without it, keep "require an authenticated key" on unless the data is public.</p>
 </div>
+{{if not .LiveKey}}
 <div class="card">
-  <div style="display:flex;align-items:center"><h2>Live tester</h2><div class="spacer"></div><span id="rtstatus" class="badge paused">connecting…</span></div>
-  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .6rem">This page is subscribed below. Insert a row (SQL editor or Data API) and watch it arrive.</p>
-  <div id="rtlog" class="mono" style="background:hsl(var(--bg));border:1px solid hsl(var(--border));border-radius:.6rem;padding:.7rem;height:200px;overflow-y:auto;font-size:11px"></div>
+  <div style="display:flex;align-items:center"><h2>Live events</h2></div>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 0">The live feed needs the admin role and a project JWT secret (enable the Data API once to mint one) - it subscribes with a real key, exactly like your app.</p>
 </div>
-<script>
-(function(){
-  var log=document.getElementById('rtlog'), st=document.getElementById('rtstatus');
-  try{
-    var ws=new WebSocket('{{.WS}}');
-    ws.onopen=function(){st.textContent='connected';st.className='badge active';};
-    ws.onclose=function(){st.textContent='disconnected';st.className='badge paused';};
-    ws.onmessage=function(e){var p=document.createElement('div');p.textContent=new Date().toLocaleTimeString()+'  '+e.data;log.prepend(p);};
-  }catch(err){st.textContent='error';}
-})();
-</script>
+{{end}}
 {{end}}
 ` + copyJS
 

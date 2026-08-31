@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.23"
+const appVersion = "1.4.24"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -26,13 +26,14 @@ type release struct {
 // releases, newest first.
 var releases = []release{
 	{
-		Version: "1.4.23", Date: "2026-08-25",
-		Summary: "Realtime: instant enable, and watch your changes live.",
+		Version: "1.4.24", Date: "2026-08-25",
+		Summary: "Realtime: instant enable, and a live feed that actually connects.",
 		Sections: []changeSection{
 			{"Added", []string{
 				"Live events on the Realtime page: a running feed of every insert, update and delete as it happens - colour-coded, newest first, with pause and clear. Edit a row in the Table editor and watch it appear. It is the same stream your app receives, so it doubles as proof that realtime is working.",
 			}},
 			{"Fixed", []string{
+				"The Realtime page's live tester always read \"disconnected\": it opened its WebSocket without a key, and realtime has required an authenticated key since streams became RLS-aware - so the server closed it instantly. Replaced by the new Live events feed, which subscribes with a real project key.",
 				"Enabling realtime (and Re-scan tables) took minutes on projects with many tables: every table was dropped and re-created its trigger, each needing an exclusive lock that had to queue behind live writes. The platform now reads the installed triggers first and touches only what actually differs - a re-scan with nothing to change is instant - and a table locked by a long query is skipped after five seconds instead of stalling the whole run.",
 			}},
 		},

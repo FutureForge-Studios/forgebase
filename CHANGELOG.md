@@ -13,13 +13,16 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
-## [1.4.23] - 2026-08-25
+## [1.4.24] - 2026-08-25
 
 ### Added
 - Live events feed on the Realtime page (colour-coded insert/update/
   delete, newest first, pause + clear), admin-only.
 
 ### Fixed
+- The old "Live tester" card never connected (it opened the WebSocket
+  with no apikey, which realtime rejects); replaced by the authenticated
+  Live events feed.
 - Enabling realtime / re-scanning tables no longer re-creates every
   trigger: only differing tables are touched (re-scan with no changes is
   instant), and lock_timeout stops one busy table stalling the run.
