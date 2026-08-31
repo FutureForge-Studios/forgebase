@@ -2007,6 +2007,59 @@ const realtimeBody = `
   <div class="cs"><span class="tag">WS URL</span><code id="ws">{{.WS}}</code><button class="copy" onclick="cp('ws')">{{icon "copy"}}</button></div>
   <div class="cs"><span class="tag">Browser</span><code id="js">const ws = new WebSocket('{{.WS}}'); ws.onmessage = e => console.log(JSON.parse(e.data));</code><button class="copy" onclick="cp('js')">{{icon "copy"}}</button></div>
 </div>
+{{if .LiveKey}}
+<div class="card" style="margin-bottom:1rem">
+  <div style="display:flex;align-items:center;gap:.6rem"><h2>Live events</h2>
+    <span id="lvstate" class="badge paused">connecting</span>
+    <div class="spacer"></div>
+    <label class="muted" style="font-size:12px;display:flex;align-items:center;gap:.35rem;cursor:pointer">
+      <input type="checkbox" id="lvpause" style="width:auto;margin:0"> pause</label>
+    <button class="btn btn-ghost btn-sm" onclick="lvClear()">Clear</button></div>
+  <p class="muted" style="font-size:12.5px;margin:.3rem 0 .6rem">Every insert, update and delete as it happens - the same stream your app receives. Watch a row change in the Table editor and it appears here instantly.</p>
+  <div id="lvlist" style="max-height:330px;overflow-y:auto;border:1px solid hsl(var(--border));border-radius:.6rem"></div>
+</div>
+<script>
+(function(){
+ var url={{.WS}}+"?apikey="+{{.LiveKey}};
+ var list=document.getElementById('lvlist'), state=document.getElementById('lvstate');
+ var n=0;
+ window.lvClear=function(){list.innerHTML='';n=0;};
+ function row(ev){
+  if(document.getElementById('lvpause').checked) return;
+  var d=document.createElement('div');
+  d.style.cssText='display:flex;gap:.6rem;align-items:baseline;padding:.4rem .6rem;border-bottom:1px solid hsl(var(--border));font-size:12px';
+  var t=document.createElement('span');
+  t.style.cssText='font-family:var(--mono);font-size:10.5px;color:hsl(var(--muted-fg));white-space:nowrap';
+  t.textContent=new Date().toLocaleTimeString();
+  var kind=document.createElement('span');
+  var colors={INSERT:'160 84% 30%',UPDATE:'35 80% 42%',DELETE:'0 70% 45%'};
+  kind.style.cssText='font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.06em;padding:.1rem .4rem;border-radius:999px;white-space:nowrap;color:hsl('+(colors[ev.type]||'220 9% 46%')+');background:hsl('+(colors[ev.type]||'220 9% 46%')+' / .12)';
+  kind.textContent=ev.type||'EVENT';
+  var tbl=document.createElement('b');tbl.style.whiteSpace='nowrap';tbl.textContent=ev.table||ev.channel||'';
+  var body=document.createElement('code');
+  body.style.cssText='flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:hsl(var(--muted-fg))';
+  var rec=ev.record||ev.old_record||ev.payload;
+  body.textContent=rec?JSON.stringify(rec):'';
+  d.appendChild(t);d.appendChild(kind);d.appendChild(tbl);d.appendChild(body);
+  list.insertBefore(d,list.firstChild);
+  if(++n>200){list.removeChild(list.lastChild);n--;}
+ }
+ function connect(){
+  var ws;
+  try{ws=new WebSocket(url);}catch(e){state.textContent='unavailable';return;}
+  ws.onopen=function(){state.textContent='listening';state.className='badge active';};
+  ws.onmessage=function(e){
+   var ev;try{ev=JSON.parse(e.data);}catch(err){return;}
+   if(ev.type==='connected')return;
+   row(ev);
+  };
+  ws.onclose=function(){state.textContent='reconnecting';state.className='badge paused';setTimeout(connect,3000);};
+  ws.onerror=function(){try{ws.close();}catch(e){}};
+ }
+ connect();
+})();
+</script>
+{{end}}
 <div class="card" style="margin-bottom:1rem">
   <div style="display:flex;align-items:center;gap:.6rem"><h2>Captured changes per table</h2></div>
   <p class="muted" style="font-size:12.5px;margin:.3rem 0 .6rem">Choose which events each table publishes. This governs realtime streams AND webhooks - an event switched off here fires neither. New tables start with everything on.</p>

@@ -13,6 +13,17 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.23] - 2026-08-25
+
+### Added
+- Live events feed on the Realtime page (colour-coded insert/update/
+  delete, newest first, pause + clear), admin-only.
+
+### Fixed
+- Enabling realtime / re-scanning tables no longer re-creates every
+  trigger: only differing tables are touched (re-scan with no changes is
+  instant), and lock_timeout stops one busy table stalling the run.
+
 ## [1.4.22] - 2026-08-25
 
 ### Fixed

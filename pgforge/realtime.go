@@ -207,27 +207,61 @@ func (a *app) ensureChangeTriggers(slug string) error {
 		return err
 	}
 	pubs := a.rtPubConfig(slug)
-	for _, t := range a.listTables(db) {
-		q := pq.QuoteIdentifier(t)
-		db.Exec(fmt.Sprintf(`DROP TRIGGER IF EXISTS forgebase_rt ON public.%s`, q))
-		events := "INSERT OR UPDATE OR DELETE"
-		if p, ok := pubs[t]; ok {
-			var evs []string
-			if p[0] {
-				evs = append(evs, "INSERT")
-			}
-			if p[1] {
-				evs = append(evs, "UPDATE")
-			}
-			if p[2] {
-				evs = append(evs, "DELETE")
-			}
-			if len(evs) == 0 {
-				continue // publication fully off for this table
-			}
-			events = strings.Join(evs, " OR ")
+
+	// What is already installed? Re-creating a trigger that is already
+	// correct costs an ACCESS EXCLUSIVE lock per table, and on a busy
+	// database (constant writes) each of those waits its turn - which is
+	// what made "Enable realtime" take minutes on a 113-table project.
+	// One catalog query lets us touch ONLY what actually differs.
+	type ev struct{ ins, upd, del bool }
+	have := map[string]ev{}
+	if rows, err := db.Query(`SELECT c.relname,
+			(t.tgtype & 4) > 0, (t.tgtype & 16) > 0, (t.tgtype & 8) > 0
+		FROM pg_trigger t
+		JOIN pg_class c ON c.oid = t.tgrelid
+		JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname='public'
+		WHERE t.tgname='forgebase_rt' AND NOT t.tgisinternal`); err == nil {
+		for rows.Next() {
+			var name string
+			var e ev
+			rows.Scan(&name, &e.ins, &e.upd, &e.del)
+			have[name] = e
 		}
-		db.Exec(fmt.Sprintf(`CREATE TRIGGER forgebase_rt AFTER %s ON public.%s FOR EACH ROW EXECUTE FUNCTION forgebase_notify()`, events, q))
+		rows.Close()
+	}
+	// A table locked by a long-running query must not stall the whole run:
+	// fail that one fast and carry on. Applies to this pooled connection.
+	db.Exec(`SET lock_timeout = '5s'`)
+	defer db.Exec(`SET lock_timeout = 0`)
+
+	for _, t := range a.listTables(db) {
+		want := ev{true, true, true}
+		if p, ok := pubs[t]; ok {
+			want = ev{p[0], p[1], p[2]}
+		}
+		cur, installed := have[t]
+		if installed && cur == want {
+			continue // already exactly right - no lock, no DDL
+		}
+		q := pq.QuoteIdentifier(t)
+		if installed {
+			db.Exec(fmt.Sprintf(`DROP TRIGGER IF EXISTS forgebase_rt ON public.%s`, q))
+		}
+		var evs []string
+		if want.ins {
+			evs = append(evs, "INSERT")
+		}
+		if want.upd {
+			evs = append(evs, "UPDATE")
+		}
+		if want.del {
+			evs = append(evs, "DELETE")
+		}
+		if len(evs) == 0 {
+			continue // publication fully off for this table
+		}
+		db.Exec(fmt.Sprintf(`CREATE TRIGGER forgebase_rt AFTER %s ON public.%s FOR EACH ROW EXECUTE FUNCTION forgebase_notify()`,
+			strings.Join(evs, " OR "), q))
 	}
 	db.Exec(`CREATE SCHEMA IF NOT EXISTS forgebase`)
 	db.Exec(`CREATE OR REPLACE FUNCTION forgebase.broadcast(channel text, payload jsonb DEFAULT 'null')
@@ -733,12 +767,22 @@ func (a *app) realtimePage(w http.ResponseWriter, r *http.Request) {
 		h.mu.Unlock()
 	}
 	rtMu.Unlock()
+	// The in-panel live viewer subscribes with a real project key. Only
+	// admins get one rendered into the page (it is a credential), and only
+	// while realtime is on.
+	liveKey := ""
+	if enabled && a.atLeast(r, "admin") {
+		if _, service, _, ok := a.apiKeys(slug); ok {
+			liveKey = service
+		}
+	}
 	content := renderContent(realtimeBody, map[string]any{
 		"Slug": slug, "Enabled": enabled, "Tables": tables, "Clients": clients,
 		"RequireAuth": a.realtimeRequireAuth(slug),
 		"RLSChanges":  a.realtimeRLSOn(slug),
 		"Pubs":        a.rtPublications(slug),
 		"WS":          "wss://" + slug + "." + a.cfg.domain + "/realtime/v1",
+		"LiveKey":     liveKey,
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Realtime", Nav: "realtime", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Realtime"}}}, content)
