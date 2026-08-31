@@ -770,10 +770,13 @@ func (a *app) realtimePage(w http.ResponseWriter, r *http.Request) {
 	// The in-panel live viewer subscribes with a real project key. Only
 	// admins get one rendered into the page (it is a credential), and only
 	// while realtime is on.
+	// Sign directly from the project's JWT secret rather than going through
+	// apiKeys: realtime authenticates on the secret alone, so the viewer must
+	// work even when the Data API itself is switched off.
 	liveKey := ""
 	if enabled && a.atLeast(r, "admin") {
-		if _, service, _, ok := a.apiKeys(slug); ok {
-			liveKey = service
+		if secret, _ := a.apiConfig(slug); secret != "" {
+			liveKey = signJWT([]byte(secret), "service_role")
 		}
 	}
 	content := renderContent(realtimeBody, map[string]any{
