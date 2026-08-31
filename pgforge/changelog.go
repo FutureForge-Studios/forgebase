@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.24"
+const appVersion = "1.4.25"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.25", Date: "2026-08-25",
+		Summary: "Correct table count on Realtime.",
+		Sections: []changeSection{
+			{"Fixed", []string{
+				"\"Tables watched\" counted trigger EVENTS, not tables: a trigger firing on insert, update and delete counted three times, so 107 watched tables displayed as 321. It now reports the real number.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.24", Date: "2026-08-25",
 		Summary: "Realtime: instant enable, and a live feed that actually connects.",

@@ -13,6 +13,13 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.25] - 2026-08-25
+
+### Fixed
+- "Tables watched" on the Realtime page counted trigger events rather
+  than tables (INSERT+UPDATE+DELETE tripled the number): 107 tables read
+  as 321. Now counted from pg_trigger.
+
 ## [1.4.24] - 2026-08-25
 
 ### Added

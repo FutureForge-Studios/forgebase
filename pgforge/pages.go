@@ -2042,7 +2042,7 @@ const realtimeBody = `
   body.textContent=rec?JSON.stringify(rec):'';
   d.appendChild(t);d.appendChild(kind);d.appendChild(tbl);d.appendChild(body);
   list.insertBefore(d,list.firstChild);
-  if(++n>100){list.removeChild(list.lastChild);n--;}
+  if(++n>200){list.removeChild(list.lastChild);n--;}
   state.textContent='listening · '+n;
  }
  function connect(){

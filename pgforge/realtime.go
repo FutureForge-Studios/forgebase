@@ -758,7 +758,13 @@ func (a *app) realtimePage(w http.ResponseWriter, r *http.Request) {
 	var tables int
 	var clients int
 	if db, err := a.dbFor(slug); err == nil {
-		db.QueryRow(`SELECT count(*) FROM information_schema.triggers WHERE trigger_name='forgebase_rt'`).Scan(&tables)
+		// count TABLES, not trigger-events: information_schema.triggers emits
+		// one row per event, so a trigger on INSERT+UPDATE+DELETE counted
+		// three times (107 tables showed as "321 tables watched").
+		db.QueryRow(`SELECT count(*) FROM pg_trigger t
+			JOIN pg_class c ON c.oid = t.tgrelid
+			JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname='public'
+			WHERE t.tgname='forgebase_rt' AND NOT t.tgisinternal`).Scan(&tables)
 	}
 	rtMu.Lock()
 	if h, ok := rtHubs[slug]; ok {
