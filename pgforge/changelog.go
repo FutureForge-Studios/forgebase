@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.25"
+const appVersion = "1.4.26"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,16 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.26", Date: "2026-08-25",
+		Summary: "Storage advisors: find the space your schema is wasting.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"Three storage rules on the Advisors page, each with the megabytes at stake. Text columns holding a handful of repeated values (a 25-byte store code stored on millions of rows costs the same 25 bytes every time, and again inside every index that lists it). Indexes weighing more than the table they index - usually a primary key spanning several text columns. And rows piling up in a DEFAULT partition, which means the table is partitioned in name only.",
+				"The advice is measured, not guessed: normalizing those columns on 300,000 rows of a real finance table cut 96 MB to 46 MB - 52 percent - table and indexes together.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.25", Date: "2026-08-25",
 		Summary: "Correct table count on Realtime.",

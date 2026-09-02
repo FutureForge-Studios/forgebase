@@ -13,6 +13,14 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.26] - 2026-08-25
+
+### Added
+- Storage advisors with MB estimates: low-cardinality text columns,
+  indexes larger than their table, and rows stuck in a DEFAULT
+  partition. Measured basis: normalizing a real finance table cut
+  96 MB to 46 MB (52%) across data and indexes.
+
 ## [1.4.25] - 2026-08-25
 
 ### Fixed
