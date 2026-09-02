@@ -352,7 +352,23 @@ cd "` + repoDir + `" || { echo "!! repo dir missing"; exit 1; }
 # (hotfixes applied directly on the box) must never block an update. Discard
 # them and take upstream verbatim.
 git checkout -- . 2>/dev/null || true
-git pull --ff-only || { echo "!! git pull failed"; exit 1; }
+# GitHub rate-limits ANONYMOUS git fetches from datacenter IP ranges and
+# answers with a 401 "Repository not found" - which looks like a missing
+# repo but is throttling: the identical pull succeeds moments later.
+# Retry with backoff before giving up, and say what actually helps.
+pull_ok=0
+for attempt in 1 2 3 4 5; do
+  git pull --ff-only && { pull_ok=1; break; }
+  echo "   pull attempt $attempt failed (GitHub throttles anonymous fetches); retrying..."
+  sleep $((attempt * 5))
+done
+[ "$pull_ok" = 1 ] || {
+  echo "!! git pull failed after 5 attempts."
+  echo "   This is GitHub throttling anonymous git over this server's IP, not a broken repo."
+  echo "   Permanent fix: add a read-only deploy key and switch the remote to SSH -"
+  echo "   authenticated fetches are not subject to that limit. See docs/SELF-HOSTING.md."
+  exit 1
+}
 VER="$(git rev-parse --short HEAD)"
 echo ">> building $VER"
 ( cd pgforge && go build -ldflags "-X main.version=$VER -X main.buildTime=$(date -u +%FT%TZ)" -o /tmp/pgforged.upd . ) || { echo "!! build failed"; exit 1; }

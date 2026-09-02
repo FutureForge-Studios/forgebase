@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.26"
+const appVersion = "1.4.27"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.27", Date: "2026-09-03",
+		Summary: "The Update button survives GitHub's anonymous rate limit.",
+		Sections: []changeSection{
+			{"Fixed", []string{
+				"Update now could report \"started\" and then quietly stop. The cause was GitHub throttling anonymous git fetches from datacenter IP ranges and answering with a 401 that reads \"Repository not found\" - so the pull aborted before anything happened, even though the panel could still SEE the new release (update detection uses the GitHub API and raw.githubusercontent.com, which are not subject to that limit). The updater now retries with backoff, which clears the throttle in practice, and if it still cannot pull it says exactly what is happening and how to make it permanent with a read-only deploy key.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.26", Date: "2026-08-25",
 		Summary: "Storage advisors: find the space your schema is wasting.",

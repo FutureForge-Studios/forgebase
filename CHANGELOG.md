@@ -13,6 +13,15 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.27] - 2026-09-03
+
+### Fixed
+- "Update now" could report started and then stop: GitHub throttles
+  anonymous git fetches from datacenter IPs with a 401 that reads
+  "Repository not found". The updater retries with backoff and, if it
+  still fails, explains the cause and the deploy-key fix. Update
+  detection was never affected - it uses the API and raw hosts.
+
 ## [1.4.26] - 2026-08-25
 
 ### Added
