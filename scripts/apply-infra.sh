@@ -109,7 +109,10 @@ if [ "$MODE" = "--with-compose" ]; then
   env_set PG_WORK_MEM "${WM}MB"
   env_set PG_EFFECTIVE_CACHE "${EC}MB"
   env_set PG_MAINT_WORK_MEM "64MB"
-  env_set PG_AV_WORKERS "2"
+  # 4 workers, not 2: a single busy partitioned table can monopolise both slots
+  # for hours, and every other table then goes unvacuumed while its bloat grows.
+  # Peak cost is workers x maintenance_work_mem = 256MB, affordable at any tier.
+  env_set PG_AV_WORKERS "4"
   env_set PG_AV_NAPTIME "180"
   env_set PG_MEM_LIMIT "${ML}m"
   log "RAM tier: host ${memmb}MB -> shared_buffers=${SB}MB work_mem=${WM}MB effective_cache=${EC}MB mem_limit=${ML}m"

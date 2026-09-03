@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.27"
+const appVersion = "1.4.28"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,19 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.28", Date: "2026-09-03",
+		Summary: "Room to grow: the database can live on its own disk, and autovacuum gets enough workers to keep up.",
+		Sections: []changeSection{
+			{"Changed", []string{
+				"Autovacuum now runs four workers instead of two. With only two, a single busy partitioned table could hold both slots for hours while every other table went unvacuumed and quietly grew bloat. The peak cost is four times maintenance_work_mem, which is 256 MB, affordable on every RAM tier.",
+				"Postgres now gets 256 lock slots per transaction instead of the default 64. A query that touches a partitioned table takes one lock per partition it reads, so a table with a couple of years of monthly partitions plus its indexes could exhaust the default and fail mid-statement.",
+			}},
+			{"Added", []string{
+				"Data, WAL archive and physical backups can be moved onto a separate block volume without reinstalling. The move is a bind mount recorded in fstab, so nothing in the stack needs to know the new path and it survives reboots. See docs/STORAGE-PLAN-ppc.md for the procedure, which takes about thirty seconds of downtime.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.27", Date: "2026-09-03",
 		Summary: "The Update button survives GitHub's anonymous rate limit.",

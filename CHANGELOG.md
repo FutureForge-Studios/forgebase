@@ -13,6 +13,23 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.28] - 2026-09-03
+
+### Added
+- Data, WAL archive and physical backups can be relocated onto a separate block
+  volume without reinstalling. The move is a bind mount recorded in `/etc/fstab`
+  with `nofail`, so nothing in the stack needs to learn a new path and it
+  survives reboots. Procedure and verification steps are in
+  `docs/STORAGE-PLAN-ppc.md`; measured downtime on prod was 35 seconds.
+
+### Changed
+- Autovacuum runs four workers instead of two. With two, one busy partitioned
+  table could hold both slots for hours while every other table went unvacuumed
+  and accumulated bloat. Peak cost is workers x `maintenance_work_mem` = 256 MB.
+- `max_locks_per_transaction` raised from the default 64 to 256. A query against
+  a partitioned table takes a lock per partition it touches, so two years of
+  monthly partitions plus indexes could exhaust the default mid-statement.
+
 ## [1.4.27] - 2026-09-03
 
 ### Fixed
