@@ -785,7 +785,7 @@ const databaseBody = `
 function filterExt(){var q=document.getElementById('extsearch').value.toLowerCase();
   document.querySelectorAll('.ext-row').forEach(function(tr){
     tr.style.display=tr.getAttribute('data-name').toLowerCase().indexOf(q)<0?'none':'';});}
-</script>`
+</script>` + copyJS
 
 const backupsBody = `
 <div class="pagehead"><h1>Backup &amp; Restore</h1><p>Automatic nightly dumps, continuous WAL archiving and off-box copies for <b>{{.Slug}}</b>.</p></div>
@@ -971,7 +971,7 @@ const settingsBody = `
   <p class="muted" style="font-size:12.5px;margin:.3rem 0 .8rem">Deleting drops the database and all its data permanently. This cannot be undone.</p>
   <button class="btn btn-danger" onclick="askDel('{{.Slug}}')">{{icon "trash"}} Delete this project</button>
 </div>
-` + delDialog + copyJS
+` + delDialog
 
 const monitoringBody = `
 <div class="pagehead"><h1>Monitoring</h1><p>Live health and usage for <b>{{.Slug}}</b>. Counters are cumulative since the last stats reset.</p></div>
