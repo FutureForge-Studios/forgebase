@@ -1,0 +1,10 @@
+[Unit]
+Description=ForgeBase: give Postgres the real TLS certificate Caddy holds
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/pgforge/bin/sync-db-cert.sh
+StandardOutput=append:/var/log/pgforge-certsync.log
+StandardError=append:/var/log/pgforge-certsync.log

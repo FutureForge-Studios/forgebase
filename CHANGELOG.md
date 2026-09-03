@@ -13,6 +13,25 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.32] - 2026-09-03
+
+### Changed
+- Postgres and PgBouncer now serve the Let's Encrypt certificate Caddy already
+  holds for the advertised database hostname, replacing the self-signed one from
+  `install.sh`. Clients were previously stuck on `sslmode=require` (encrypted,
+  verifying nothing), and drivers that verify by default - node-postgres among
+  them - failed until told `rejectUnauthorized: false`. `sslmode=verify-full`
+  now works, and those client workarounds can be removed.
+- `scripts/sync-db-cert.sh` + `pgforge-certsync.timer` re-copy the certificate
+  daily so a Caddy renewal cannot leave the database on an expired one. The
+  script refuses to install an expired or unparseable certificate over a
+  working one, and does nothing when the fingerprint is unchanged.
+
+### Fixed
+- The "Connection & pooling" card printed the panel domain while the copyable
+  URLs next to it used the database hostname; those differ once a secondary
+  domain is configured. Both now render `dbHostForDisplay()`.
+
 ## [1.4.31] - 2026-09-03
 
 ### Added

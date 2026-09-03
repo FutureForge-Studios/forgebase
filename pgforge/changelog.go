@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.31"
+const appVersion = "1.4.32"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,19 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.32", Date: "2026-09-03",
+		Summary: "Postgres serves a real certificate, so drivers can verify it instead of being told to trust anything.",
+		Sections: []changeSection{
+			{"Changed", []string{
+				"The database now serves the Let's Encrypt certificate Caddy already holds for the hostname the panel hands out, instead of the self-signed one generated at install. Until now every client was stuck on sslmode=require - encrypted, but verifying nothing - and drivers that verify by default, node-postgres among them, failed outright unless you set rejectUnauthorized to false. Those workarounds can now come out: sslmode=verify-full works, and so does a plain pooled connection with no ssl options at all.",
+				"A daily check re-copies the certificate when Caddy renews it, so it cannot silently expire. It refuses to install anything expired or unreadable over a certificate that currently works.",
+			}},
+			{"Fixed", []string{
+				"The Connection and pooling card printed the panel domain while the copyable URLs beside it used the database hostname, which differ once a secondary domain exists. Both now show the same host.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.31", Date: "2026-09-03",
 		Summary: "The Database page shows the connection strings themselves, not just the ports.",

@@ -21,7 +21,7 @@ func TestDatabaseBodyRendersConnectionStrings(t *testing.T) {
 		"StmtTimeout": "", "IdleTimeout": "", "Pubs": []any{}, "FDW": []any{},
 		"ReplicaOn": true, "NInstalled": 0, "NAvail": 0,
 		"MaxConns": 200, "ConnLimit": 20, "Version": "17.10",
-		"Roles": []any{}, "Domain": "example.test", "CanAdmin": true,
+		"Roles": []any{}, "Domain": "example.test", "DBHost": "db.example.test", "CanAdmin": true,
 		"CanCreateDB": true,
 	}
 	out := string(renderContent(databaseBody, data))

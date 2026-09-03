@@ -1,0 +1,10 @@
+[Unit]
+Description=Check daily whether Caddy has renewed the database certificate
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

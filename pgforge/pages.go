@@ -699,9 +699,9 @@ const databaseBody = `
   <h2>Connection &amp; pooling</h2>
   <p class="muted" style="font-size:12.5px;margin:.3rem 0 .8rem">Two entry points to this database. Cluster max connections: <b style="color:hsl(var(--fg))">{{.MaxConns}}</b>.</p>
   <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.9rem">
-    <div><div class="label">Direct (session, TLS)</div><div style="font-size:14px">{{.Domain}}<b>:5432</b></div><div class="muted" style="font-size:11px">Prisma, migrations, long sessions</div></div>
-    <div><div class="label">Pooled (transaction)</div><div style="font-size:14px">{{.Domain}}<b>:6543</b></div><div class="muted" style="font-size:11px">serverless, high concurrency</div></div>
-    {{if .ReplicaOn}}<div><div class="label">Read-only replica</div><div style="font-size:14px">{{.Domain}}<b>:5434</b></div><div class="muted" style="font-size:11px">same credentials; writes refused - dashboards, reports, exports</div></div>{{end}}
+    <div><div class="label">Direct (session, TLS)</div><div style="font-size:14px">{{.DBHost}}<b>:5432</b></div><div class="muted" style="font-size:11px">Prisma, migrations, long sessions</div></div>
+    <div><div class="label">Pooled (transaction)</div><div style="font-size:14px">{{.DBHost}}<b>:6543</b></div><div class="muted" style="font-size:11px">serverless, high concurrency</div></div>
+    {{if .ReplicaOn}}<div><div class="label">Read-only replica</div><div style="font-size:14px">{{.DBHost}}<b>:5434</b></div><div class="muted" style="font-size:11px">same credentials; writes refused - dashboards, reports, exports</div></div>{{end}}
   </div>
   {{if .DirectURL}}<div style="margin-top:1rem">
     <div class="cs"><span class="tag">Direct</span><code id="db-d">{{.DirectURL}}</code><button class="copy" onclick="cp('db-d')">{{icon "copy"}}</button></div>
