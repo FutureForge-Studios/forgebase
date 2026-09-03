@@ -43,7 +43,14 @@ services:
       - -c
       - work_mem=${PG_WORK_MEM:-8MB}
       - -c
-      - autovacuum_max_workers=${PG_AV_WORKERS:-2}
+      - autovacuum_max_workers=${PG_AV_WORKERS:-4}
+      # Partitioned time-series schemas take one lock PER PARTITION. A project
+      # with 440 monthly partitions blows through the default 64 and fails with
+      # "out of shared memory: You might need to increase
+      # max_locks_per_transaction" mid-sync. Each slot is tiny; 256 at 200
+      # connections costs on the order of 30MB.
+      - -c
+      - max_locks_per_transaction=${PG_MAX_LOCKS:-256}
       # naptime is the per-DATABASE cycle: with dozens of DBs the launcher forks
       # a worker every naptime/N seconds, so keep the cadence relaxed.
       - -c
