@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.28"
+const appVersion = "1.4.29"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -26,6 +26,15 @@ type release struct {
 // releases, newest first.
 var releases = []release{
 	{
+		Version: "1.4.29", Date: "2026-09-03",
+		Summary: "A raised WAL ceiling now survives a restart.",
+		Sections: []changeSection{
+			{"Fixed", []string{
+				"The startup reconciler reset max_wal_size to 1 GB on every boot, silently undoing any raise an operator had made - and on a write-heavy database a low ceiling forces checkpoints far more often than needed. It now writes that setting only while it is still at the built-in default, the same rule already used for max_connections. min_wal_size and WAL compression are unchanged, so the disk-full protection stays in place.",
+			}},
+		},
+	},
+	{
 		Version: "1.4.28", Date: "2026-09-03",
 		Summary: "Room to grow: the database can live on its own disk, and autovacuum gets enough workers to keep up.",
 		Sections: []changeSection{
@@ -35,9 +44,6 @@ var releases = []release{
 			}},
 			{"Added", []string{
 				"Data, WAL archive and physical backups can be moved onto a separate block volume without reinstalling. The move is a bind mount recorded in fstab, so nothing in the stack needs to know the new path and it survives reboots. See docs/STORAGE-PLAN-ppc.md for the procedure, which takes about thirty seconds of downtime.",
-			}},
-			{"Fixed", []string{
-				"The startup reconciler reset max_wal_size to 1 GB on every boot, silently undoing any raise an operator had made - and on a write-heavy database a low ceiling forces checkpoints far more often than needed. It now writes that setting only while it is still at the built-in default, the same rule already used for max_connections.",
 			}},
 		},
 	},

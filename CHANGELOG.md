@@ -13,6 +13,16 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.29] - 2026-09-03
+
+### Fixed
+- The startup reconciler reset `max_wal_size` to 1 GB on every boot, silently
+  undoing any raise an operator had made, and on a write-heavy database a low
+  ceiling forces checkpoints far more often than needed. It now writes that
+  setting only while `pg_settings.source` is still `default`, the same rule
+  already used for `max_connections`. `min_wal_size` and `wal_compression` are
+  unchanged, so the disk-full protection stays in place.
+
 ## [1.4.28] - 2026-09-03
 
 ### Added
@@ -29,12 +39,6 @@ the work landed. 1.0.0 is the first public release.
 - `max_locks_per_transaction` raised from the default 64 to 256. A query against
   a partitioned table takes a lock per partition it touches, so two years of
   monthly partitions plus indexes could exhaust the default mid-statement.
-
-### Fixed
-- The startup reconciler reset `max_wal_size` to 1 GB on every boot, silently
-  undoing any raise an operator had made. It now writes that setting only while
-  it is still at the built-in default, the same rule already used for
-  `max_connections`. `min_wal_size` and `wal_compression` are unchanged.
 
 ## [1.4.27] - 2026-09-03
 
