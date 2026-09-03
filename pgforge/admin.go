@@ -233,7 +233,20 @@ func (a *app) databasePage(w http.ResponseWriter, r *http.Request) {
 			idleT = v
 		}
 	}
+	// Connection strings, same builder the projects list uses. The password is
+	// already visible to anyone who can reach this page (it is on the project
+	// card), so showing it here leaks nothing new and saves a round trip.
+	var directURL, pooledURL, replicaURL string
+	if _, pw := a.projectCred(slug); pw != "" {
+		host := a.dbHostForDisplay()
+		directURL, pooledURL = connURLs(slug, pw, host)
+		if replicaOn(a.replicaState()) {
+			replicaURL = fmt.Sprintf("postgresql://%s:%s@%s:5434/%s?sslmode=require", slug, pw, host, slug)
+		}
+	}
+
 	content := renderContent(databaseBody, map[string]any{
+		"DirectURL": directURL, "PooledURL": pooledURL, "ReplicaURL": replicaURL,
 		"Slug": slug, "Exts": exts, "Size": size, "Conns": conns,
 		"StmtTimeout": stmtT, "IdleTimeout": idleT,
 		"Pubs":       a.listPublications(slug),

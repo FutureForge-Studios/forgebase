@@ -703,6 +703,12 @@ const databaseBody = `
     <div><div class="label">Pooled (transaction)</div><div style="font-size:14px">{{.Domain}}<b>:6543</b></div><div class="muted" style="font-size:11px">serverless, high concurrency</div></div>
     {{if .ReplicaOn}}<div><div class="label">Read-only replica</div><div style="font-size:14px">{{.Domain}}<b>:5434</b></div><div class="muted" style="font-size:11px">same credentials; writes refused - dashboards, reports, exports</div></div>{{end}}
   </div>
+  {{if .DirectURL}}<div style="margin-top:1rem">
+    <div class="cs"><span class="tag">Direct</span><code id="db-d">{{.DirectURL}}</code><button class="copy" onclick="cp('db-d')">{{icon "copy"}}</button></div>
+    {{if .PooledURL}}<div class="cs" style="margin-top:.4rem"><span class="tag">Pooled</span><code id="db-p">{{.PooledURL}}</code><button class="copy" onclick="cp('db-p')">{{icon "copy"}}</button></div>{{end}}
+    {{if .ReplicaURL}}<div class="cs" style="margin-top:.4rem"><span class="tag">Replica</span><code id="db-r">{{.ReplicaURL}}</code><button class="copy" onclick="cp('db-r')">{{icon "copy"}}</button></div>{{end}}
+    <p class="muted" style="font-size:11.5px;margin-top:.5rem">Prisma wants both: <code>url</code> = pooled, <code>directUrl</code> = direct. Migrations and introspection use the direct one; <code>migrate dev</code> also needs the scratch-database permission below.</p>
+  </div>{{end}}
   <div style="display:flex;gap:2.5rem;flex-wrap:wrap;margin-top:1.1rem;padding-top:1rem;border-top:1px solid hsl(var(--border))">
     <form method="post" action="/p/{{.Slug}}/db-timeouts" style="display:flex;gap:.6rem;align-items:flex-end;flex-wrap:wrap">
       <label class="fld" style="margin:0"><span class="lt">Statement timeout (ms)</span>
@@ -965,7 +971,7 @@ const settingsBody = `
   <p class="muted" style="font-size:12.5px;margin:.3rem 0 .8rem">Deleting drops the database and all its data permanently. This cannot be undone.</p>
   <button class="btn btn-danger" onclick="askDel('{{.Slug}}')">{{icon "trash"}} Delete this project</button>
 </div>
-` + delDialog
+` + delDialog + copyJS
 
 const monitoringBody = `
 <div class="pagehead"><h1>Monitoring</h1><p>Live health and usage for <b>{{.Slug}}</b>. Counters are cumulative since the last stats reset.</p></div>

@@ -52,15 +52,21 @@ func (a *app) loadProjects() ([]projectView, error) {
 			out = append(out, v)
 			continue
 		}
-		v.DirectURL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=require", v.Slug, pw, host, v.Slug)
-		v.PooledURL = fmt.Sprintf("postgresql://%s:%s@%s:6543/%s", v.Slug, pw, host, v.Slug)
+		v.DirectURL, v.PooledURL = connURLs(v.Slug, pw, host)
 		if host != a.cfg.domain {
-			v.LegacyDirectURL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=require", v.Slug, pw, a.cfg.domain, v.Slug)
-			v.LegacyPooledURL = fmt.Sprintf("postgresql://%s:%s@%s:6543/%s", v.Slug, pw, a.cfg.domain, v.Slug)
+			v.LegacyDirectURL, v.LegacyPooledURL = connURLs(v.Slug, pw, a.cfg.domain)
 		}
 		out = append(out, v)
 	}
 	return out, nil
+}
+
+// connURLs builds the two connection strings for a shared-cluster project.
+// One definition, because the projects list and the Database page have to agree
+// character for character - a user copies one and pastes it next to the other.
+func connURLs(slug, pw, host string) (direct, pooled string) {
+	return fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=require", slug, pw, host, slug),
+		fmt.Sprintf("postgresql://%s:%s@%s:6543/%s", slug, pw, host, slug)
 }
 
 func (a *app) projectCred(slug string) (string, string) {

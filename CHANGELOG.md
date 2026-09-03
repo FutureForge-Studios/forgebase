@@ -13,6 +13,15 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.31] - 2026-09-03
+
+### Added
+- The Database page's "Connection & pooling" card shows the full direct, pooled
+  and replica URLs with copy buttons, rather than naming host and port and
+  leaving you to assemble them. Notes which one Prisma wants where (`url` =
+  pooled, `directUrl` = direct). Both pages now build the strings through one
+  `connURLs` helper so they cannot drift apart.
+
 ## [1.4.30] - 2026-09-03
 
 ### Fixed

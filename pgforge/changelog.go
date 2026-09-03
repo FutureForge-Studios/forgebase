@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.30"
+const appVersion = "1.4.31"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.31", Date: "2026-09-03",
+		Summary: "The Database page shows the connection strings themselves, not just the ports.",
+		Sections: []changeSection{
+			{"Added", []string{
+				"The Connection and pooling card now shows the full direct, pooled and replica URLs with copy buttons, instead of naming the host and port and leaving you to assemble them. It also spells out which one Prisma wants where: url is the pooled string, directUrl is the direct one.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.30", Date: "2026-09-03",
 		Summary: "Nightly backups were silently failing. They work again, and from now on a failure is impossible to miss.",
