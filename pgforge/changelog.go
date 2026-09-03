@@ -36,6 +36,9 @@ var releases = []release{
 			{"Added", []string{
 				"Data, WAL archive and physical backups can be moved onto a separate block volume without reinstalling. The move is a bind mount recorded in fstab, so nothing in the stack needs to know the new path and it survives reboots. See docs/STORAGE-PLAN-ppc.md for the procedure, which takes about thirty seconds of downtime.",
 			}},
+			{"Fixed", []string{
+				"The startup reconciler reset max_wal_size to 1 GB on every boot, silently undoing any raise an operator had made - and on a write-heavy database a low ceiling forces checkpoints far more often than needed. It now writes that setting only while it is still at the built-in default, the same rule already used for max_connections.",
+			}},
 		},
 	},
 	{

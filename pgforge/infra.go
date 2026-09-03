@@ -54,12 +54,22 @@ func (a *app) reconcileInfra() {
 	// all three are reloadable. Prevents a repeat of the 2026-08-22 disk-full
 	// crash: bounded pg_wal, compressed WAL, small idle floor.
 	for _, q := range []string{
-		`ALTER SYSTEM SET max_wal_size = '1GB'`,
 		`ALTER SYSTEM SET min_wal_size = '128MB'`,
 		`ALTER SYSTEM SET wal_compression = 'on'`,
 	} {
 		if _, err := a.db.Exec(q); err != nil {
 			log.Printf("infra: %s: %v", q, err)
+		}
+	}
+	// max_wal_size is a ceiling, not a target, so raising it costs nothing until
+	// the box is actually busy - and on a write-heavy box a low ceiling forces
+	// checkpoints far more often than necessary. Only write it while it is still
+	// untouched: an operator who raised it for a reason must not have it reset
+	// on every boot. (Same rule apply-infra.sh uses for max_connections.)
+	var src string
+	if err := a.db.QueryRow(`SELECT source FROM pg_settings WHERE name = 'max_wal_size'`).Scan(&src); err == nil && src == "default" {
+		if _, err := a.db.Exec(`ALTER SYSTEM SET max_wal_size = '1GB'`); err != nil {
+			log.Printf("infra: max_wal_size: %v", err)
 		}
 	}
 	a.db.Exec(`SELECT pg_reload_conf()`)

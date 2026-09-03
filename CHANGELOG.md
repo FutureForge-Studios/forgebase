@@ -30,6 +30,12 @@ the work landed. 1.0.0 is the first public release.
   a partitioned table takes a lock per partition it touches, so two years of
   monthly partitions plus indexes could exhaust the default mid-statement.
 
+### Fixed
+- The startup reconciler reset `max_wal_size` to 1 GB on every boot, silently
+  undoing any raise an operator had made. It now writes that setting only while
+  it is still at the built-in default, the same rule already used for
+  `max_connections`. `min_wal_size` and `wal_compression` are unchanged.
+
 ## [1.4.27] - 2026-09-03
 
 ### Fixed
