@@ -156,3 +156,24 @@ else
   [ -f "$ALERTS/disk" ] && rm -f "$ALERTS/disk" \
     && sh "$NOTIFY" "RESOLVED ForgeBase: disk back to ${USED_PCT}%." || true
 fi
+
+# stale backups: the nightly run failed silently from 2026-08-27 to 2026-09-03
+# because one corrupted comment line in backup.sh exited 127 before any dump ran.
+# Nothing noticed, because the only evidence was a systemd unit failure nobody
+# reads. This watchdog does not care WHY dumping stopped - it only asks whether
+# a dump landed recently, which is the property that actually matters. 48h, so
+# a single skipped night (reboot, long restore drill) is not an alert.
+NEWEST_DUMP="$(find "$OUT/dumps" -maxdepth 1 -name '*.dump' -newermt '-48 hours' 2>/dev/null | head -1)"
+if [ -z "$NEWEST_DUMP" ]; then
+  if [ ! -f "$ALERTS/backup_stale" ]; then
+    { AGE="$(find "$OUT/dumps" -maxdepth 1 -name '*.dump' -printf '%TY-%Tm-%Td %TH:%TM %p\n' 2>/dev/null | sort | tail -1)"
+      echo "No database dump has completed in the last 48 hours - backups are not running."
+      echo "Newest dump on disk: ${AGE:-none at all}"
+      echo "Last run: $(systemctl show -p Result --value pgforge-backup.service 2>/dev/null || echo unknown). Run 'sh /opt/pgforge/bin/backup.sh' to see the error."
+    } > "$ALERTS/backup_stale"
+    sh "$NOTIFY" "WARNING ForgeBase: no database dump in 48h - backups are not running. See the System page." || true
+  fi
+else
+  [ -f "$ALERTS/backup_stale" ] && rm -f "$ALERTS/backup_stale" \
+    && sh "$NOTIFY" "RESOLVED ForgeBase: nightly dumps are landing again." || true
+fi

@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.29"
+const appVersion = "1.4.30"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,19 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.30", Date: "2026-09-03",
+		Summary: "Nightly backups were silently failing. They work again, and from now on a failure is impossible to miss.",
+		Sections: []changeSection{
+			{"Fixed", []string{
+				"The nightly backup had not produced a single dump since 27 August. One comment line inside backup.sh had been mangled by an earlier edit, leaving a fragment of prose sitting on its own line where the shell read it as a command, so the script exited with \"not found\" before the first database was dumped. The line is repaired and the run completes again. Existing backups were never at risk - nothing was deleted, the backup set simply stopped gaining new nights.",
+			}},
+			{"Added", []string{
+				"A failed backup now raises a red banner on the System page and sends the Discord alert immediately, with the last twenty lines of the backup log attached, and clears itself the moment a run succeeds. Previously the only evidence of a failure was a systemd unit status nobody had reason to look at.",
+				"A second, independent watchdog runs hourly and asks a simpler question: has any dump landed in the last 48 hours? It does not care why dumping stopped, which is exactly why it catches the failures the backup script itself is too broken to report. One skipped night is tolerated so a reboot or a long restore drill does not cry wolf.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.29", Date: "2026-09-03",
 		Summary: "A raised WAL ceiling now survives a restart.",

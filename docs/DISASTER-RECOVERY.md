@@ -17,6 +17,49 @@ remote in `/opt/pgforge/backup_remote`. After the sync, the remote holds:
 - `disaster-kit.tar.gz.enc` - the config kit: stack `.env` (SESSION_SECRET),
   TLS certs, Caddy/PgBouncer config, the rclone config. AES-256 encrypted.
 
+## How you know the backups are actually running
+
+A backup set that silently stopped growing is worse than no backup set, because
+it still looks like protection. Two independent checks guard against that, and
+they are deliberately not the same check:
+
+- **The run reports itself.** Any non-success exit from the nightly unit writes
+  `/opt/pgforge/alerts/backup_failed` and sends the Discord alert, carrying the
+  last 20 lines of `/var/log/pgforge-backup.log`. It is wired through
+  `ExecStopPost`, so it fires even when the script dies before it could log
+  anything of its own. A successful run clears it.
+- **The outcome is checked separately.** An hourly watchdog asks only "has any
+  `.dump` landed in the last 48 hours?" and alerts if not. It does not care why
+  dumping stopped, which is exactly why it catches the failures the backup
+  script is too broken to report.
+
+Both render as a red banner on the System page for as long as the condition
+lasts. If you want to confirm by hand at any time:
+
+```sh
+ls -lt /opt/pgforge-backups/dumps/*.dump | head
+systemctl start pgforge-backup.service && tail -30 /var/log/pgforge-backup.log
+```
+
+## Where the data actually lives
+
+On a box with a separate block volume, the data directory and the backup tree
+are bind mounts, not symlinks (rclone skips symlinks, and Docker bind mounts use
+`rprivate` propagation, so a mount created after a container starts is invisible
+to it). The mounts are recorded in `/etc/fstab` with `nofail`:
+
+```
+/mnt/<volume>/pgforge/data              /opt/pgforge/data                 none bind,nofail 0 0
+/mnt/<volume>/pgforge-backups/wal       /opt/pgforge-backups/wal          none bind,nofail 0 0
+/mnt/<volume>/pgforge-backups/physical  /opt/pgforge-backups/physical     none bind,nofail 0 0
+```
+
+Nothing in the stack knows about the volume: every path above is the one the
+containers were always given. To move onto a volume, rsync live, stop the
+database, rsync the delta, move the originals aside, bind-mount, start. Measured
+downtime on the reference box was 35 seconds. `nofail` matters - without it a
+detached volume turns a reboot into an emergency-mode console.
+
 ## The one thing YOU must keep somewhere else
 
 The kit passphrase, generated once at `/opt/pgforge/recovery.pass`.

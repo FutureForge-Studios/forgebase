@@ -27,8 +27,14 @@ DATE="$(date -u +%F)"
 # num FILE DEFAULT - read a positive integer from FILE, else DEFAULT. An empty
 # or garbage file must never produce an empty value: `find -mtime "+"` errors
 # and (under set -e) used to abort the whole script before any pruning ran.
+# The readability test is not redundant with the redirect: when the file is
+# absent, the SHELL reports "cannot open ... No such file" while setting up the
+# redirection, before the command whose stderr is silenced ever runs. Unset
+# retention keys are the normal case, so that noise filled the backup log with
+# four errors every night and gave a real failure somewhere to hide.
 num() {
-  v="$(tr -dc 0-9 < "$1" 2>/dev/null || true)"
+  v=""
+  [ -r "$1" ] && v="$(tr -dc 0-9 < "$1" 2>/dev/null || true)"
   [ -n "$v" ] && echo "$v" || echo "$2"
 }
 RETENTION_DUMPS="${RETENTION_DUMPS:-$(num /opt/pgforge/retention_days 30)}"
@@ -162,10 +168,11 @@ for db in $(docker exec "$CONT" psql -U postgres -tAc \
   # dump. Safety valve: always dump when the newest dump is older than
   # FORCE_DAYS, so a broken detector can never leave only stale backups.
   sig="$(docker exec "$CONT" psql -U postgres -tAc "select coalesce(extract(epoch from stats_reset)::bigint,0)||'|'||tup_inserted||'|'||tup_updated||'|'||tup_deleted from pg_stat_database where datname='$db'" 2>/dev/null)"
-  # awk drops psql meta-command lines (leading backslash): modern pg_dump
-  # embeds a RANDOMIZED 
-estrict token in every run, which would make the
-  # schema hash different each night and defeat skip-unchanged entirely.
+  # awk drops psql meta-command lines (the ones starting with a backslash):
+  # modern pg_dump embeds a randomized restrict token in every run, which would
+  # make the schema hash differ each night and defeat skip-unchanged entirely.
+  # Do not write that token's real spelling here - the backslash-r ahead of it
+  # is what broke this script once already, see the note at the top of the file.
   schemasum="$(docker exec "$CONT" pg_dump -U postgres -s -d "$db" 2>/dev/null | awk 'substr($0,1,1)!="\\"' | sha256sum | cut -d' ' -f1)"
   sig="$sig|$schemasum"
   newest="$(ls -1t "$OUT/dumps/$db"-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.dump 2>/dev/null | head -1)"

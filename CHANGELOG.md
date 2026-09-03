@@ -13,6 +13,25 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.30] - 2026-09-03
+
+### Fixed
+- **Nightly backups had not run since 2026-08-27.** A comment line in
+  `scripts/backup.sh` had been mangled by an earlier edit, leaving a fragment of
+  prose on its own line that the shell read as a command; the script exited 127
+  before the first `pg_dump`. Repaired, and a full run now completes. No
+  existing backup was lost - the set simply stopped gaining new nights.
+
+### Added
+- A failed backup run raises `alerts/backup_failed` (red banner on the System
+  page) and a Discord alert immediately, carrying the last 20 lines of
+  `/var/log/pgforge-backup.log`, and clears itself on the next success. Wired
+  through `ExecStopPost` in the unit, so it fires no matter how the script dies -
+  including before the script can report anything itself.
+- An independent hourly watchdog in `wal-prune.sh` alerts when no `.dump` has
+  landed in 48 hours. It tests the outcome rather than the mechanism, which is
+  why it catches failures the backup script is too broken to report.
+
 ## [1.4.29] - 2026-09-03
 
 ### Fixed

@@ -8,3 +8,21 @@ Type=oneshot
 ExecStart=/bin/sh /opt/pgforge/bin/backup.sh
 StandardOutput=append:/var/log/pgforge-backup.log
 StandardError=append:/var/log/pgforge-backup.log
+# Surface a failed run immediately instead of leaving it in the journal where
+# nobody looks. ExecStopPost runs on success and failure alike and gets
+# $SERVICE_RESULT / $EXIT_STATUS from systemd, so it can both raise and clear
+# the alert file the System page renders as a red banner. This exists because
+# the nightly run died at exit 127 for a week in Aug 2026 and the only trace
+# was a unit failure nobody read.
+ExecStopPost=/bin/sh -c 'mkdir -p /opt/pgforge/alerts; \
+  if [ "$SERVICE_RESULT" = success ]; then \
+    [ -f /opt/pgforge/alerts/backup_failed ] && rm -f /opt/pgforge/alerts/backup_failed \
+      && sh /opt/pgforge/bin/alert-notify.sh "RESOLVED ForgeBase: nightly backup completed." || true; \
+  else \
+    { echo "The nightly backup run failed (result=$SERVICE_RESULT exit=$EXIT_STATUS)."; \
+      echo "Nothing new was written to the backup set tonight."; \
+      echo "Last 20 lines of /var/log/pgforge-backup.log:"; \
+      tail -20 /var/log/pgforge-backup.log 2>/dev/null; \
+    } > /opt/pgforge/alerts/backup_failed; \
+    sh /opt/pgforge/bin/alert-notify.sh "WARNING ForgeBase: the nightly backup FAILED (exit $EXIT_STATUS). Nothing was backed up tonight - see the System page." || true; \
+  fi'
