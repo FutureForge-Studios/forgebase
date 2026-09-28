@@ -1,0 +1,10 @@
+[Unit]
+Description=Reclaim storage weekly, well clear of the nightly backup window
+
+[Timer]
+OnCalendar=Sun *-*-* 02:45:00 UTC
+RandomizedDelaySec=20m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

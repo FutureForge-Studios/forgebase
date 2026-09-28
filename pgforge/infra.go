@@ -14,7 +14,7 @@ import (
 // revision differs, the reconciler runs scripts/apply-infra.sh --safe from the
 // repo checkout to bring them current. Bump this whenever scripts/ or systemd/
 // change in a release.
-const infraRev = "10"
+const infraRev = "11"
 
 // reconcileInfra runs apply-infra.sh --safe when the box's installed infra is
 // out of date, then applies zero-downtime Postgres safety settings. Runs in a
@@ -38,6 +38,20 @@ func (a *app) reconcileInfra() {
 					log.Printf("infra reconciled to rev %s", infraRev)
 				}
 			}
+		}
+	}
+
+	// The panel is the source of truth for retention. backup.sh reads
+	// /opt/pgforge/<key>, the panel writes the settings row, and until now a box
+	// where nobody ever opened the Backups form ran backup.sh's own hardcoded
+	// defaults while the panel displayed different numbers. Worse, a box where the
+	// form HAD been saved kept the old value forever, so changing a default here
+	// silently did nothing. Mirroring on every boot deletes that whole class.
+	for _, k := range []string{"retention_days", "dump_keep_daily", "dump_keep_weekly",
+		"basebackup_keep", "offbox_keep_days"} {
+		var v string
+		if a.db.QueryRow(`SELECT value FROM settings WHERE key=$1`, k).Scan(&v) == nil && v != "" {
+			os.WriteFile("/opt/pgforge/"+k, []byte(v), 0o644)
 		}
 	}
 

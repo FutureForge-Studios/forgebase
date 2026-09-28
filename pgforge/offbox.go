@@ -8,24 +8,45 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
 
 // Off-box archive browsing + restore. The nightly backup syncs to an rclone
-// remote (/opt/pgforge/backup_remote); local retention is tight, so older
-// dumps exist ONLY off-box. This lets the Backups page list a project's
-// off-box dumps and restore one into a NEW project (never over the source) -
-// no SSH required.
+// remote (/opt/pgforge/backup_remote). Local retention is a shallow working set,
+// so anything older than a few days exists ONLY off-box, and this is the path
+// that reaches it: list a project's off-box dumps and restore one into a NEW
+// project (never over the source), no SSH required.
+//
+// TWO tiers live on the remote and both are listed here:
+//   dumps/           the mirror of the local working set, bounded by local retention
+//   weekly/<date>/   one complete dump set per week, bounded by offbox_keep_days
+// The weekly prefix is what the nightly rclone sync deliberately excludes, so it
+// is the only thing on the remote that outlives local pruning.
 
 type offboxFile struct {
 	Name, Size, Date string
+	// Path is the file's location on the remote, relative to its root
+	// ("dumps/x.dump" or "weekly/2026-09-28/x.dump"). Restore submits THIS, not
+	// Name, because the same dump can exist in both tiers.
+	Path string
+	Tier string // "Working set" or "Weekly archive", for the UI
 }
 
 func backupRemote() string {
 	b, _ := os.ReadFile("/opt/pgforge/backup_remote")
 	return strings.TrimSpace(string(b))
 }
+
+// offboxPathRe is the security boundary for anything built from a submitted
+// remote path. Anchored, exactly two or three segments, no traversal: either
+// "dumps/<file>" or "weekly/<YYYY-MM-DD>/<file>". Without the anchors a crafted
+// value could walk out of the backup prefix, since the path is concatenated onto
+// the remote before being handed to rclone.
+var offboxPathRe = regexp.MustCompile(`^(dumps|weekly/[0-9]{4}-[0-9]{2}-[0-9]{2})/[^/]+$`)
+
+func offboxPathOK(p string) bool { return offboxPathRe.MatchString(p) }
 
 // offboxList returns this project's dumps present on the remote, newest first.
 func (a *app) offboxList(slug string) []offboxFile {
@@ -35,11 +56,15 @@ func (a *app) offboxList(slug string) []offboxFile {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "rclone", "lsjson", "--files-only", remote+"/dumps").Output()
+	// One recursive call covers both tiers. -R is why the weekly/<date>/ prefix
+	// is visible at all: a non-recursive listing of dumps/ cannot see it, which
+	// would make the deep archive unreachable from the panel.
+	out, err := exec.CommandContext(ctx, "rclone", "lsjson", "--files-only", "-R", remote).Output()
 	if err != nil {
 		return nil
 	}
 	var raw []struct {
+		Path    string `json:"Path"`
 		Name    string `json:"Name"`
 		Size    int64  `json:"Size"`
 		ModTime string `json:"ModTime"`
@@ -49,19 +74,28 @@ func (a *app) offboxList(slug string) []offboxFile {
 	}
 	var files []offboxFile
 	for _, f := range raw {
-		if !projectDumpOK(slug, f.Name) {
+		if !offboxPathOK(f.Path) || !projectDumpOK(slug, f.Name) {
 			continue
 		}
 		date := ""
 		if t, err := time.Parse(time.RFC3339, f.ModTime); err == nil {
 			date = t.Format("Jan 02, 2006")
 		}
-		files = append(files, offboxFile{Name: f.Name, Size: humanBytes(f.Size), Date: date})
+		tier := "Working set"
+		if strings.HasPrefix(f.Path, "weekly/") {
+			tier = "Weekly archive"
+		}
+		files = append(files, offboxFile{
+			Name: f.Name, Size: humanBytes(f.Size), Date: date, Path: f.Path, Tier: tier,
+		})
 	}
-	// lsjson order is arbitrary; dump names embed the date, so sort by name desc
+	// lsjson order is arbitrary; dump names embed the date, so sort by name desc,
+	// then by path so the working-set copy of a given night sorts before the
+	// weekly one rather than at random.
 	for i := 0; i < len(files); i++ {
 		for j := i + 1; j < len(files); j++ {
-			if files[j].Name > files[i].Name {
+			if files[j].Name > files[i].Name ||
+				(files[j].Name == files[i].Name && files[j].Path < files[i].Path) {
 				files[i], files[j] = files[j], files[i]
 			}
 		}
@@ -77,8 +111,16 @@ func (a *app) offboxList(slug string) []offboxFile {
 // take minutes); the new project shows as "cloning" until it is ready.
 func (a *app) offboxRestore(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
-	file := filepath.Base(r.FormValue("file"))
-	if !projectDumpOK(slug, file) {
+	// The form submits the full remote path now, because the same dump can exist
+	// in both the working-set mirror and the weekly archive. Validate the PATH
+	// with the anchored pattern AND the basename against the project, so neither
+	// check can be bypassed by the other.
+	path := strings.TrimSpace(r.FormValue("path"))
+	if path == "" {
+		path = "dumps/" + filepath.Base(r.FormValue("file")) // older form posts
+	}
+	file := filepath.Base(path)
+	if !offboxPathOK(path) || !projectDumpOK(slug, file) {
 		redirectErr(w, r, "/p/"+slug+"/backups", "That backup does not belong to this project.")
 		return
 	}
@@ -116,7 +158,7 @@ func (a *app) offboxRestore(w http.ResponseWriter, r *http.Request) {
 			a.notifyDiscord("WARNING ForgeBase: off-box restore of " + file + " failed (" + why + ").")
 		}
 		os.MkdirAll("/opt/pgforge-backups/pitr", 0o755)
-		if out, err := exec.CommandContext(ctx, "rclone", "copyto", remote+"/dumps/"+file, tmp).CombinedOutput(); err != nil {
+		if out, err := exec.CommandContext(ctx, "rclone", "copyto", remote+"/"+path, tmp).CombinedOutput(); err != nil {
 			fail("download", fmt.Errorf("%v: %s", err, tail(string(out), 200)))
 			return
 		}

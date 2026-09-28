@@ -1,0 +1,10 @@
+[Unit]
+Description=ForgeBase weekly storage reclamation (vacuum stats + rebuild bloated indexes)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/pgforge/bin/reclaim.sh
+StandardOutput=append:/var/log/pgforge-reclaim.log
+StandardError=append:/var/log/pgforge-reclaim.log

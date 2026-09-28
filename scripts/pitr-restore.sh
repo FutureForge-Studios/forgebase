@@ -32,20 +32,34 @@ trap cleanup EXIT
 
 TARGET_EPOCH="$(date -u -d "$TARGET" +%s)" || { echo "bad target time: $TARGET" >&2; exit 2; }
 
-# 1) newest basebackup whose START TIME <= TARGET (its backup_label lives inside base.tar.gz)
-BASE=""; BST=""
+# zstd basebackups (infra rev 11) need the zstd binary, because GNU tar shells
+# out to it. Check ONCE, up front: without it every candidate below is silently
+# skipped and this script reports "no basebackup at or before TARGET", which is
+# the most misleading thing a person can read during a recovery.
+if ls "$OUT"/physical/base-*/base.tar.zst >/dev/null 2>&1 && ! command -v zstd >/dev/null 2>&1; then
+  echo "!! zstd basebackups are present but the zstd binary is missing: apt-get install -y zstd" >&2
+  exit 1
+fi
+
+# 1) newest basebackup whose START TIME <= TARGET. Its backup_label lives inside
+# the basebackup tar: base.tar.zst since infra rev 11, base.tar.gz before it.
+# BOTH stay restorable until the gzip ones age out. tar detects the codec from
+# the magic number, so neither call below may hardcode -z.
+BASE=""; BST=""; BARCH=""
 for d in $(ls -d "$OUT"/physical/base-* 2>/dev/null | sort -r); do
-  st="$(tar -xzOf "$d/base.tar.gz" backup_label 2>/dev/null | sed -n 's/^START TIME: //p')"
+  arch="$(ls "$d"/base.tar.zst "$d"/base.tar.gz 2>/dev/null | head -1)"
+  [ -n "$arch" ] || continue
+  st="$(tar -xOf "$arch" backup_label 2>/dev/null | sed -n 's/^START TIME: //p')"
   [ -n "$st" ] || continue
   se="$(date -u -d "$st" +%s 2>/dev/null)" || continue
-  if [ "$se" -le "$TARGET_EPOCH" ]; then BASE="$d"; BST="$st"; break; fi
+  if [ "$se" -le "$TARGET_EPOCH" ]; then BASE="$d"; BST="$st"; BARCH="$arch"; break; fi
 done
 [ -n "$BASE" ] || { echo "no basebackup at or before $TARGET (need one older than the target)" >&2; exit 1; }
 echo ">> basebackup: $(basename "$BASE") (started $BST)" >&2
 
 # 2) extract the basebackup into a scratch data directory and add recovery settings
 mkdir -p "$SCRATCH"
-tar -xzf "$BASE/base.tar.gz" -C "$SCRATCH"
+tar -xf "$BARCH" -C "$SCRATCH"
 cat >> "$SCRATCH/postgresql.auto.conf" <<CONF
 restore_command = 'gunzip -c /wal-archive/%f.gz > %p'
 recovery_target_time = '$TARGET'

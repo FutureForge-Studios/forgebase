@@ -1,12 +1,14 @@
 #!/bin/sh
 #
 # ForgeBase nightly backups. Three layers every night:
-#   1. logical:  pg_dump -Fc of every database + pg_dumpall globals
+#   1. logical:  pg_dump -Fc -Z zstd:9 of every database + pg_dumpall globals
 #                -> /opt/pgforge-backups/dumps/, TIERED retention: the newest
-#                dump_keep_daily (default 7) dumps per database plus the newest
-#                dump per ISO week for dump_keep_weekly (default 4) weeks, with
-#                retention_days as a hard age ceiling.
-#   2. physical: pg_basebackup (tar+gzip) -> /opt/pgforge-backups/physical/,
+#                dump_keep_daily (default 5) dumps per database plus the newest
+#                dump per ISO week for dump_keep_weekly (default 0) weeks, with
+#                retention_days as a hard age ceiling. The local set is
+#                deliberately SHALLOW; depth lives off-box under weekly/, which
+#                the sync below never touches. See offbox_keep_days.
+#   2. physical: pg_basebackup (tar+zstd) -> /opt/pgforge-backups/physical/,
 #                newest basebackup_keep (default 2) kept. Combined with the
 #                continuous WAL archive this gives PITR over that window;
 #                anything older restores from the logical dumps.
@@ -68,8 +70,14 @@ num() {
   [ -n "$v" ] && echo "$v" || echo "$2"
 }
 RETENTION_DUMPS="${RETENTION_DUMPS:-$(num /opt/pgforge/retention_days 30)}"
-KEEP_DAILY="$(num /opt/pgforge/dump_keep_daily 7)"
-KEEP_WEEKLY="$(num /opt/pgforge/dump_keep_weekly 4)"
+# Local depth is a working set, not an archive: 5 days of no-network recovery.
+# The weekly concept moved off-box (weekly/ on the remote), where space is cheap
+# and depth is actually wanted, so KEEP_WEEKLY defaults to 0 here. tier_prune
+# needs no change for that: with 0, everything past index KEEP_DAILY falls to its
+# default branch and "0 < 0" is false, so it is removed.
+KEEP_DAILY="$(num /opt/pgforge/dump_keep_daily 5)"
+KEEP_WEEKLY="$(num /opt/pgforge/dump_keep_weekly 0)"
+OFFBOX_KEEP_DAYS="$(num /opt/pgforge/offbox_keep_days 35)"
 KEEP_BASE="${RETENTION_BASE:-$(num /opt/pgforge/basebackup_keep 2)}"
 [ "$KEEP_BASE" -lt 1 ] && KEEP_BASE=1
 # The age ceiling must always reach past the weekly tier, or it would silently
@@ -123,13 +131,19 @@ prune_all() {
   find "$OUT/files" -maxdepth 1 -type f -mtime "+$RETENTION_DUMPS" -delete 2>/dev/null || true
 
   # physical: count-based - keep the newest $KEEP_BASE VALID basebackups. A
-  # dir without base.tar.gz is a crashed partial: it must never count toward
+  # dir without backup_manifest is a crashed partial: it must never count toward
   # the keep quota (that could evict every good backup) and gets removed once
   # it is clearly not in progress anymore.
+  # The marker is backup_manifest, NOT base.tar.*, for two measured reasons.
+  # It is codec-independent, so the gzip-to-zstd switch cannot turn good backups
+  # into "partials" and this coupling never comes back. And a pg_basebackup
+  # killed mid-stream leaves no manifest at all (verified 2026-09-28 by killing
+  # one), so the manifest existing means the backup finished. Note its mtime can
+  # be a millisecond EARLIER than the tar, so test for PRESENCE, never ordering.
   ls -1dt "$OUT"/physical/base-* 2>/dev/null | {
     kept=0
     while IFS= read -r d; do
-      if [ -f "$d/base.tar.gz" ]; then
+      if [ -f "$d/backup_manifest" ]; then
         kept=$((kept + 1))
         [ "$kept" -gt "$KEEP_BASE" ] && rm -rf "$d" && echo "  pruned basebackup $(basename "$d")"
       else
@@ -180,8 +194,6 @@ print("%08X%08X%08X" % (int(r["Timeline"]), int(hi, 16), int(lo, 16) >> 24))
 PYEOF
 }
 
-# ---- retention FIRST: free space before writing anything, and guarantee that
-# a failure later in the script can never mean "no pruning happened today".
 # ---- backup depth yields to database uptime. The tiered policy keeps roughly
 # eleven copies of every database, which was fine when the largest dump was
 # 106MB and became 8GB for one database once it grew to 738MB. Backups and the
@@ -192,14 +204,16 @@ PYEOF
 DATA_PCT="$(data_used_pct)"
 if [ "${DATA_PCT:-0}" -ge 85 ]; then
   echo "  ! database filesystem at ${DATA_PCT}% - reducing local backup depth for this run"
-  echo "    dumps: $KEEP_DAILY daily + $KEEP_WEEKLY weekly -> 3 + 1; basebackups -> 1"
-  KEEP_DAILY=3
-  KEEP_WEEKLY=1
+  echo "    dumps: $KEEP_DAILY daily + $KEEP_WEEKLY weekly -> 2 + 0; basebackups -> 1"
+  KEEP_DAILY=2
+  KEEP_WEEKLY=0
   KEEP_BASE=1
   MIN_CEIL=$(( KEEP_DAILY + KEEP_WEEKLY * 7 + 7 ))
   [ "$RETENTION_DUMPS" -lt "$MIN_CEIL" ] || RETENTION_DUMPS="$MIN_CEIL"
 fi
 
+# ---- retention FIRST: free space before writing anything, and guarantee that
+# a failure later in the script can never mean "no pruning happened today".
 prune_all || echo "  ! pre-prune had errors (continuing)"
 
 # ---- layer 1: logical dumps (pgforge_restore_test is the monthly restore
@@ -229,7 +243,7 @@ for db in $(docker exec "$CONT" psql -U postgres -tAc \
     echo "  == $db unchanged, skipped"
     continue
   fi
-  if docker exec "$CONT" pg_dump -U postgres -Fc -d "$db" > "$OUT/dumps/$db-$DATE.dump" 2>"$OUT/.err"; then
+  if docker exec "$CONT" pg_dump -U postgres -Fc -Z zstd:9 -d "$db" > "$OUT/dumps/$db-$DATE.dump" 2>"$OUT/.err"; then
     echo "  ok dump $db ($(wc -c < "$OUT/dumps/$db-$DATE.dump") bytes)"
     printf '%s' "$sig" > "$OUT/dumps/.state/$db.sig"
   else
@@ -258,7 +272,7 @@ if [ -d "$IROOT" ]; then
       echo "  == $s2 (instance) unchanged, skipped"
       continue
     fi
-    if docker exec "pgi-$s2" pg_dump -U "$iuser" -Fc -d "$s2" > "$OUT/dumps/$s2-$DATE.dump" 2>"$OUT/.err"; then
+    if docker exec "pgi-$s2" pg_dump -U "$iuser" -Fc -Z zstd:9 -d "$s2" > "$OUT/dumps/$s2-$DATE.dump" 2>"$OUT/.err"; then
       echo "  ok dump $s2 (instance, $(wc -c < "$OUT/dumps/$s2-$DATE.dump") bytes)"
       printf '%s' "$isig" > "$OUT/dumps/.state/$s2.sig"
     else
@@ -271,7 +285,7 @@ fi
 rm -f "$OUT/.err"
 
 # ---- layer 2: physical basebackup (for PITR together with the WAL archive)
-if docker exec "$CONT" sh -c "rm -rf /physical/base-$DATE && pg_basebackup -U postgres -D /physical/base-$DATE -Ft -z -X none" 2>"$OUT/.err"; then
+if docker exec "$CONT" sh -c "rm -rf /physical/base-$DATE && pg_basebackup -U postgres -D /physical/base-$DATE -Ft -Z client-zstd:9 -X none" 2>"$OUT/.err"; then
   echo "  ok basebackup base-$DATE"
 else
   echo "  ! basebackup failed: $(head -1 "$OUT/.err")"; rm -f "$OUT/.err"
@@ -333,9 +347,56 @@ rm -f "$KIT"
 # holds deleted projects' grace-period dumps - neither belongs off-box.
 REMOTE="$(cat /opt/pgforge/backup_remote 2>/dev/null || true)"
 if [ -n "$REMOTE" ] && command -v rclone >/dev/null 2>&1; then
-  rclone sync "$OUT" "$REMOTE" --transfers 4 \
-    --exclude 'pitr/**' --exclude 'dumps/.trash/**' 2>&1 | tail -2
-  echo "  off-box: synced to $REMOTE"
+  # Tier 1, the working-set mirror. Stays a sync, deliberately: that is what
+  # keeps the remote from growing without bound as local retention prunes.
+  #
+  # ###################################################################
+  # THE --exclude 'weekly/**' BELOW IS LOAD BEARING. DO NOT REMOVE IT.
+  # weekly/ lives under $REMOTE and has NO counterpart under $OUT, so a sync
+  # without this exclude sees the whole deep archive as "deleted locally" and
+  # removes every weekly snapshot from the remote. rclone applies filters to
+  # BOTH sides of a sync, so an excluded destination path is never a deletion
+  # candidate. Verify with:
+  #   rclone sync "$OUT" "$REMOTE" --dry-run --exclude 'weekly/**' | grep -i weekly
+  # which must print nothing.
+  # ###################################################################
+  #
+  # The exit status is CHECKED, not discarded: local retention is shallow now,
+  # so an expired S3 key quietly stopping the off-box copy would be a double
+  # failure. Route it into the existing HAD_FAIL alert instead.
+  if rclone sync "$OUT" "$REMOTE" --transfers 4 \
+       --exclude 'pitr/**' --exclude 'dumps/.trash/**' \
+       --exclude 'weekly/**' 2>&1 | tail -2; then
+    echo "  off-box: synced to $REMOTE"
+  else
+    echo "  ! off-box sync FAILED (check the rclone remote and its credentials)"
+    HAD_FAIL=1
+  fi
+
+  # Tier 2, the deep archive: one COMPLETE dump set per week, server-side copied
+  # from the mirror just uploaded, so nothing is uploaded twice and it costs no
+  # bandwidth. This is where depth lives now that the local set is shallow.
+  #
+  # Built from the NEWEST dump per database, never from --max-age: skip-unchanged
+  # means an idle database wrote no dump tonight, and a snapshot missing a
+  # database is not a snapshot.
+  if [ "$(date -u +%u)" = 7 ] || [ -n "$OFFBOX_WEEKLY_NOW" ]; then
+    snap=0
+    for pre in $(ls -1 "$OUT/dumps"/*.dump 2>/dev/null \
+         | sed -E 's|.*/||; s/-[0-9]{4}-[0-9]{2}-[0-9]{2}[^/]*[.]dump$//' | sort -u); do
+      f="$(basename "$(ls -1t "$OUT/dumps/$pre"-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.dump 2>/dev/null | head -1)")"
+      [ -n "$f" ] || continue
+      rclone copyto "$REMOTE/dumps/$f" "$REMOTE/weekly/$DATE/$f" 2>/dev/null && snap=$((snap + 1))
+    done
+    rclone copyto "$REMOTE/dumps/globals-$DATE.sql" "$REMOTE/weekly/$DATE/globals-$DATE.sql" 2>/dev/null || true
+    echo "  off-box: weekly snapshot weekly/$DATE ($snap databases)"
+  fi
+  # The ONLY thing that ever deletes from weekly/. An S3 lifecycle rule on the
+  # weekly/ prefix at roughly double offbox_keep_days is a sensible extra
+  # ceiling, but it cannot express this knob, so it belongs in the provider
+  # console as a failsafe rather than here. See docs/DISASTER-RECOVERY.md.
+  rclone delete "$REMOTE/weekly" --min-age "${OFFBOX_KEEP_DAYS}d" 2>/dev/null || true
+  rclone rmdirs "$REMOTE/weekly" --leave-root 2>/dev/null || true
 else
   echo "  off-box: NOT CONFIGURED (echo '<rclone-remote>:<path>' > /opt/pgforge/backup_remote)"
 fi

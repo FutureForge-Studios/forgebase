@@ -471,8 +471,8 @@ func (a *app) backupsPage(w http.ResponseWriter, r *http.Request) {
 		"Slug": slug, "Files": files, "Retention": retention, "Remote": remote,
 		"Offbox": offbox, "OffboxLoaded": offboxLoaded,
 		"PITRFrom": pitrFrom, "Tiers": tiers,
-		"KeepDaily": setting("dump_keep_daily", "7"), "KeepWeekly": setting("dump_keep_weekly", "4"),
-		"KeepBase": setting("basebackup_keep", "2"),
+		"KeepDaily": setting("dump_keep_daily", "5"), "KeepWeekly": setting("dump_keep_weekly", "0"),
+		"KeepBase": setting("basebackup_keep", "2"), "KeepOffbox": setting("offbox_keep_days", "35"),
 	})
 	a.renderShell(w, r, shellData{Title: slug + " · Backups", Nav: "backups", Slug: slug,
 		Crumbs: []crumb{{Label: "Projects", Href: "/"}, {Label: slug, Href: "/p/" + slug}, {Label: "Backups"}}}, content)
@@ -541,16 +541,21 @@ func (a *app) setRetentionTiers(w http.ResponseWriter, r *http.Request) {
 	daily, ok1 := get("daily", 1, 30)
 	weekly, ok2 := get("weekly", 0, 12)
 	base, ok3 := get("basebackups", 1, 7)
-	if !ok1 || !ok2 || !ok3 {
-		redirectErr(w, r, "/p/"+slug+"/backups", "Valid ranges: daily 1-30, weekly 0-12, snapshots 1-7.")
+	// Off-box depth is a SEPARATE concept from local depth now. Local is a
+	// working set sized for instant no-network recovery; the off-box weekly
+	// archive is where history lives, because space is cheap there and the
+	// backup set must not be able to starve the live cluster again.
+	offbox, ok4 := get("offbox", 7, 365)
+	if !ok1 || !ok2 || !ok3 || !ok4 {
+		redirectErr(w, r, "/p/"+slug+"/backups", "Valid ranges: daily 1-30, weekly 0-12, snapshots 1-7, off-box 7-365 days.")
 		return
 	}
-	for k, v := range map[string]int{"dump_keep_daily": daily, "dump_keep_weekly": weekly, "basebackup_keep": base} {
+	for k, v := range map[string]int{"dump_keep_daily": daily, "dump_keep_weekly": weekly, "basebackup_keep": base, "offbox_keep_days": offbox} {
 		a.db.Exec(`INSERT INTO settings(key,value) VALUES ($1,$2)
 			ON CONFLICT (key) DO UPDATE SET value=$2`, k, fmt.Sprint(v))
 		os.WriteFile("/opt/pgforge/"+k, []byte(fmt.Sprint(v)), 0o644)
 	}
-	a.audit(r, "retention-tiers", fmt.Sprintf("daily=%d weekly=%d base=%d", daily, weekly, base))
+	a.audit(r, "retention-tiers", fmt.Sprintf("daily=%d weekly=%d base=%d offbox=%dd", daily, weekly, base, offbox))
 	redirectMsg(w, r, "/p/"+slug+"/backups", "Backup tiers updated (applies platform-wide from tonight's run).")
 }
 
@@ -571,7 +576,7 @@ func (a *app) backupNow(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "sh", "-c",
-		fmt.Sprintf(`docker exec pgforge-db pg_dump -U postgres -Fc -d %q > %q`, slug, tmp))
+		fmt.Sprintf(`docker exec pgforge-db pg_dump -U postgres -Fc -Z zstd:9 -d %q > %q`, slug, tmp))
 	cmbOut, err := cmd.CombinedOutput()
 	if err != nil {
 		os.Remove(tmp)

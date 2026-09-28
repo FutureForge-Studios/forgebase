@@ -84,7 +84,9 @@ echo "==> Installing ForgeBase for https://${DOMAIN}"
 # ----------------------------------------------------------------- packages
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq git curl openssl unzip ca-certificates golang-go fail2ban >/dev/null
+# zstd: basebackups are tar+zstd since infra rev 11, and pitr-restore.sh runs on
+# the HOST, where GNU tar shells out to the zstd binary to read them.
+apt-get install -y -qq git curl openssl unzip ca-certificates golang-go fail2ban zstd >/dev/null
 systemctl enable --now fail2ban >/dev/null 2>&1 || true
 
 if ! command -v docker >/dev/null 2>&1; then

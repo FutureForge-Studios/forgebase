@@ -13,6 +13,73 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.34] - 2026-09-28
+
+Backups cost 2.2x the live data they protected and shared a filesystem with the
+cluster, which is what filled the volume on 2026-09-28. This release makes the
+same disks hold more, with no new storage.
+
+### Changed
+- **zstd instead of gzip** for dumps (`pg_dump -Fc -Z zstd:9`) and basebackups
+  (`pg_basebackup -Ft -Z client-zstd:9`). Measured here: pointours-crm dumped
+  686 MB gzip vs 571 MB zstd (-17%), profitzon-agent -20%, forgedocs -26%, and a
+  full basebackup 3.3 GB to 2.16 GB (-35%). Level 9 not 19: on the large
+  databases level 19 bought 1.2 percentage points for several times the CPU,
+  inside a container capped at 1536m. The custom dump format records its codec
+  internally, so existing gzip dumps restore unchanged. `pitr-restore.sh` reads
+  both (`tar` sniffs the magic number) and pre-flights for the `zstd` binary,
+  because without it every candidate is silently skipped and the script reports
+  the misleading "no basebackup at or before TARGET".
+- **Local depth and off-box depth are now separate knobs.** `rclone sync` made
+  the remote an exact mirror, so local pruning deleted the off-box copy too and
+  the comments claiming otherwise were false. Local defaults drop to 5 daily + 0
+  weekly; the remote gains `weekly/<date>/`, one complete dump set per week,
+  server-side copied so nothing uploads twice, bounded by the new
+  `offbox_keep_days` (default 35). The sync excludes `weekly/**`: **without that
+  exclude the next nightly run deletes the entire archive.**
+- The WAL archive deliberately stays gzip. It would save under 1 GB (the archive
+  is anchored to the oldest kept basebackup, so about two days deep, and
+  `wal_compression=on` already compresses full-page images) for eight edits,
+  permanent mixed-extension `pg_archivecleanup` handling, and a new unpinned
+  in-container dependency on `zstd` in the one path whose failure mode is
+  unbounded `pg_wal` growth. `zstd` is not in `server/Dockerfile.postgres`.
+- Basebackup validity keys on `backup_manifest`, not `base.tar.gz`:
+  codec-independent, and a killed `pg_basebackup` leaves no manifest (verified by
+  killing one). Its mtime can be a millisecond *earlier* than the tar, so the
+  test is presence, never ordering.
+
+### Added
+- `scripts/reclaim.sh` + `pgforge-reclaim.timer` (Sun 02:45 UTC, 20m jitter):
+  drops `_ccnew` leftovers, `VACUUM (ANALYZE)`s tables whose statistics a crash
+  wiped, and rebuilds leaf indexes below 70% `avg_leaf_density` with
+  `REINDEX INDEX CONCURRENTLY`. Online only, no `VACUUM FULL`, no `pg_repack`.
+  First run reclaimed **353 MB**, taking `NovaAdDaily_rowKey_key` from 152 MB at
+  59% density to 90 MB at 91%.
+  Guards: `relkind='i'` only (CONCURRENTLY is unsupported on a partitioned
+  parent), btree only, a protect list seeded with `wh_finance_event%pkey` (the
+  `ON CONFLICT` arbiter), refuses above 85% on the data filesystem, and requires
+  `2x index + 1 GB` free before each rebuild, breaking cleanly otherwise.
+  `reclaim.sh --selftest` asserts all of it against a scratch database.
+- The vacuum pass is the more important half: a crash resets `n_live_tup` and
+  `n_dead_tup` to zero, and autovacuum reads exactly those counters, so it was
+  blind to all pre-existing bloat. Restored on prod, confirmed non-zero after.
+- Off-box browser lists both tiers with a Tier column and restores by full remote
+  path, validated against an anchored `^(dumps|weekly/YYYY-MM-DD)/[^/]+$`.
+
+### Fixed
+- **Panel retention values were not always the ones used.** `backup.sh` reads
+  `/opt/pgforge/<key>`, which only existed once the form had been saved, so a
+  fresh box ran the script's defaults while the panel showed different numbers,
+  and changing a default was a no-op wherever the form had ever been saved.
+  `reconcileInfra` now mirrors the settings rows to those files on every boot.
+- `wal-prune.sh` hardcoded `head -n -2` while claiming to use "the same rule as
+  the nightly retention", and counted directories with no manifest, so a crashed
+  partial could evict a good basebackup. Honours `basebackup_keep` now.
+- A failed `rclone sync` was invisible: the exit status went to `tail -2` and the
+  run reported success. Now sets `HAD_FAIL`, which matters more with a shallow
+  local set.
+- The Backups page claimed "Nightly at 03:30 UTC". The timer is 21:30.
+
 ## [1.4.33] - 2026-09-28
 
 ### Fixed

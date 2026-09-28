@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.33"
+const appVersion = "1.4.34"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,27 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.34", Date: "2026-09-28",
+		Summary: "Fit more data in the same disks. Backups shrink, history moves off-box, and bloat is reclaimed automatically.",
+		Sections: []changeSection{
+			{"Changed", []string{
+				"Dumps and snapshots are compressed with zstd instead of gzip. Measured on real data here: a 1.4 GB database dumped 686 MB with gzip and 571 MB with zstd, and a full cluster snapshot went from 3.3 GB to 2.16 GB, a third smaller. Level 9 rather than the maximum, because on the large databases that actually fill the disk the highest level bought about one percent more for several times the processing time. Existing gzip backups stay restorable with no special handling: the dump format records which codec it used inside the file.",
+				"Backups are now shallow on the server and deep off-box, which are two different numbers you set separately on the Backups page. Before this, they were the same number: the nightly upload mirrored the server exactly, so asking for less history on disk also threw away the off-box copy, and asking for more history off-box meant more history competing with your databases for space. The server keeps a working set for instant recovery, and one complete set per week goes to your bucket and stays there.",
+				"The write-ahead log archive deliberately stays on gzip. Changing it would have saved under a gigabyte while making the one component whose failure fills the disk depend on a tool that is not pinned in the database image. That is the trade that caused two outages already, so it was not worth repeating for the smallest win.",
+			}},
+			{"Added", []string{
+				"A weekly maintenance pass that gives back space the databases have already lost to index bloat. It rebuilds only indexes measurably below 70 percent density, one at a time, online, with no lock your application will notice. The first run on this server returned 353 MB, taking one index from 152 MB to 90 MB. It refuses to start when the disk is above 85 percent full, and before every single rebuild it checks there is room for twice the index plus a gigabyte spare, stopping cleanly rather than risking the disk-full crash it exists to prevent.",
+				"The same pass repairs the statistics a crash wipes. This matters more than the megabytes: Postgres decides what to clean up by reading counters that a crash resets to zero, so after one it stops seeing existing bloat entirely and lets it accumulate. Those counters are now restored, which puts automatic cleanup back in charge of a growing database instead of nobody.",
+				"The off-box archive browser lists both tiers and says which is which, so restoring last week is the same click as restoring last night.",
+			}},
+			{"Fixed", []string{
+				"Retention numbers set in the panel were not always the numbers used. The nightly job reads them from files on disk that only got written when somebody saved the form, so a fresh box silently ran the job's own defaults while the panel displayed different values, and changing a default did nothing on any box where the form had ever been saved. The panel is now authoritative and the files are rewritten from it on every start.",
+				"The hourly archive job kept exactly two snapshots regardless of the number you asked for, and counted half-finished ones toward that limit, so an interrupted snapshot could push out a good one. It honours the setting now and ignores incomplete snapshots.",
+				"A failed off-box upload was invisible: the error was discarded and the run still reported success. It now reports the failure, which matters more than it used to, because with less history kept on the server the off-box copy is no longer a duplicate of something you already have.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.33", Date: "2026-09-28",
 		Summary: "An outage post-mortem: the disk guards were watching the wrong disk. Backups now live apart from the database.",

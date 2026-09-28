@@ -16,6 +16,17 @@ set -e
 CONT=pgforge-db
 OUT=/opt/pgforge-backups
 
+# Same retention knob and reader the nightly backup uses, so the two cannot
+# disagree about how many basebackups to keep. See the note in backup.sh about
+# why the readability test is not redundant with the redirect.
+num() {
+  v=""
+  [ -r "$1" ] && v="$(tr -dc 0-9 < "$1" 2>/dev/null || true)"
+  [ -n "$v" ] && echo "$v" || echo "$2"
+}
+KEEP_BASE="${RETENTION_BASE:-$(num /opt/pgforge/basebackup_keep 2)}"
+[ "$KEEP_BASE" -lt 1 ] && KEEP_BASE=1
+
 # worst_used_pct - the highest "% used" across every filesystem ForgeBase
 # actually stores something on, not the one the backup root happens to sit on.
 #
@@ -105,10 +116,17 @@ if [ "${WAL_KB:-0}" -gt $((CAP_KB * 3 / 4)) ]; then
   if [ $((NOW - LAST)) -ge 43200 ] && [ "${FREE_KB:-0}" -gt $((3 * 1024 * 1024)) ]; then
     BB="base-$(date -u +%F-%H%M%S)"
     echo "wal-prune: archive over ${CAP_GB}GB - compacting (fresh basebackup $BB + re-anchor)"
-    if docker exec "$CONT" sh -c "rm -rf /physical/$BB && pg_basebackup -U postgres -D /physical/$BB -Ft -z -X none" 2>/dev/null; then
+    if docker exec "$CONT" sh -c "rm -rf /physical/$BB && pg_basebackup -U postgres -D /physical/$BB -Ft -Z client-zstd:9 -X none" 2>/dev/null; then
       echo "$NOW" > "$STAMP"
-      # keep the newest 2 basebackups (same rule as the nightly retention)
-      ls -d "$OUT"/physical/base-* 2>/dev/null | sort | head -n -2 | while read -r d; do rm -rf "$d"; done
+      # Keep the newest $KEEP_BASE VALID basebackups. This hardcoded 2 while
+      # claiming to use "the same rule as the nightly retention", and it counted
+      # directories with no backup_manifest, so a crashed partial could evict a
+      # good basebackup. Both fixed: honour the knob, and count only completed
+      # backups (pg_basebackup writes the manifest last). The $BB just created
+      # always has one, since we are inside its success branch.
+      for d in $(ls -d "$OUT"/physical/base-* 2>/dev/null | sort); do
+        [ -f "$d/backup_manifest" ] && echo "$d"
+      done | head -n -"$KEEP_BASE" | while read -r r; do rm -rf "$r"; done
       NEWSEG="$(manifest_cutseg "$OUT/physical/$BB")" || true
       [ -n "$NEWSEG" ] && docker exec "$CONT" pg_archivecleanup -x .gz /wal-archive "$NEWSEG" 2>/dev/null || true
       WAL_KB="$(du -sk "$OUT/wal" | cut -f1)"

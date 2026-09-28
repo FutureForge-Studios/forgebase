@@ -495,13 +495,27 @@ func (a *app) ensureSchema() error {
 		// hours of zero client activity before a project goes to sleep (0 = never)
 		`INSERT INTO settings(key,value) VALUES ('suspend_hours','168')
 			ON CONFLICT (key) DO NOTHING`,
-		// tiered backup retention knobs (mirrored to /opt/pgforge/<key> for backup.sh)
-		`INSERT INTO settings(key,value) VALUES ('dump_keep_daily','7')
+		// Tiered backup retention knobs (mirrored to /opt/pgforge/<key> for
+		// backup.sh by reconcileInfra, which is the only thing that makes the
+		// panel authoritative over backup.sh's own defaults).
+		`INSERT INTO settings(key,value) VALUES ('dump_keep_daily','5')
 			ON CONFLICT (key) DO NOTHING`,
-		`INSERT INTO settings(key,value) VALUES ('dump_keep_weekly','4')
+		`INSERT INTO settings(key,value) VALUES ('dump_keep_weekly','0')
 			ON CONFLICT (key) DO NOTHING`,
 		`INSERT INTO settings(key,value) VALUES ('basebackup_keep','2')
 			ON CONFLICT (key) DO NOTHING`,
+		// How far back the off-box weekly archive reaches. Local depth is now a
+		// shallow working set and this is where history lives, so they are separate
+		// knobs rather than one number meaning both.
+		`INSERT INTO settings(key,value) VALUES ('offbox_keep_days','35')
+			ON CONFLICT (key) DO NOTHING`,
+		// Shrink the local set on boxes that never touched the Backups form. Only
+		// UNTOUCHED defaults move, the same "never clobber an operator's value" rule
+		// apply-infra.sh uses for max_connections. Backups cost 2.2x the live data
+		// they protect on the reference box, which is what filled the disk on
+		// 2026-09-28; depth belongs off-box, where it cannot starve the cluster.
+		`UPDATE settings SET value='5' WHERE key='dump_keep_daily'  AND value='7'`,
+		`UPDATE settings SET value='0' WHERE key='dump_keep_weekly' AND value='4'`,
 		// pinned projects are never auto-suspended (for production apps)
 		`ALTER TABLE projects ADD COLUMN IF NOT EXISTS keep_awake boolean NOT NULL DEFAULT false`,
 		// opt-in visibility on the public status page

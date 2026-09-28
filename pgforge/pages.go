@@ -792,14 +792,18 @@ const backupsBody = `
 <div class="grid g2" style="margin-bottom:1rem">
   <div class="card">
     <h2>Retention</h2>
-    <p class="muted" style="font-size:12.5px;margin:.3rem 0 .7rem">Nightly at 03:30 UTC. Tiered: recent dailies + one per week, unchanged databases are skipped. Applies platform-wide.</p>
+    <p class="muted" style="font-size:12.5px;margin:.3rem 0 .7rem">Nightly at 21:30 UTC. Unchanged databases are skipped. Applies platform-wide. Backups live in two places on purpose: a shallow set on this server for instant recovery, and a deeper archive off-box, so the backup set can never fill the disk the databases run on.</p>
     <form method="post" action="/p/{{.Slug}}/retention-tiers" style="display:flex;gap:.9rem;align-items:flex-end;flex-wrap:wrap">
+      <div style="flex-basis:100%;margin-bottom:-.3rem"><span class="label">On this server</span> <span class="muted" style="font-size:11px">instant, no network needed</span></div>
       <label style="font-size:12px"><span class="label" style="display:block;margin-bottom:.25rem">Daily dumps</span>
         <input type="number" name="daily" min="1" max="30" value="{{.KeepDaily}}" style="width:72px"></label>
       <label style="font-size:12px"><span class="label" style="display:block;margin-bottom:.25rem">Weekly dumps</span>
         <input type="number" name="weekly" min="0" max="12" value="{{.KeepWeekly}}" style="width:72px"></label>
       <label style="font-size:12px"><span class="label" style="display:block;margin-bottom:.25rem">Snapshots</span>
         <input type="number" name="basebackups" min="1" max="7" value="{{.KeepBase}}" style="width:72px"></label>
+      <div style="flex-basis:100%;margin:.5rem 0 -.3rem;padding-top:.6rem;border-top:1px solid hsl(var(--border))"><span class="label">Off-box archive</span> <span class="muted" style="font-size:11px">one complete set per week; each costs about one night of dumps in your bucket</span></div>
+      <label style="font-size:12px"><span class="label" style="display:block;margin-bottom:.25rem">Reach back (days)</span>
+        <input type="number" name="offbox" min="7" max="365" value="{{.KeepOffbox}}" style="width:84px"></label>
       <button class="btn btn-ghost btn-sm" type="submit">Save</button>
     </form>
     <form method="post" action="/p/{{.Slug}}/retention" style="display:flex;gap:.5rem;align-items:center;margin-top:.6rem">
@@ -829,11 +833,11 @@ const backupsBody = `
   <p class="muted" style="font-size:12.5px">No off-box dumps found for this project.</p>
   {{else}}
   <div class="tblwrap"><table class="data">
-    <thead><tr><th>Backup</th><th>Size</th><th>Uploaded</th><th></th></tr></thead>
+    <thead><tr><th>Backup</th><th>Tier</th><th>Size</th><th>Uploaded</th><th></th></tr></thead>
     <tbody>{{range .Offbox}}<tr>
-      <td><code style="font-size:12px">{{.Name}}</code></td><td>{{.Size}}</td><td class="muted">{{.Date}}</td>
+      <td><code style="font-size:12px">{{.Name}}</code></td><td class="muted" style="font-size:11.5px">{{.Tier}}</td><td>{{.Size}}</td><td class="muted">{{.Date}}</td>
       <td><form method="post" action="/p/{{$.Slug}}/offbox-restore" onsubmit="return confirm('Restore {{.Name}} into a NEW project? The current project is not touched.')">
-        <input type="hidden" name="file" value="{{.Name}}">
+        <input type="hidden" name="path" value="{{.Path}}">
         <button class="btn btn-ghost btn-sm" type="submit">{{icon "restore"}} Restore as new</button></form></td>
     </tr>{{end}}</tbody>
   </table></div>
