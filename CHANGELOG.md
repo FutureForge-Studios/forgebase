@@ -13,6 +13,40 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.33] - 2026-09-28
+
+### Fixed
+- **Every disk space check was reading the wrong filesystem**, and had been since
+  the 1.4.28 volume migration. The backup tree moved onto the volume as three
+  bind mounts (`wal`, `physical`, `dumps`) while its parent
+  `/opt/pgforge-backups` stayed on the root disk, and both `backup.sh` and
+  `wal-prune.sh` measured that parent. For 25 days they read 33% while the volume
+  holding the live cluster reached 100%. The 85% emergency prune never fired and
+  no alert was raised; Postgres could not write `pg_wal/xlogtemp` during crash
+  recovery and crash-looped. `worst_used_pct()` now measures every filesystem
+  ForgeBase stores anything on and returns the highest.
+
+### Added
+- A watchdog on the filesystem holding the live cluster (`data_used_pct`),
+  warning at 80% and CRITICAL at 90%. Separate from the general disk alert on
+  purpose: no backup space is survivable, a full data filesystem is not, because
+  crash recovery must write WAL to complete.
+- A guard-coverage self-check: each run compares the devices under
+  `/opt/pgforge*` against the devices the guards measure and raises
+  `alerts/guard_blindspot` if a storage path sits somewhere unwatched. Catches
+  the bug class, not just this instance. Loop-backed mounts are excluded, since
+  their bytes are the image file, already counted on its host filesystem.
+- One log line per hygiene run naming the measured percentages and the device
+  each path resolved to.
+- Backup depth yields to database uptime: above 85% on the data filesystem a run
+  drops to 3 daily + 1 weekly dumps and 1 basebackup rather than adding copies to
+  a filesystem the database needs.
+
+### Changed
+- Dumps now live on the root disk, not the volume, so the backup set cannot
+  starve the live cluster. Layout on the reference box: volume holds `data`,
+  `wal` and `physical` (55% used), root holds `dumps` (77%).
+
 ## [1.4.32] - 2026-09-03
 
 ### Changed

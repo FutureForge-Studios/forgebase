@@ -16,6 +16,36 @@ set -e
 CONT=pgforge-db
 OUT=/opt/pgforge-backups
 
+# worst_used_pct - the highest "% used" across every filesystem ForgeBase
+# actually stores something on, not the one the backup root happens to sit on.
+#
+# This exists because of the 2026-09-28 outage. The backup tree was moved onto a
+# block volume as three bind mounts (wal, physical, dumps) while the parent
+# /opt/pgforge-backups stayed on the root disk. Every space check here pointed at
+# that parent, so for 25 days the guard read a near-empty root filesystem (33%)
+# while the volume holding the live cluster AND the backups climbed to 100%. The
+# 85% emergency prune never fired, Postgres could not write pg_wal/xlogtemp, and
+# it crash-looped until a human noticed. Measure where the bytes are, and measure
+# EVERY such place: one path cannot speak for the others once bind mounts put
+# them on different devices.
+worst_used_pct() {
+  _worst=0
+  for _p in /opt/pgforge/data /opt/pgforge-backups /opt/pgforge-backups/wal             /opt/pgforge-backups/physical /opt/pgforge-backups/dumps; do
+    [ -d "$_p" ] || continue
+    _u="$(df --output=pcent "$_p" 2>/dev/null | tail -1 | tr -dc '0-9')"
+    [ -n "$_u" ] || continue
+    [ "$_u" -gt "$_worst" ] && _worst="$_u"
+  done
+  echo "$_worst"
+}
+
+# data_used_pct - usage of the filesystem holding the live cluster. This is the
+# one that decides whether Postgres stays up: it can run with no backup space at
+# all, but a full data filesystem stops it dead mid-transaction.
+data_used_pct() {
+  df --output=pcent /opt/pgforge/data 2>/dev/null | tail -1 | tr -dc '0-9'
+}
+
 # A basebackup's exact start segment comes from its own backup_manifest - the
 # only authoritative source. Keying by START TIME date proved WRONG on
 # 2026-08-22: two basebackups landed on one date, the date-grep matched the
@@ -40,7 +70,7 @@ fi
 
 # 2) burst guard: if the disk is at/above 80%, tighten to the NEWEST basebackup.
 #    Older days stay restorable from their nightly logical dumps.
-USED_PCT="$(df --output=pcent "$OUT" 2>/dev/null | tail -1 | tr -dc '0-9')"
+USED_PCT="$(worst_used_pct)"
 if [ "${USED_PCT:-0}" -ge 80 ]; then
   NEWEST_DIR="$(ls -d "$OUT"/physical/base-* 2>/dev/null | sort | tail -1)" || true
   CUTSEG="$([ -n "$NEWEST_DIR" ] && manifest_cutseg "$NEWEST_DIR")" || true
@@ -71,7 +101,7 @@ if [ "${WAL_KB:-0}" -gt $((CAP_KB * 3 / 4)) ]; then
   STAMP=/opt/pgforge/last_auto_basebackup
   NOW="$(date +%s)"
   LAST="$(cat "$STAMP" 2>/dev/null || echo 0)"
-  FREE_KB="$(df --output=avail "$OUT" 2>/dev/null | tail -1 | tr -dc '0-9')"
+  FREE_KB="$(df --output=avail "$OUT/physical" 2>/dev/null | tail -1 | tr -dc '0-9')"
   if [ $((NOW - LAST)) -ge 43200 ] && [ "${FREE_KB:-0}" -gt $((3 * 1024 * 1024)) ]; then
     BB="base-$(date -u +%F-%H%M%S)"
     echo "wal-prune: archive over ${CAP_GB}GB - compacting (fresh basebackup $BB + re-anchor)"
@@ -149,13 +179,76 @@ fi
 # disk usage: warn at 85% (the emergency pruning kicks in at the same line)
 if [ "${USED_PCT:-0}" -ge 85 ]; then
   if [ ! -f "$ALERTS/disk" ]; then
-    df -h "$OUT" | tail -1 > "$ALERTS/disk"
+    { echo "A ForgeBase filesystem is ${USED_PCT}% full - emergency backup pruning is active."
+      df -h /opt/pgforge/data /opt/pgforge-backups /opt/pgforge-backups/wal \n            /opt/pgforge-backups/physical /opt/pgforge-backups/dumps 2>/dev/null | sort -u
+    } > "$ALERTS/disk"
     sh "$NOTIFY" "WARNING ForgeBase: disk at ${USED_PCT}% - emergency backup pruning is active. Check the System page." || true
   fi
 else
   [ -f "$ALERTS/disk" ] && rm -f "$ALERTS/disk" \
     && sh "$NOTIFY" "RESOLVED ForgeBase: disk back to ${USED_PCT}%." || true
 fi
+
+# The data filesystem gets its own watchdog, separate from the one above, and it
+# is the one that matters most: Postgres survives having no backup space at all,
+# but a full data filesystem stops it mid-transaction and then it cannot even
+# finish crash recovery, because recovery itself has to write WAL. That is
+# exactly how 2026-09-28 went: "could not write to file pg_wal/xlogtemp.27: No
+# space left on device", in a restart loop, until space was freed by hand.
+# Warn early at 80 so there is time to act, and shout at 90.
+DATA_PCT="$(data_used_pct)"
+if [ "${DATA_PCT:-0}" -ge 80 ]; then
+  LEVEL=WARNING
+  [ "${DATA_PCT:-0}" -ge 90 ] && LEVEL=CRITICAL
+  if ! grep -q "^$LEVEL " "$ALERTS/data_disk" 2>/dev/null; then
+    { echo "$LEVEL the database filesystem is ${DATA_PCT}% full."
+      echo "At 100% Postgres cannot even restart: crash recovery needs to write WAL."
+      df -h /opt/pgforge/data | tail -1
+      echo "Largest consumers:"
+      du -sh /opt/pgforge/data /opt/pgforge-backups/wal /opt/pgforge-backups/physical              /opt/pgforge-backups/dumps 2>/dev/null | sort -rh | head -4
+    } > "$ALERTS/data_disk"
+    sh "$NOTIFY" "$LEVEL ForgeBase: the DATABASE filesystem is ${DATA_PCT}% full. At 100% Postgres cannot restart at all. See the System page." || true
+  fi
+else
+  [ -f "$ALERTS/data_disk" ] && rm -f "$ALERTS/data_disk"     && sh "$NOTIFY" "RESOLVED ForgeBase: database filesystem back to ${DATA_PCT}%." || true
+fi
+
+# Guard coverage: the 2026-09-28 outage happened because a storage path moved
+# onto a filesystem no space check was looking at. That can recur the moment
+# someone adds another bind mount, so verify it directly rather than trusting the
+# hardcoded list: every device holding a ForgeBase storage path must be one the
+# guard actually measures. This is the check that would have caught the original
+# bug on day one.
+COVERED="$(for p in /opt/pgforge/data /opt/pgforge-backups /opt/pgforge-backups/wal \
+                    /opt/pgforge-backups/physical /opt/pgforge-backups/dumps; do
+  [ -d "$p" ] && df --output=source "$p" 2>/dev/null | tail -1
+done | sort -u)"
+UNCOVERED=""
+for p in /opt/pgforge/data /opt/pgforge/instances /opt/pgforge-backups/*; do
+  [ -d "$p" ] || continue
+  d="$(df --output=source "$p" 2>/dev/null | tail -1)"
+  [ -n "$d" ] || continue
+  # Loop-backed mounts (the btrfs image behind dedicated instances) are not a
+  # separate capacity risk: their bytes are the image FILE, which is already
+  # counted on whichever real filesystem holds it. Flagging them would be noise.
+  case "$d" in /dev/loop*) continue ;; esac
+  echo "$COVERED" | grep -qxF "$d" || UNCOVERED="$UNCOVERED$p ($d)  "
+done
+if [ -n "$UNCOVERED" ]; then
+  if [ ! -f "$ALERTS/guard_blindspot" ]; then
+    { echo "A ForgeBase storage path sits on a filesystem no disk guard is watching."
+      echo "Unwatched: $UNCOVERED"
+      echo "Add it to worst_used_pct in wal-prune.sh and backup.sh, or it fills up unnoticed."
+    } > "$ALERTS/guard_blindspot"
+    sh "$NOTIFY" "WARNING ForgeBase: a storage path is on an unmonitored filesystem ($UNCOVERED). This is how the 2026-09-28 outage happened." || true
+  fi
+else
+  rm -f "$ALERTS/guard_blindspot" 2>/dev/null || true
+fi
+
+# One line per run recording what the guards actually measured, so a wrong
+# reading shows up in the log instead of only in an outage.
+echo "wal-prune: space data=$(data_used_pct)% worst=$(worst_used_pct)% (data on $(df --output=source /opt/pgforge/data 2>/dev/null | tail -1), dumps on $(df --output=source /opt/pgforge-backups/dumps 2>/dev/null | tail -1))"
 
 # stale backups: the nightly run failed silently from 2026-08-27 to 2026-09-03
 # because one corrupted comment line in backup.sh exited 127 before any dump ran.

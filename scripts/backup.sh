@@ -22,6 +22,36 @@
 set -e
 CONT=pgforge-db
 OUT=/opt/pgforge-backups
+
+# worst_used_pct - the highest "% used" across every filesystem ForgeBase
+# actually stores something on, not the one the backup root happens to sit on.
+#
+# This exists because of the 2026-09-28 outage. The backup tree was moved onto a
+# block volume as three bind mounts (wal, physical, dumps) while the parent
+# /opt/pgforge-backups stayed on the root disk. Every space check here pointed at
+# that parent, so for 25 days the guard read a near-empty root filesystem (33%)
+# while the volume holding the live cluster AND the backups climbed to 100%. The
+# 85% emergency prune never fired, Postgres could not write pg_wal/xlogtemp, and
+# it crash-looped until a human noticed. Measure where the bytes are, and measure
+# EVERY such place: one path cannot speak for the others once bind mounts put
+# them on different devices.
+worst_used_pct() {
+  _worst=0
+  for _p in /opt/pgforge/data /opt/pgforge-backups /opt/pgforge-backups/wal             /opt/pgforge-backups/physical /opt/pgforge-backups/dumps; do
+    [ -d "$_p" ] || continue
+    _u="$(df --output=pcent "$_p" 2>/dev/null | tail -1 | tr -dc '0-9')"
+    [ -n "$_u" ] || continue
+    [ "$_u" -gt "$_worst" ] && _worst="$_u"
+  done
+  echo "$_worst"
+}
+
+# data_used_pct - usage of the filesystem holding the live cluster. This is the
+# one that decides whether Postgres stays up: it can run with no backup space at
+# all, but a full data filesystem stops it dead mid-transaction.
+data_used_pct() {
+  df --output=pcent /opt/pgforge/data 2>/dev/null | tail -1 | tr -dc '0-9'
+}
 DATE="$(date -u +%F)"
 
 # num FILE DEFAULT - read a positive integer from FILE, else DEFAULT. An empty
@@ -127,7 +157,7 @@ prune_all() {
   fi
 
   # Emergency guard: at >=85% disk keep only the WAL the NEWEST basebackup needs.
-  USED_PCT="$(df --output=pcent "$OUT" 2>/dev/null | tail -1 | tr -dc '0-9')"
+  USED_PCT="$(worst_used_pct)"
   if [ "${USED_PCT:-0}" -ge 85 ]; then
     NEWEST_DIR="$(ls -d "$OUT"/physical/base-* 2>/dev/null | sort | tail -1)" || true
     CUTSEG="$([ -n "$NEWEST_DIR" ] && wal_cutoff "$NEWEST_DIR")" || true
@@ -152,6 +182,24 @@ PYEOF
 
 # ---- retention FIRST: free space before writing anything, and guarantee that
 # a failure later in the script can never mean "no pruning happened today".
+# ---- backup depth yields to database uptime. The tiered policy keeps roughly
+# eleven copies of every database, which was fine when the largest dump was
+# 106MB and became 8GB for one database once it grew to 738MB. Backups and the
+# live cluster share a filesystem here, so "keep more history" and "keep
+# Postgres running" compete directly, and uptime wins: a shallower local
+# history is recoverable, a database that cannot start is an outage. Off-box
+# copies keep whatever depth the remote retains.
+DATA_PCT="$(data_used_pct)"
+if [ "${DATA_PCT:-0}" -ge 85 ]; then
+  echo "  ! database filesystem at ${DATA_PCT}% - reducing local backup depth for this run"
+  echo "    dumps: $KEEP_DAILY daily + $KEEP_WEEKLY weekly -> 3 + 1; basebackups -> 1"
+  KEEP_DAILY=3
+  KEEP_WEEKLY=1
+  KEEP_BASE=1
+  MIN_CEIL=$(( KEEP_DAILY + KEEP_WEEKLY * 7 + 7 ))
+  [ "$RETENTION_DUMPS" -lt "$MIN_CEIL" ] || RETENTION_DUMPS="$MIN_CEIL"
+fi
+
 prune_all || echo "  ! pre-prune had errors (continuing)"
 
 # ---- layer 1: logical dumps (pgforge_restore_test is the monthly restore

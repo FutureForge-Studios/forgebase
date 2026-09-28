@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.32"
+const appVersion = "1.4.33"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,21 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.33", Date: "2026-09-28",
+		Summary: "An outage post-mortem: the disk guards were watching the wrong disk. Backups now live apart from the database.",
+		Sections: []changeSection{
+			{"Fixed", []string{
+				"Every disk space check was reading the wrong filesystem, and had been since the database was moved onto a separate volume. The backup tree was relocated as three bind mounts while its parent directory stayed on the root disk, and the checks pointed at that parent - so for weeks they reported a comfortable 33% while the volume actually holding the live database climbed to 100%. The 85% emergency prune never fired and no alert was raised. Postgres then could not write pg_wal/xlogtemp during crash recovery and restarted in a loop until space was freed by hand. The checks now measure every filesystem ForgeBase stores anything on, and take the worst.",
+			}},
+			{"Added", []string{
+				"A watchdog dedicated to the filesystem holding the live database, warning at 80% and escalating at 90%. It is deliberately separate from the general disk alert, because the database surviving with no backup space is very different from the database being unable to start: once that filesystem is full, crash recovery cannot write the WAL it needs to finish, so Postgres cannot come back on its own.",
+				"A self-check that catches this entire class of bug rather than the one instance of it: on every run it compares the filesystems ForgeBase actually stores things on against the ones the guards measure, and alerts if any storage path sits somewhere unwatched. Adding a bind mount and forgetting to teach the guard about it now reports itself instead of waiting to become an outage.",
+				"Each hygiene run records one line naming what the guards measured and which device each path resolved to, so a wrong reading is visible in the log rather than only in hindsight.",
+				"When the database filesystem passes 85%, a backup run now reduces its own local depth for that run (three daily and one weekly dump, one basebackup) instead of writing more copies onto a filesystem the database needs. A shallower local history can be rebuilt; a database that will not start cannot.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.32", Date: "2026-09-03",
 		Summary: "Postgres serves a real certificate, so drivers can verify it instead of being told to trust anything.",
