@@ -5,7 +5,7 @@ import "net/http"
 // appVersion is the human-facing semantic version shown in the UI. The git short
 // SHA (version, in version.go) remains the exact build identifier used for the
 // commit link and the self-update comparison.
-const appVersion = "1.4.34"
+const appVersion = "1.4.35"
 
 // The changelog is kept in two places that must stay in step: CHANGELOG.md in the
 // repo root (for GitHub) and this structured copy (for the in-app What's New
@@ -25,6 +25,15 @@ type release struct {
 
 // releases, newest first.
 var releases = []release{
+	{
+		Version: "1.4.35", Date: "2026-10-01",
+		Summary: "After a reboot, the database waits for its disk instead of starting on an empty one.",
+		Sections: []changeSection{
+			{"Fixed", []string{
+				"On a server where the database lives on a separate volume, a reboot could start the database before that volume had attached. It would then find an empty folder, assume this was a brand-new installation, and create a fresh empty database. Your real data stayed safe on the volume, but every app would have connected to the empty one and started writing there, and the nightly backup would gradually have replaced good backups with empty ones. The container service now waits for every storage mount to be present, and if one never appears it stays down. Apps see the database as unreachable rather than empty, which is the right way to fail. This was found during a Hetzner network outage in the nbg1 region that also took storage volumes offline, which is exactly the situation where a volume attaches late. Servers without a separate volume are unaffected.",
+			}},
+		},
+	},
 	{
 		Version: "1.4.34", Date: "2026-09-28",
 		Summary: "Fit more data in the same disks. Backups shrink, history moves off-box, and bloat is reclaimed automatically.",

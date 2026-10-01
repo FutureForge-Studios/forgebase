@@ -13,6 +13,23 @@ the work landed. 1.0.0 is the first public release.
 ### Added
 - Nothing yet. Open an issue or PR to propose the next change.
 
+## [1.4.35] - 2026-10-01
+
+### Fixed
+- **A reboot could start Postgres on an empty data directory.** The data dir and
+  backup tree are bind mounts onto a block volume, in fstab with `nofail`. With
+  `nofail`, `local-fs.target` stops waiting for those mounts, so `docker.service`
+  can start first. `pgforge-db` then binds the empty directory under the mount
+  point, the entrypoint finds no `PG_VERSION`, runs `initdb`, and every app
+  connects to a fresh empty cluster while the real data sits on the volume.
+  Nightly retention would then rotate good dumps out for empty ones.
+  `apply-infra.sh` now writes `docker.service.d/forgebase-storage.conf` with
+  `RequiresMountsFor=` on each bind target and its source, so Docker waits for
+  the volume and fails closed if it never attaches. Only written when such fstab
+  entries exist; plain installs are unaffected. Found during the 2026-10-01
+  Hetzner `nbg1-cloud1-leaf26` fault, which took Cloud Volumes down with the
+  servers, the exact case where a volume attaches late.
+
 ## [1.4.34] - 2026-09-28
 
 Backups cost 2.2x the live data they protected and shared a filesystem with the

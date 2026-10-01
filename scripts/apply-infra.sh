@@ -60,6 +60,32 @@ chmod 600 /opt/pgforge/pgbouncer/tls/server.key 2>/dev/null || true
 chmod 644 /opt/pgforge/pgbouncer/tls/server.crt 2>/dev/null || true
 log "pgbouncer tls copies refreshed"
 
+# ---- Docker must not start before ForgeBase storage is mounted.
+# The data directory and the backup tree can be bind mounts onto a block volume,
+# recorded in fstab with nofail. nofail has a consequence that is easy to miss:
+# local-fs.target no longer waits for those mounts, so docker.service can start
+# first. If it does, pgforge-db binds the EMPTY directory underneath the mount
+# point, the postgres entrypoint finds no PG_VERSION and runs initdb, and every
+# app connects to a brand-new empty cluster while the real data sits untouched
+# on the volume. Nightly retention would then start replacing good dumps with
+# empty ones. Found during the 2026-10-01 Hetzner nbg1 leaf fault, which took
+# Cloud Volumes down too: that is exactly the reboot where a volume attaches late.
+# RequiresMountsFor on both the bind target AND its source makes docker wait for
+# the volume, and fail closed if it never appears: apps get "connection refused"
+# instead of an empty database, which is the correct failure. A box with no such
+# fstab entries gets nothing written, so plain installs are unaffected.
+FB_MOUNTS=""
+for p in /opt/pgforge/data /opt/pgforge-backups/wal /opt/pgforge-backups/physical /opt/pgforge-backups/files; do
+  src="$(awk -v p="$p" '$1 !~ /^#/ && $2 == p {print $1}' /etc/fstab 2>/dev/null | head -1)"
+  [ -n "$src" ] && FB_MOUNTS="$FB_MOUNTS $src $p"
+done
+if [ -n "$FB_MOUNTS" ]; then
+  mkdir -p /etc/systemd/system/docker.service.d
+  printf '[Unit]\nRequiresMountsFor=%s\n' "${FB_MOUNTS# }" \
+    > /etc/systemd/system/docker.service.d/forgebase-storage.conf
+  log "docker now waits for storage mounts:$FB_MOUNTS"
+fi
+
 # ---- systemd units: install ALL of them, then enable the timers that exist.
 for u in "$REPO"/systemd/*; do
   install -m 0644 "$u" "/etc/systemd/system/$(basename "$u")"
